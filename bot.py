@@ -1,70 +1,70 @@
-import sys
+import discord
+from discord.ui import Modal, Select, Button, View
 import os
-
-# Check Python path BEFORE importing discord
-print("=== PYTHON PATH ===")
-for path in sys.path:
-    print(f"  {path}")
-print("==================")
-
-# Force specific import path
-import site
-site_packages = None
-for path in sys.path:
-    if 'site-packages' in path:
-        site_packages = path
-        print(f"📦 Site-packages: {path}")
-        break
-
-# List discord installations
-import subprocess
-result = subprocess.run([sys.executable, "-m", "pip", "list"], capture_output=True, text=True)
-print("=== INSTALLED PACKAGES ===")
-for line in result.stdout.split('\n'):
-    if 'discord' in line.lower():
-        print(f"  {line}")
-print("==================")
-
-# Now try importing discord
-try:
-    import discord
-    print(f"✅ Imported discord from: {discord.__file__}")
-    print(f"✅ Version: {discord.__version__}")
-    
-    # Check for Bot attribute
-    if hasattr(discord, 'Bot'):
-        print("✅ discord.Bot attribute exists!")
-    else:
-        print("❌ discord.Bot attribute missing!")
-        print(f"❌ Available attributes: {[x for x in dir(discord) if not x.startswith('_')][:20]}...")
-        
-except Exception as e:
-    print(f"❌ Import failed: {e}")
-    sys.exit(1)
-
-# Only proceed if v2 is confirmed
-if not hasattr(discord, 'Bot'):
-    print("❌ CRITICAL: discord.py v1 installed, cannot continue")
-    sys.exit(1)
 
 TOKEN = os.getenv('TOKEN')
 
-# Create bot (v2 style)
+print(f"Using Py-cord version: {discord.__version__}")
+
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
 bot = discord.Bot(intents=intents)
-print("✅ Bot object created successfully!")
+
+class RoleSetupModal(Modal, title="Role Setup"):
+    def __init__(self):
+        super().__init__()
+        
+        self.troop = Select(
+            placeholder="Select main troop type",
+            options=[
+                discord.SelectOption(label="Horde", emoji="👹"),
+                discord.SelectOption(label="League", emoji="🛡️"),
+                discord.SelectOption(label="Nature", emoji="🌿")
+            ]
+        )
+        self.add_item(self.troop)
+        
+        self.languages = Select(
+            placeholder="Select languages you speak",
+            min_values=0,
+            max_values=4,
+            options=[
+                discord.SelectOption(label="Chinese", emoji="🇨🇳"),
+                discord.SelectOption(label="English", emoji="🇬🇧"),
+                discord.SelectOption(label="Japanese", emoji="🇯🇵"),
+                discord.SelectOption(label="Korean", emoji="🇰🇷")
+            ]
+        )
+        self.add_item(self.languages)
+    
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(
+            f"✅ Setup Complete!\n"
+            f"Troop: {self.troop.values[0]}\n"
+            f"Languages: {', '.join(self.languages.values) if self.languages.values else 'None'}",
+            ephemeral=True
+        )
+
+class SetupView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Start Setup", style=discord.ButtonStyle.primary, emoji="⚙️")
+    async def button_callback(self, interaction, button):
+        await interaction.response.send_modal(RoleSetupModal())
 
 @bot.event
 async def on_ready():
     print(f"✅ {bot.user} is online!")
+    bot.add_view(SetupView())
 
-@bot.command()
-async def ping(ctx):
-    await ctx.respond("🏓 Pong!")
+@bot.slash_command(name="setup", description="Send role setup form")
+async def setup(ctx):
+    await ctx.respond("Click below to setup roles:", view=SetupView())
 
 if TOKEN:
     bot.run(TOKEN)
 else:
-    print("❌ Error: No TOKEN environment variable")
+    print("❌ Error: No TOKEN")
