@@ -58,39 +58,65 @@ const ROLE_CONFIG = {
     }
 };
 
+// REGISTER SLASH COMMANDS ON STARTUP
 client.once('ready', async () => {
-    console.log(`✅ Role Bot online as ${client.user.tag}`);
-    console.log(`🏠 Serving ${client.guilds.cache.size} servers`);
+    console.log(`✅ Bot online as ${client.user.tag}`);
     
-    // Register slash commands
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    
     const commands = [
         {
             name: 'setup',
             description: 'Setup your guild and roles'
         },
         {
-            name: 'myprofile',
+            name: 'myprofile', 
             description: 'View your current roles'
         },
         {
             name: 'changetroop',
             description: 'Change your troop type'
+        },
+        {
+            name: 'help',
+            description: 'Show bot commands'
         }
     ];
     
-    // Register commands
-    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
+        // Use YOUR CLIENT_ID
+        const clientId = '1466070944211800246';
+        
+        console.log(`🔄 Force registering commands for ${clientId}...`);
+        
+        // Register GLOBALLY
         await rest.put(
-            `https://discord.com/api/v10/applications/${client.application.id}/commands`,
+            Routes.applicationCommands(clientId),
             { body: commands }
         );
-        console.log('✅ Slash commands registered!');
+        
+        console.log('✅ Global commands registered!');
+        
+        // ALSO register for your specific server (faster)
+        // REPLACE 'YOUR_SERVER_ID' with your actual server ID
+        const guildId = 'YOUR_SERVER_ID'; // ← CHANGE THIS!
+        
+        if (guildId && guildId !== 'YOUR_SERVER_ID') {
+            await rest.put(
+                Routes.applicationGuildCommands(clientId, guildId),
+                { body: commands }
+            );
+            console.log(`✅ Server-specific commands registered for: ${guildId}`);
+            console.log('💡 Slash commands should appear INSTANTLY now!');
+        } else {
+            console.log('⚠️  Add your SERVER_ID to get instant commands');
+            console.log('💡 Right-click your server → Copy ID');
+        }
+        
     } catch (error) {
-        console.error('❌ Error registering commands:', error);
+        console.error('❌ Error:', error);
     }
 });
-
 // Remove old role and assign new one
 async function updateRole(userId, guild, roleName, roleType) {
     try {
