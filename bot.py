@@ -1,4 +1,5 @@
 import discord
+from discord.ext import commands
 from discord.ui import Modal, Select, Button, View
 import os
 
@@ -10,15 +11,14 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = discord.Bot(intents=intents)
+# Use commands.Bot for prefix commands
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- MODAL FORM (Py-cord syntax) ---
+# --- MODAL FORM ---
 class RoleSetupModal(Modal):
     def __init__(self):
-        # Py-cord: Set title in __init__
         super().__init__(title="Channels & Roles Setup", timeout=None)
         
-        # Troop type (single select)
         self.troop = Select(
             placeholder="Select your main troop type *",
             min_values=1,
@@ -31,7 +31,6 @@ class RoleSetupModal(Modal):
         )
         self.add_item(self.troop)
         
-        # Languages (multiple select)
         self.languages = Select(
             placeholder="Select any languages you speak",
             min_values=0,
@@ -45,7 +44,6 @@ class RoleSetupModal(Modal):
         )
         self.add_item(self.languages)
         
-        # Server range (single select)
         self.server = Select(
             placeholder="Server range of your main account *",
             min_values=1,
@@ -59,12 +57,10 @@ class RoleSetupModal(Modal):
         self.add_item(self.server)
     
     async def callback(self, interaction: discord.Interaction):
-        # Get selections
         troop = self.troop.values[0].capitalize()
         languages = ", ".join([lang.capitalize() for lang in self.languages.values]) if self.languages.values else "None"
         server = self.server.values[0]
         
-        # Create beautiful confirmation embed
         embed = discord.Embed(
             title="✅ Setup Complete!",
             description="Your roles have been assigned.",
@@ -89,7 +85,6 @@ class RoleSetupModal(Modal):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
         
-        # TODO: Add actual role assignment here
         print(f"User {interaction.user} selected: Troop={troop}, Languages={languages}, Server={server}")
 
 # --- BUTTON VIEW ---
@@ -101,19 +96,20 @@ class SetupView(View):
     async def button_callback(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(RoleSetupModal())
 
-# --- SLASH COMMANDS ---
-@bot.slash_command(name="ping", description="Check if bot is alive")
+# --- PREFIX COMMANDS ---
+@bot.command(name="ping")
 async def ping(ctx):
-    await ctx.respond("🏓 Pong!")
+    """Check if bot is alive"""
+    await ctx.send("🏓 Pong!")
 
-@bot.slash_command(name="setup", description="Send the role setup form")
-@discord.default_permissions(administrator=True)
+@bot.command(name="setup")
+@commands.has_permissions(administrator=True)
 async def setup(ctx):
-    # Create the beautiful embed (like your image)
+    """Send the role setup form"""
     embed = discord.Embed(
         title="Channels & Roles",
         description="### Customize\nAnswer questions to get access to more channels and roles.",
-        color=0x5865F2  # Discord blurple
+        color=0x5865F2
     )
     
     embed.add_field(
@@ -136,14 +132,12 @@ async def setup(ctx):
     
     embed.set_footer(text="Click the button below to begin setup")
     
-    # Send with button
-    await ctx.respond(embed=embed, view=SetupView())
+    await ctx.send(embed=embed, view=SetupView())
 
-# --- ADMIN COMMAND TO SEND TO CHANNEL ---
-@bot.slash_command(name="send_setup", description="Send setup message to channel (admin)")
-@discord.default_permissions(administrator=True)
+@bot.command(name="send_setup")
+@commands.has_permissions(administrator=True)
 async def send_setup(ctx, channel: discord.TextChannel = None):
-    """Send the setup message to a specific channel"""
+    """Send setup message to a specific channel"""
     target = channel or ctx.channel
     
     embed = discord.Embed(
@@ -173,7 +167,33 @@ async def send_setup(ctx, channel: discord.TextChannel = None):
     embed.set_footer(text="Click the button below to begin setup")
     
     await target.send(embed=embed, view=SetupView())
-    await ctx.respond(f"✅ Setup message sent to {target.mention}", ephemeral=True)
+    await ctx.send(f"✅ Setup message sent to {target.mention}")
+
+# --- HELP COMMAND ---
+@bot.command(name="help")
+async def help_command(ctx):
+    """Show all commands"""
+    embed = discord.Embed(
+        title="Bot Commands",
+        description="Prefix: `!`",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="🎮 General",
+        value="• `!ping` - Check if bot is alive\n"
+              "• `!help` - Show this message",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚙️ Setup (Admin Only)",
+        value="• `!setup` - Send role setup form in this channel\n"
+              "• `!send_setup #channel` - Send to specific channel",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
 
 # --- EVENTS ---
 @bot.event
@@ -186,12 +206,22 @@ async def on_ready():
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name="for /setup command"
+            name="for !setup command"
         ),
         status=discord.Status.online
     )
     
-    print("✅ Modal form bot is ready!")
+    print("✅ Prefix command bot is ready!")
+    print("✅ Commands: !ping, !setup, !send_setup, !help")
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You need administrator permissions to use this command!")
+    elif isinstance(error, commands.CommandNotFound):
+        pass  # Ignore unknown commands
+    else:
+        await ctx.send(f"❌ Error: {str(error)}")
 
 # --- RUN BOT ---
 if TOKEN:
