@@ -1,8 +1,0 @@
-[phases.setup]
-nixPkgs = [
-    "python311",
-    "python311Packages.discord-py"
-]
-
-[start]
-cmd = "python bot.py"
