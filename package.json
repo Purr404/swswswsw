@@ -1,0 +1,14 @@
+{
+  "name": "discord-role-bot",
+  "version": "1.0.0",
+  "description": "Discord role customization bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "deploy": "node deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1"
+  }
+}
