@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 require('dotenv').config();
 
 const client = new Client({
@@ -13,63 +13,80 @@ const client = new Client({
 client.once('ready', async () => {
     console.log(`✅ Bot online as ${client.user.tag}`);
     
-    // Find the channel by ID
     const channel = client.channels.cache.get('1439070115965698099');
+    if (!channel) {
+        console.log('❌ Channel not found');
+        return;
+    }
     
-    if (channel) {
-        console.log(`📤 Found channel: ${channel.name}`);
-        
-        // Send the troop selection message
-        await channel.send({
-            content: '**Please select your main troop type: ***\n\nChoose one (can be changed later):\n- ⚔️ Horde\n- 🏅 League  \n- 🌿 Nature\n\nYou will receive the @[Selected Troop] role.'
+    console.log(`📤 Sending to channel: ${channel.name}`);
+    
+    // ===== EXACT TROOP SELECTION FROM SCREENSHOT 3 =====
+    const embed = new EmbedBuilder()
+        .setColor(0x2f3136) // Discord dark gray
+        .setTitle('Channels & Roles')
+        .setDescription('```\nCustomize    All Channels\n```')
+        .addFields(
+            {
+                name: 'Customization Questions',
+                value: 'Answer questions to get access to more channels and roles.\n\u200b',
+                inline: false
+            },
+            {
+                name: 'Please select your main troop type *',
+                value: '```\n- ⚔ Horde\n- 🏅 League\n- 🌿 Nature\n```\n**You will receive the @League role.**',
+                inline: false
+            }
+        );
+    
+    // Dropdown menu exactly like screenshot
+    const row = new ActionRowBuilder()
+        .addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('select_troop')
+                .setPlaceholder('Select your main troop type...')
+                .setMinValues(1)
+                .setMaxValues(1)
+                .addOptions([
+                    {
+                        label: 'Horde',
+                        value: 'horde',
+                        emoji: '⚔️',
+                        description: 'Get @Horde role'
+                    },
+                    {
+                        label: 'League', 
+                        value: 'league',
+                        emoji: '🏅',
+                        description: 'Get @League role'
+                    },
+                    {
+                        label: 'Nature',
+                        value: 'nature',
+                        emoji: '🌿',
+                        description: 'Get @Nature role'
+                    }
+                ])
+        );
+    
+    await channel.send({ embeds: [embed], components: [row] });
+    console.log('✅ Troop selection message sent!');
+});
+
+// Optional: Handle the selection
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isStringSelectMenu()) return;
+    
+    if (interaction.customId === 'select_troop') {
+        const troop = interaction.values[0];
+        await interaction.reply({
+            content: `✅ You selected: **${troop}**\nYou will receive the **@${troop}** role.`,
+            ephemeral: true
         });
-        
-        console.log('✅ Message sent!');
-    } else {
-        console.log('❌ Channel not found! Listing all channels:');
-        
-        // List all channels to debug
-        const guild = client.guilds.cache.first();
-        guild.channels.cache.forEach(ch => {
-            console.log(`   - ${ch.name} (${ch.id})`);
-        });
-        
-        // Try to send to first text channel
-        const firstChannel = guild.channels.cache.find(c => c.type === 0);
-        if (firstChannel) {
-            console.log(`📤 Sending to ${firstChannel.name} instead`);
-            await firstChannel.send({
-                content: '**Please select your main troop type: ***\n\nChoose one (can be changed later):\n- ⚔️ Horde\n- 🏅 League  \n- 🌿 Nature\n\nYou will receive the @[Selected Troop] role.'
-            });
-        }
     }
 });
 
-// Add ping command for testing
-client.on('messageCreate', async message => {
-    if (message.content === '!ping') {
-        await message.reply('🏓 Pong! Bot is working!');
-    }
-    
-    if (message.content === '!sendmessage') {
-        const channel = client.channels.cache.get('1439070115965698099');
-        if (channel) {
-            await channel.send({
-                content: '**Test from command!** ✅'
-            });
-            await message.reply('✅ Message sent!');
-        }
-    }
-});
-
-// Handle login errors
 client.login(process.env.DISCORD_TOKEN).catch(error => {
     console.error('❌ Login failed:', error.message);
-    console.log('💡 Check: 1) Token in Railway 2) Bot has permissions');
     process.exit(1);
-});
-
-// Handle crashes
-process.on('unhandledRejection', error => {
-    console.error('Unhandled error:', error);
 });
