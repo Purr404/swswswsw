@@ -1,149 +1,128 @@
 import discord
-from discord.ui import Modal, Select, Button, View
 import os
+import sys
+import asyncio
 
 TOKEN = os.getenv('TOKEN')
 
-print(f"✅ Py-cord version: {discord.__version__}")
+print("=" * 50)
+print("🚀 STARTING BOT DIAGNOSTIC")
+print("=" * 50)
 
+# 1. Check token exists
+if not TOKEN:
+    print("❌ CRITICAL: TOKEN environment variable not set!")
+    print("Set TOKEN in Railway Variables tab")
+    sys.exit(1)
+
+print(f"✅ Token found: {TOKEN[:10]}...")
+
+# 2. Try to validate token
+import aiohttp
+async def check_token():
+    try:
+        async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bot {TOKEN}"}
+            async with session.get("https://discord.com/api/v10/users/@me", headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    print(f"✅ Token valid! Bot: {data['username']}#{data['discriminator']}")
+                    return True
+                else:
+                    print(f"❌ Token invalid! Status: {resp.status}")
+                    return False
+    except Exception as e:
+        print(f"❌ Token check failed: {e}")
+        return False
+
+# Run token check
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+token_valid = loop.run_until_complete(check_token())
+loop.close()
+
+if not token_valid:
+    print("❌ Cannot proceed with invalid token")
+    sys.exit(1)
+
+# 3. Setup bot with detailed logging
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-bot = discord.Bot(intents=intents)
+print("\n🔧 Creating bot instance...")
+bot = discord.Bot(intents=intents, debug_guilds=[YOUR_SERVER_ID_HERE])  # Add your server ID
 
-# --- PY-CORD MODAL (CORRECT SYNTAX) ---
-class RoleSetupModal(Modal):
-    def __init__(self):
-        # Py-cord: Set title in __init__, not class definition
-        super().__init__(title="Role Setup", timeout=None)
-        
-        self.troop = Select(
-            placeholder="Select your main troop type *",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(label="Horde", value="horde", emoji="👹"),
-                discord.SelectOption(label="League", value="league", emoji="🛡️"),
-                discord.SelectOption(label="Nature", value="nature", emoji="🌿")
-            ]
-        )
-        self.add_item(self.troop)
-        
-        self.languages = Select(
-            placeholder="Select any languages you speak",
-            min_values=0,
-            max_values=4,
-            options=[
-                discord.SelectOption(label="Chinese", value="chinese", emoji="🇨🇳"),
-                discord.SelectOption(label="English", value="english", emoji="🇬🇧"),
-                discord.SelectOption(label="Japanese", value="japanese", emoji="🇯🇵"),
-                discord.SelectOption(label="Korean", value="korean", emoji="🇰🇷")
-            ]
-        )
-        self.add_item(self.languages)
-        
-        self.server = Select(
-            placeholder="Server range of your main account *",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(label="Server 1 - Server 107", value="1-107"),
-                discord.SelectOption(label="Server 108 - Server 224", value="108-224"),
-                discord.SelectOption(label="Server 225 or Above", value="225+")
-            ]
-        )
-        self.add_item(self.server)
-    
-    async def callback(self, interaction: discord.Interaction):
-        # Create confirmation message
-        troop = self.troop.values[0]
-        languages = ", ".join([lang.capitalize() for lang in self.languages.values]) if self.languages.values else "None"
-        server = self.server.values[0]
-        
-        embed = discord.Embed(
-            title="✅ Setup Complete!",
-            description=f"**Troop:** {troop.capitalize()}\n"
-                       f"**Languages:** {languages}\n"
-                       f"**Server:** {server}",
-            color=discord.Color.green()
-        )
-        
-        embed.add_field(
-            name="Roles Assigned:",
-            value=f"• @{troop.capitalize()}\n• @{server}\n• Language roles",
-            inline=False
-        )
-        
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+# Add event handlers for connection debugging
+@bot.event
+async def on_connect():
+    print("🔗 CONNECTED to Discord gateway")
 
-# --- BUTTON VIEW ---
-class SetupView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-    
-    @discord.ui.button(label="Start Role Setup", style=discord.ButtonStyle.primary, emoji="⚙️", custom_id="setup_button")
-    async def button_callback(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(RoleSetupModal())
-
-# --- SLASH COMMANDS ---
-@bot.slash_command(name="ping", description="Check if bot is alive")
-async def ping(ctx):
-    await ctx.respond("🏓 Pong!")
-
-@bot.slash_command(name="setup", description="Send role setup form")
-@discord.default_permissions(administrator=True)
-async def setup(ctx):
-    # Create the setup embed (like your image)
-    embed = discord.Embed(
-        title="Channels & Roles",
-        description="### Customize\nAnswer questions to get access to more channels and roles.",
-        color=0x5865F2  # Discord blurple
-    )
-    
-    embed.add_field(
-        name="Please select your main troop type *",
-        value="• 👹 Horde\n• 🛡️ League\n• 🌿 Nature",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Please select any languages you speak",
-        value="• 🇨🇳 Chinese\n• 🇬🇧 English\n• 🇯🇵 Japanese\n• 🇰🇷 Korean",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Please select the server range of your main account *",
-        value="• Server 1 - Server 107\n• Server 108 - Server 224\n• Server 225 or Above",
-        inline=False
-    )
-    
-    embed.set_footer(text="Click the button below to begin setup")
-    
-    # Send embed with button
-    await ctx.respond(embed=embed, view=SetupView())
-
-# --- EVENTS ---
 @bot.event
 async def on_ready():
-    print(f"✅ {bot.user} is online!")
+    print("\n" + "=" * 50)
+    print(f"✅ BOT IS ONLINE: {bot.user}")
+    print(f"✅ ID: {bot.user.id}")
+    print(f"✅ Guilds: {len(bot.guilds)}")
     
-    # Make button persistent (works after bot restart)
-    bot.add_view(SetupView())
+    for guild in bot.guilds:
+        print(f"   - {guild.name} ({guild.id})")
+        # Try to get member count
+        try:
+            await guild.chunk()
+            print(f"     Members: {guild.member_count}")
+        except:
+            print(f"     Members: Could not fetch")
     
-    # Set bot status
+    print("=" * 50)
+    
+    # Set visible online status
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name="for /setup command"
-        )
+            name="Discord"
+        ),
+        status=discord.Status.online
     )
+    print("✅ Presence set to ONLINE")
     
-    print("✅ Bot is ready! Use /setup in Discord")
+    # Keep-alive
+    print("✅ Bot is running...")
 
-# --- RUN BOT ---
-if TOKEN:
-    bot.run(TOKEN)
-else:
-    print("❌ Error: Set TOKEN environment variable")
+@bot.event
+async def on_disconnect():
+    print("🔌 DISCONNECTED from Discord")
+
+@bot.event
+async def on_resumed():
+    print("↩️ RESUMED connection")
+
+# Simple test command
+@bot.slash_command(name="status", description="Check bot status")
+async def status(ctx):
+    latency = round(bot.latency * 1000) if bot.latency > 0 else "N/A"
+    await ctx.respond(
+        f"**Bot Status**\n"
+        f"• Online: ✅\n"
+        f"• Latency: {latency}ms\n"
+        f"• Guilds: {len(bot.guilds)}\n"
+        f"• Uptime: Ready!",
+        ephemeral=True
+    )
+
+print("\n🚀 Starting bot connection...")
+print("This may take 10-30 seconds...")
+
+try:
+    bot.run(TOKEN, reconnect=True, log_handler=None)
+except discord.LoginFailure:
+    print("\n❌ LOGIN FAILED: Invalid token!")
+    print("1. Go to Discord Developer Portal")
+    print("2. Click 'Reset Token'")
+    print("3. Copy new token")
+    print("4. Update Railway TOKEN variable")
+    print("5. Redeploy")
+except Exception as e:
+    print(f"\n❌ BOT CRASHED: {type(e).__name__}: {e}")
+    import traceback
+    traceback.print_exc()
