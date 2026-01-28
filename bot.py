@@ -1,5 +1,4 @@
 import discord
-from discord.ext import commands
 from discord.ui import Modal, Select, Button, View
 import os
 
@@ -7,12 +6,18 @@ TOKEN = os.getenv('TOKEN')
 
 print(f"✅ Py-cord version: {discord.__version__}")
 
+# Use commands.Bot but disable the default help command
+from discord.ext import commands
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-# Use commands.Bot for prefix commands
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(
+    command_prefix='!',
+    intents=intents,
+    help_command=None  # Disable default help
+)
 
 # --- MODAL FORM ---
 class RoleSetupModal(Modal):
@@ -75,12 +80,6 @@ class RoleSetupModal(Modal):
             inline=False
         )
         
-        embed.add_field(
-            name="Roles Assigned:",
-            value=f"• @{troop}\n• @{server}\n• Language-specific roles",
-            inline=False
-        )
-        
         embed.set_footer(text="You now have access to role-specific channels!")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -134,44 +133,8 @@ async def setup(ctx):
     
     await ctx.send(embed=embed, view=SetupView())
 
-@bot.command(name="send_setup")
-@commands.has_permissions(administrator=True)
-async def send_setup(ctx, channel: discord.TextChannel = None):
-    """Send setup message to a specific channel"""
-    target = channel or ctx.channel
-    
-    embed = discord.Embed(
-        title="Channels & Roles",
-        description="### Customize\nAnswer questions to get access to more channels and roles.",
-        color=0x5865F2
-    )
-    
-    embed.add_field(
-        name="Please select your main troop type *",
-        value="• 👹 Horde\n• 🛡️ League\n• 🌿 Nature",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Please select any languages you speak",
-        value="• 🇨🇳 Chinese\n• 🇬🇧 English\n• 🇯🇵 Japanese\n• 🇰🇷 Korean",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Please select the server range of your main account *",
-        value="• Server 1 - Server 107\n• Server 108 - Server 224\n• Server 225 or Above",
-        inline=False
-    )
-    
-    embed.set_footer(text="Click the button below to begin setup")
-    
-    await target.send(embed=embed, view=SetupView())
-    await ctx.send(f"✅ Setup message sent to {target.mention}")
-
-# --- HELP COMMAND ---
-@bot.command(name="help")
-async def help_command(ctx):
+@bot.command(name="commands")
+async def commands_list(ctx):
     """Show all commands"""
     embed = discord.Embed(
         title="Bot Commands",
@@ -182,14 +145,13 @@ async def help_command(ctx):
     embed.add_field(
         name="🎮 General",
         value="• `!ping` - Check if bot is alive\n"
-              "• `!help` - Show this message",
+              "• `!commands` - Show this message",
         inline=False
     )
     
     embed.add_field(
         name="⚙️ Setup (Admin Only)",
-        value="• `!setup` - Send role setup form in this channel\n"
-              "• `!send_setup #channel` - Send to specific channel",
+        value="• `!setup` - Send role setup form in this channel",
         inline=False
     )
     
@@ -212,7 +174,7 @@ async def on_ready():
     )
     
     print("✅ Prefix command bot is ready!")
-    print("✅ Commands: !ping, !setup, !send_setup, !help")
+    print("✅ Commands: !ping, !setup, !commands")
 
 @bot.event
 async def on_command_error(ctx, error):
