@@ -1,171 +1,239 @@
 import discord
-from discord.ui import Modal, Select, View, Button
+from discord.ui import View, Button
 import os
-import asyncio
 
 TOKEN = os.getenv('TOKEN')
+bot = discord.Bot(intents=discord.Intents.all())
 
-intents = discord.Intents.all()
-bot = discord.Bot(intents=intents)
+# Store user selections (in production, use a database)
+user_selections = {}
 
-# --- SIMPLIFIED MODAL (More Reliable) ---
-class SetupModal(Modal):
-    def __init__(self):
-        super().__init__(title="Setup Your Roles", timeout=300)  # 5 minute timeout
-        
-        # Troop selection
-        self.troop_select = Select(
-            placeholder="Select your main troop type *",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(label="Horde", emoji="👹"),
-                discord.SelectOption(label="League", emoji="🛡️"),
-                discord.SelectOption(label="Nature", emoji="🌿")
-            ]
-        )
-        self.add_item(self.troop_select)
-        
-        # Language selection
-        self.lang_select = Select(
-            placeholder="Select languages you speak",
-            min_values=0,
-            max_values=4,
-            options=[
-                discord.SelectOption(label="Chinese", emoji="🇨🇳"),
-                discord.SelectOption(label="English", emoji="🇬🇧"),
-                discord.SelectOption(label="Japanese", emoji="🇯🇵"),
-                discord.SelectOption(label="Korean", emoji="🇰🇷")
-            ]
-        )
-        self.add_item(self.lang_select)
-        
-        # Server selection
-        self.server_select = Select(
-            placeholder="Select your server range *",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(label="Server 1 - 107"),
-                discord.SelectOption(label="Server 108 - 224"),
-                discord.SelectOption(label="Server 225+")
-            ]
-        )
-        self.add_item(self.server_select)
-    
-    async def callback(self, interaction: discord.Interaction):
-        # Defer first to prevent timeout
-        await interaction.response.defer(ephemeral=True)
-        
-        # Get values
-        troop = self.troop_select.values[0] if self.troop_select.values else "Not selected"
-        languages = ", ".join(self.lang_select.values) if self.lang_select.values else "None"
-        server = self.server_select.values[0] if self.server_select.values else "Not selected"
-        
-        # Create simple response first
-        await interaction.followup.send(
-            f"✅ **Setup Complete!**\n"
-            f"**Troop:** {troop}\n"
-            f"**Languages:** {languages}\n"
-            f"**Server:** {server}\n\n"
-            f"Your roles will be assigned shortly.",
-            ephemeral=True
-        )
-        
-        print(f"[SETUP] {interaction.user} chose: {troop}, {languages}, {server}")
-
-# --- VIEW WITH RETRY LOGIC ---
-class SetupView(View):
+# --- MAIN SETUP VIEW ---
+class RoleSetupView(View):
     def __init__(self):
         super().__init__(timeout=None)
+        self.selected_troop = None
+        self.selected_languages = []
+        self.selected_server = None
     
-    @discord.ui.button(label="Start Customization", style=discord.ButtonStyle.primary, emoji="⚙️", custom_id="setup_start")
-    async def start_callback(self, interaction: discord.Interaction, button: Button):
-        try:
-            # Create and send modal immediately
-            modal = SetupModal()
-            await interaction.response.send_modal(modal)
-            print(f"[MODAL] Opened for {interaction.user}")
-        except Exception as e:
-            print(f"[ERROR] Modal failed: {e}")
-            await interaction.response.send_message(
-                "❌ Failed to open setup form. Please try again.",
-                ephemeral=True
-            )
+    # --- TROOP SELECTION (Row 0) ---
+    @discord.ui.button(label="Horde", style=discord.ButtonStyle.gray, emoji="👹", row=0, custom_id="horde_btn")
+    async def horde_btn(self, button: Button, interaction: discord.Interaction):
+        await self.handle_troop_selection(interaction, "Horde", button)
+    
+    @discord.ui.button(label="League", style=discord.ButtonStyle.gray, emoji="🛡️", row=0, custom_id="league_btn")
+    async def league_btn(self, button: Button, interaction: discord.Interaction):
+        await self.handle_troop_selection(interaction, "League", button)
+    
+    @discord.ui.button(label="Nature", style=discord.ButtonStyle.gray, emoji="🌿", row=0, custom_id="nature_btn")
+    async def nature_btn(self, button: Button, interaction: discord.Interaction):
+        await self.handle_troop_selection(interaction, "Nature", button)
+    
+    async def handle_troop_selection(self, interaction, troop, clicked_button):
+        # Reset all troop buttons to gray
+        for child in self.children:
+            if child.custom_id in ["horde_btn", "league_btn", "nature_btn"]:
+                child.style = discord.ButtonStyle.gray
+        
+        # Set selected button to green
+        clicked_button.style = discord.ButtonStyle.green
+        self.selected_troop = troop
+        
+        # Update message
+        embed = interaction.message.embeds[0]
+        embed.set_field_at(
+            0,
+            name="Please select your main troop type *",
+            value=f"✅ {troop}\n⬜ League\n⬜ Nature" if troop == "Horde" else 
+                  f"⬜ Horde\n✅ {troop}\n⬜ Nature" if troop == "League" else
+                  f"⬜ Horde\n⬜ League\n✅ {troop}",
+            inline=False
+        )
+        
+        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.followup.send(f"✅ Selected troop: **{troop}**", ephemeral=True)
+    
+    # --- LANGUAGE SELECTION (Row 1) ---
+    @discord.ui.button(label="Chinese", style=discord.ButtonStyle.gray, emoji="🇨🇳", row=1, custom_id="chinese_btn")
+    async def chinese_btn(self, button: Button, interaction: discord.Interaction):
+        await self.toggle_language(interaction, "Chinese", button)
+    
+    @discord.ui.button(label="English", style=discord.ButtonStyle.green, emoji="🇬🇧", row=1, custom_id="english_btn")
+    async def english_btn(self, button: Button, interaction: discord.Interaction):
+        await self.toggle_language(interaction, "English", button)
+    
+    @discord.ui.button(label="Japanese", style=discord.ButtonStyle.gray, emoji="🇯🇵", row=1, custom_id="japanese_btn")
+    async def japanese_btn(self, button: Button, interaction: discord.Interaction):
+        await self.toggle_language(interaction, "Japanese", button)
+    
+    @discord.ui.button(label="Korean", style=discord.ButtonStyle.green, emoji="🇰🇷", row=1, custom_id="korean_btn")
+    async def korean_btn(self, button: Button, interaction: discord.Interaction):
+        await self.toggle_language(interaction, "Korean", button)
+    
+    async def toggle_language(self, interaction, language, button):
+        if language in self.selected_languages:
+            # Remove if already selected
+            self.selected_languages.remove(language)
+            button.style = discord.ButtonStyle.gray
+        else:
+            # Add if not selected
+            self.selected_languages.append(language)
+            button.style = discord.ButtonStyle.green
+        
+        # Update message
+        langs_text = ", ".join(self.selected_languages) if self.selected_languages else "None selected"
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(f"🌐 Languages: **{langs_text}**", ephemeral=True)
+    
+    # --- SERVER SELECTION (Row 2) ---
+    @discord.ui.button(label="Server 1-107", style=discord.ButtonStyle.gray, row=2, custom_id="server1_btn")
+    async def server1_btn(self, button: Button, interaction: discord.Interaction):
+        await self.handle_server_selection(interaction, "1-107", button)
+    
+    @discord.ui.button(label="Server 108-224", style=discord.ButtonStyle.gray, row=2, custom_id="server2_btn")
+    async def server2_btn(self, button: Button, interaction: discord.Interaction):
+        await self.handle_server_selection(interaction, "108-224", button)
+    
+    @discord.ui.button(label="Server 225+", style=discord.ButtonStyle.green, row=2, custom_id="server3_btn")
+    async def server3_btn(self, button: Button, interaction: discord.Interaction):
+        await self.handle_server_selection(interaction, "225+", button)
+    
+    async def handle_server_selection(self, interaction, server, clicked_button):
+        # Reset all server buttons
+        for child in self.children:
+            if child.custom_id in ["server1_btn", "server2_btn", "server3_btn"]:
+                child.style = discord.ButtonStyle.gray
+        
+        # Set selected to green
+        clicked_button.style = discord.ButtonStyle.green
+        self.selected_server = server
+        
+        # Update message
+        embed = interaction.message.embeds[0]
+        embed.set_field_at(
+            2,
+            name="Please select the server range of your main account *",
+            value=f"⬜ 1-107\n⬜ 108-224\n✅ 225+" if server == "225+" else
+                  f"⬜ 1-107\n✅ 108-224\n⬜ 225+" if server == "108-224" else
+                  f"✅ 1-107\n⬜ 108-224\n⬜ 225+",
+            inline=False
+        )
+        
+        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.followup.send(f"🌐 Selected server: **{server}**", ephemeral=True)
+    
+    # --- SUBMIT BUTTON (Row 3) ---
+    @discord.ui.button(label="Submit Setup", style=discord.ButtonStyle.primary, emoji="✅", row=3, custom_id="submit_btn")
+    async def submit_btn(self, button: Button, interaction: discord.Interaction):
+        # Validate selections
+        if not self.selected_troop:
+            await interaction.response.send_message("❌ Please select a troop type!", ephemeral=True)
+            return
+        
+        if not self.selected_server:
+            await interaction.response.send_message("❌ Please select a server range!", ephemeral=True)
+            return
+        
+        # Store user data
+        user_id = str(interaction.user.id)
+        user_selections[user_id] = {
+            'troop': self.selected_troop,
+            'languages': self.selected_languages,
+            'server': self.selected_server
+        }
+        
+        # Create confirmation embed
+        embed = discord.Embed(
+            title="✅ Setup Complete!",
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(
+            name="Your Selections:",
+            value=f"**Troop:** {self.selected_troop}\n"
+                  f"**Languages:** {', '.join(self.selected_languages) if self.selected_languages else 'None'}\n"
+                  f"**Server:** {self.selected_server}",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Roles Assigned:",
+            value=f"• @{self.selected_troop}\n• @{self.selected_server}\n• Language roles",
+            inline=False
+        )
+        
+        embed.set_footer(text="You will receive your roles shortly")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # Log
+        print(f"[SETUP] {interaction.user} completed: {self.selected_troop}, {self.selected_languages}, {self.selected_server}")
 
-# --- CREATE SETUP MESSAGE ---
-async def send_setup_embed(channel):
-    """Send the setup message to a channel"""
+# --- COMMANDS ---
+@bot.command()
+async def createsetup(ctx):
+    """Create interactive setup message"""
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.respond("❌ Admin only!", ephemeral=True)
+        return
     
     embed = discord.Embed(
         title="Channels & Roles",
-        description=(
-            "### Customize\n"
-            "Set up your preferences to access server channels and roles.\n\n"
-            "**Please select your main troop type ***\n"
-            "• Horde\n• League\n• Nature\n\n"
-            "**Please select any languages you speak**\n"
-            "• Chinese\n• English\n• Japanese\n• Korean\n\n"
-            "**Please select your server range ***\n"
-            "• Server 1 - 107\n• Server 108 - 224\n• Server 225+"
-        ),
+        description="### Customize\nAnswer questions to get access to more channels and roles.",
         color=0x5865F2
     )
     
-    embed.set_footer(text="Click the button below to begin")
+    # Initial state (like your photo)
+    embed.add_field(
+        name="Please select your main troop type *",
+        value="✅ Horde\n⬜ League\n⬜ Nature",
+        inline=False
+    )
     
-    view = SetupView()
-    message = await channel.send(embed=embed, view=view)
+    embed.add_field(
+        name="Please select any languages you speak",
+        value="⬜ Chinese\n✅ English\n⬜ Japanese\n✅ Korean",
+        inline=False
+    )
     
-    # Try to pin
-    try:
-        await message.pin()
-        print(f"[SETUP] Message pinned in {channel.name}")
-    except:
-        pass
+    embed.add_field(
+        name="Please select the server range of your main account *",
+        value="⬜ Server 1 - 107\n⬜ Server 108 - 224\n✅ Server 225+",
+        inline=False
+    )
     
-    return message
+    embed.set_footer(text="Click buttons to select, then Submit")
+    
+    await ctx.send(embed=embed, view=RoleSetupView())
+    await ctx.message.delete()
 
-# --- COMMANDS ---
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    
-    # Prefix commands
-    if message.content.lower().startswith('!createsetup'):
-        if message.author.guild_permissions.administrator:
-            await message.delete()
-            await send_setup_embed(message.channel)
-        else:
-            await message.channel.send("❌ Admin only!", delete_after=5)
-    
-    elif message.content.lower() == '!ping':
-        await message.channel.send('🏓 Pong!')
-    
-    elif message.content.lower() == '!help':
+@bot.command()
+async def ping(ctx):
+    await ctx.respond("🏓 Pong!")
+
+@bot.command()
+async def mydata(ctx):
+    """Check your stored data"""
+    user_id = str(ctx.author.id)
+    if user_id in user_selections:
+        data = user_selections[user_id]
         embed = discord.Embed(
-            title="Bot Commands",
-            description="**Admin:**\n!createsetup - Create role setup\n\n**Everyone:**\n!ping - Check bot status",
-            color=0x5865F2
+            title="Your Setup Data",
+            color=discord.Color.blue()
         )
-        await message.channel.send(embed=embed)
-
-# --- SLASH COMMANDS (Alternative) ---
-@bot.slash_command(name="setup", description="Create role setup message (admin)")
-async def slash_setup(ctx):
-    if ctx.author.guild_permissions.administrator:
-        await ctx.defer(ephemeral=True)
-        await send_setup_embed(ctx.channel)
-        await ctx.followup.send("✅ Setup created!", ephemeral=True)
+        embed.add_field(name="Troop", value=data['troop'])
+        embed.add_field(name="Languages", value=', '.join(data['languages']) if data['languages'] else "None")
+        embed.add_field(name="Server", value=data['server'])
+        await ctx.respond(embed=embed, ephemeral=True)
     else:
-        await ctx.respond("❌ Admin only!", ephemeral=True)
+        await ctx.respond("❌ You haven't completed the setup!", ephemeral=True)
 
 # --- EVENTS ---
 @bot.event
 async def on_ready():
     print(f"✅ {bot.user} is online!")
-    bot.add_view(SetupView())  # Make view persistent
+    # Make view persistent
+    bot.add_view(RoleSetupView())
     
     await bot.change_presence(
         activity=discord.Activity(
@@ -173,20 +241,11 @@ async def on_ready():
             name="for !createsetup"
         )
     )
-    
-    print("✅ Bot ready! Use !createsetup or /setup")
-
-# Error handling
-@bot.event
-async def on_application_command_error(ctx, error):
-    print(f"[SLASH ERROR] {error}")
-    await ctx.respond(f"❌ Error: {str(error)[:100]}", ephemeral=True)
+    print("✅ Button-based setup bot ready!")
 
 # --- RUN ---
 if __name__ == "__main__":
     if TOKEN:
-        print("🚀 Starting bot...")
         bot.run(TOKEN)
     else:
-        print("❌ ERROR: No TOKEN environment variable")
-        print("Set TOKEN in Railway Variables")
+        print("❌ ERROR: No TOKEN")
