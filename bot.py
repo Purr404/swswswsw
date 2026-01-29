@@ -1,285 +1,294 @@
 import discord
 from discord.ext import commands
-from discord.ui import View, Button
-import os
+import datetime
 
-TOKEN = os.getenv('TOKEN')
-
-# Use commands.Bot for prefix commands
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
-
-# Store user selections
-user_selections = {}
-
-# --- MAIN SETUP VIEW ---
-class RoleSetupView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.selected_troop = None
-        self.selected_languages = []
-        self.selected_server = None
+# --- ANNOUNCEMENT SYSTEM ---
+class AnnouncementSystem:
+    def __init__(self, bot):
+        self.bot = bot
+        self.announcement_channels = {}  # {server_id: channel_id}
+        self.announcement_images = {}    # {server_id: image_url}
     
-    # --- TROOP SELECTION (Row 0) ---
-    @discord.ui.button(label="Horde", style=discord.ButtonStyle.gray, emoji="👹", row=0, custom_id="horde_btn")
-    async def horde_btn(self, interaction: discord.Interaction, button: Button):
-        await self.handle_troop_selection(interaction, "Horde", button)
-    
-    @discord.ui.button(label="League", style=discord.ButtonStyle.gray, emoji="🛡️", row=0, custom_id="league_btn")
-    async def league_btn(self, interaction: discord.Interaction, button: Button):
-        await self.handle_troop_selection(interaction, "League", button)
-    
-    @discord.ui.button(label="Nature", style=discord.ButtonStyle.gray, emoji="🌿", row=0, custom_id="nature_btn")
-    async def nature_btn(self, interaction: discord.Interaction, button: Button):
-        await self.handle_troop_selection(interaction, "Nature", button)
-    
-    async def handle_troop_selection(self, interaction, troop, clicked_button):
-        # Reset all troop buttons to gray
-        for child in self.children:
-            if child.custom_id in ["horde_btn", "league_btn", "nature_btn"]:
-                child.style = discord.ButtonStyle.gray
-        
-        # Set selected button to green
-        clicked_button.style = discord.ButtonStyle.green
-        self.selected_troop = troop
-        
-        # Update message
-        embed = interaction.message.embeds[0]
-        embed.set_field_at(
-            0,
-            name="Please select your main troop type *",
-            value=f"✅ {troop}\n⬜ League\n⬜ Nature" if troop == "Horde" else 
-                  f"⬜ Horde\n✅ {troop}\n⬜ Nature" if troop == "League" else
-                  f"⬜ Horde\n⬜ League\n✅ {troop}",
-            inline=False
-        )
-        
-        await interaction.response.edit_message(embed=embed, view=self)
-        await interaction.followup.send(f"✅ Selected troop: **{troop}**", ephemeral=True)
-    
-    # --- LANGUAGE SELECTION (Row 1) ---
-    @discord.ui.button(label="Chinese", style=discord.ButtonStyle.gray, emoji="🇨🇳", row=1, custom_id="chinese_btn")
-    async def chinese_btn(self, interaction: discord.Interaction, button: Button):
-        await self.toggle_language(interaction, "Chinese", button)
-    
-    @discord.ui.button(label="English", style=discord.ButtonStyle.green, emoji="🇬🇧", row=1, custom_id="english_btn")
-    async def english_btn(self, interaction: discord.Interaction, button: Button):
-        await self.toggle_language(interaction, "English", button)
-    
-    @discord.ui.button(label="Japanese", style=discord.ButtonStyle.gray, emoji="🇯🇵", row=1, custom_id="japanese_btn")
-    async def japanese_btn(self, interaction: discord.Interaction, button: Button):
-        await self.toggle_language(interaction, "Japanese", button)
-    
-    @discord.ui.button(label="Korean", style=discord.ButtonStyle.green, emoji="🇰🇷", row=1, custom_id="korean_btn")
-    async def korean_btn(self, interaction: discord.Interaction, button: Button):
-        await self.toggle_language(interaction, "Korean", button)
-    
-    async def toggle_language(self, interaction, language, button):
-        if language in self.selected_languages:
-            # Remove if already selected
-            self.selected_languages.remove(language)
-            button.style = discord.ButtonStyle.gray
-        else:
-            # Add if not selected
-            self.selected_languages.append(language)
-            button.style = discord.ButtonStyle.green
-        
-        # Update message
-        await interaction.response.edit_message(view=self)
-        langs_text = ", ".join(self.selected_languages) if self.selected_languages else "None"
-        await interaction.followup.send(f"🌐 Languages: **{langs_text}**", ephemeral=True)
-    
-    # --- SERVER SELECTION (Row 2) ---
-    @discord.ui.button(label="Server 1-107", style=discord.ButtonStyle.gray, row=2, custom_id="server1_btn")
-    async def server1_btn(self, interaction: discord.Interaction, button: Button):
-        await self.handle_server_selection(interaction, "1-107", button)
-    
-    @discord.ui.button(label="Server 108-224", style=discord.ButtonStyle.gray, row=2, custom_id="server2_btn")
-    async def server2_btn(self, interaction: discord.Interaction, button: Button):
-        await self.handle_server_selection(interaction, "108-224", button)
-    
-    @discord.ui.button(label="Server 225+", style=discord.ButtonStyle.green, row=2, custom_id="server3_btn")
-    async def server3_btn(self, interaction: discord.Interaction, button: Button):
-        await self.handle_server_selection(interaction, "225+", button)
-    
-    async def handle_server_selection(self, interaction, server, clicked_button):
-        # Reset all server buttons
-        for child in self.children:
-            if child.custom_id in ["server1_btn", "server2_btn", "server3_btn"]:
-                child.style = discord.ButtonStyle.gray
-        
-        # Set selected to green
-        clicked_button.style = discord.ButtonStyle.green
-        self.selected_server = server
-        
-        # Update message
-        embed = interaction.message.embeds[0]
-        embed.set_field_at(
-            2,
-            name="Please select the server range of your main account *",
-            value=f"⬜ 1-107\n⬜ 108-224\n✅ 225+" if server == "225+" else
-                  f"⬜ 1-107\n✅ 108-224\n⬜ 225+" if server == "108-224" else
-                  f"✅ 1-107\n⬜ 108-224\n⬜ 225+",
-            inline=False
-        )
-        
-        await interaction.response.edit_message(embed=embed, view=self)
-        await interaction.followup.send(f"🌐 Selected server: **{server}**", ephemeral=True)
-    
-    # --- SUBMIT BUTTON (Row 3) ---
-    @discord.ui.button(label="Submit Setup", style=discord.ButtonStyle.primary, emoji="✅", row=3, custom_id="submit_btn")
-    async def submit_btn(self, interaction: discord.Interaction, button: Button):
-        # Validate selections
-        if not self.selected_troop:
-            await interaction.response.send_message("❌ Please select a troop type!", ephemeral=True)
-            return
-        
-        if not self.selected_server:
-            await interaction.response.send_message("❌ Please select a server range!", ephemeral=True)
-            return
-        
-        # Store user data
-        user_id = str(interaction.user.id)
-        user_selections[user_id] = {
-            'troop': self.selected_troop,
-            'languages': self.selected_languages,
-            'server': self.selected_server
-        }
-        
-        # Create confirmation embed
+    def create_announcement_embed(self, message, author, title="ANNOUNCEMENT", color=0xFF5500, image_url=None):
+        """Create a beautiful announcement embed"""
         embed = discord.Embed(
-            title="✅ Setup Complete!",
-            color=discord.Color.green()
+            title=f"📢 **{title}**",
+            description=message,
+            color=color,
+            timestamp=datetime.datetime.utcnow()
         )
         
-        embed.add_field(
-            name="Your Selections:",
-            value=f"**Troop:** {self.selected_troop}\n"
-                  f"**Languages:** {', '.join(self.selected_languages) if self.selected_languages else 'None'}\n"
-                  f"**Server:** {self.selected_server}",
-            inline=False
+        # Add author info
+        embed.set_author(
+            name=f"Posted by {author.display_name}",
+            icon_url=author.display_avatar.url
         )
         
-        embed.set_footer(text="Your roles have been assigned!")
+        # Add server icon as thumbnail
+        if author.guild.icon:
+            embed.set_thumbnail(url=author.guild.icon.url)
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        # Add image if provided
+        if image_url:
+            embed.set_image(url=image_url)
         
-        # Log
-        print(f"[SETUP] {interaction.user} completed setup")
+        # Custom footer with copyright (this is what you wanted!)
+        embed.set_footer(
+            text="TH 558 Discord Server • Official Announcement",
+            icon_url="https://cdn.discordapp.com/emojis/1065149931136663624.png"  # Copyright emoji
+        )
+        
+        return embed
+    
+    async def get_announcement_channel(self, guild):
+        """Get or find announcement channel"""
+        server_id = str(guild.id)
+        
+        # Check if channel is set
+        if server_id in self.announcement_channels:
+            channel = guild.get_channel(self.announcement_channels[server_id])
+            if channel:
+                return channel
+        
+        # Try to find announcement channel
+        for channel in guild.text_channels:
+            if any(keyword in channel.name.lower() for keyword in ["announce", "📢", "news", "bulletin"]):
+                self.announcement_channels[server_id] = channel.id
+                return channel
+        
+        # Return first text channel as fallback
+        for channel in guild.text_channels:
+            if isinstance(channel, discord.TextChannel):
+                return channel
+        
+        return None
 
-# --- PREFIX COMMANDS ---
-@bot.command(name="createsetup")
-@commands.has_permissions(administrator=True)
-async def createsetup(ctx):
-    """Create interactive setup message"""
+# Add to your bot setup
+bot.announcements = AnnouncementSystem(bot)
+
+# --- ANNOUNCEMENT COMMANDS GROUP ---
+@bot.group(name="announce", invoke_without_command=True)
+@commands.has_permissions(manage_messages=True)
+async def announce_group(ctx):
+    """Announcement management system"""
     embed = discord.Embed(
-        title="Channels & Roles",
-        description="### Customize\nAnswer questions to get access to more channels and roles.",
+        title="📢 **Announcement System**",
+        description=(
+            "**Commands:**\n"
+            "▸ `!announce send <message>` - Send announcement\n"
+            "▸ `!announce channel #channel` - Set announcement channel\n"
+            "▸ `!announce preview <message>` - Preview before sending\n"
+            "▸ `!announce image <url>` - Add image to next announcement\n"
+            "▸ `!announce urgent <message>` - Red urgent announcement\n"
+            "▸ `!announce update <message>` - Blue update announcement\n"
+            "▸ `!announce event <message>` - Green event announcement\n"
+        ),
         color=0x5865F2
     )
-    
-    # Initial state (like your photo)
-    embed.add_field(
-        name="Please select your main troop type *",
-        value="✅ Horde\n⬜ League\n⬜ Nature",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Please select any languages you speak",
-        value="⬜ Chinese\n✅ English\n⬜ Japanese\n✅ Korean",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Please select the server range of your main account *",
-        value="⬜ Server 1 - 107\n⬜ Server 108 - 224\n✅ Server 225+",
-        inline=False
-    )
-    
-    embed.set_footer(text="Click buttons to select, then click Submit")
-    
-    await ctx.send(embed=embed, view=RoleSetupView())
-    await ctx.message.delete()
+    embed.set_footer(text="TH 558 Moderator Tools")
+    await ctx.send(embed=embed)
 
-@bot.command(name="ping")
-async def ping(ctx):
-    await ctx.send("🏓 Pong!")
-
-@bot.command(name="mydata")
-async def mydata(ctx):
-    """Check your stored data"""
-    user_id = str(ctx.author.id)
-    if user_id in user_selections:
-        data = user_selections[user_id]
-        embed = discord.Embed(
-            title="Your Setup Data",
-            color=discord.Color.blue()
+# --- SEND ANNOUNCEMENT ---
+@announce_group.command(name="send")
+@commands.has_permissions(manage_messages=True)
+async def announce_send(ctx, *, message: str):
+    """Send an announcement to the announcement channel"""
+    
+    # Get announcement channel
+    channel = await bot.announcements.get_announcement_channel(ctx.guild)
+    if not channel:
+        await ctx.send("❌ No announcement channel found! Set one with `!announce channel #channel`")
+        return
+    
+    # Check for image
+    server_id = str(ctx.guild.id)
+    image_url = bot.announcements.announcement_images.get(server_id)
+    
+    # Create embed
+    embed = bot.announcements.create_announcement_embed(
+        message=message,
+        author=ctx.author,
+        title="ANNOUNCEMENT",
+        color=0xFF5500,  # Orange
+        image_url=image_url
+    )
+    
+    # Send announcement
+    try:
+        sent_message = await channel.send("@here" if channel != ctx.channel else "", embed=embed)
+        
+        # Add engagement reactions
+        await sent_message.add_reaction("📢")  # Announcement
+        await sent_message.add_reaction("✅")  # Confirm
+        await sent_message.add_reaction("💬")  # Discuss
+        await sent_message.add_reaction("📌")  # Pin
+        
+        # Clear stored image
+        if server_id in bot.announcements.announcement_images:
+            del bot.announcements.announcement_images[server_id]
+        
+        # Send confirmation to moderator
+        confirm_embed = discord.Embed(
+            description=(
+                f"✅ **Announcement Sent!**\n"
+                f"**Channel:** {channel.mention}\n"
+                f"**Link:** [Jump to Message]({sent_message.jump_url})"
+            ),
+            color=discord.Color.green()
         )
-        embed.add_field(name="Troop", value=data['troop'])
-        embed.add_field(name="Languages", value=', '.join(data['languages']) if data['languages'] else "None")
-        embed.add_field(name="Server", value=data['server'])
-        await ctx.send(embed=embed)
-    else:
-        await ctx.send("❌ You haven't completed the setup!")
+        confirm_embed.set_footer(text="Announcement delivered successfully")
+        
+        await ctx.send(embed=confirm_embed, delete_after=10)
+        
+        # Delete command message
+        await ctx.message.delete(delay=5)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Failed to send announcement: {str(e)[:100]}")
 
-@bot.command(name="help")
-async def help_command(ctx):
-    """Show help"""
+# --- SET ANNOUNCEMENT CHANNEL ---
+@announce_group.command(name="channel")
+@commands.has_permissions(administrator=True)
+async def announce_channel(ctx, channel: discord.TextChannel):
+    """Set the announcement channel"""
+    server_id = str(ctx.guild.id)
+    bot.announcements.announcement_channels[server_id] = channel.id
+    
     embed = discord.Embed(
-        title="Bot Commands",
-        description="Prefix: `!`",
-        color=discord.Color.blue()
+        description=f"✅ **Announcement channel set to {channel.mention}**",
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed)
+
+# --- PREVIEW ANNOUNCEMENT ---
+@announce_group.command(name="preview")
+@commands.has_permissions(manage_messages=True)
+async def announce_preview(ctx, *, message: str):
+    """Preview how the announcement will look"""
+    server_id = str(ctx.guild.id)
+    image_url = bot.announcements.announcement_images.get(server_id)
+    
+    embed = bot.announcements.create_announcement_embed(
+        message=message,
+        author=ctx.author,
+        title="ANNOUNCEMENT PREVIEW",
+        color=0x5865F2,  # Preview color
+        image_url=image_url
     )
     
-    embed.add_field(
-        name="General",
-        value="• `!ping` - Check bot status\n• `!help` - Show this message",
-        inline=False
-    )
+    await ctx.send("**📝 Preview:**", embed=embed)
     
-    embed.add_field(
-        name="Setup (Admin Only)",
-        value="• `!createsetup` - Create role setup message",
-        inline=False
-    )
+    # Show which image will be included
+    if image_url:
+        await ctx.send(f"*Includes image: {image_url[:50]}...*")
     
-    embed.add_field(
-        name="User Commands",
-        value="• `!mydata` - Check your setup data",
-        inline=False
+    await ctx.send("*Use `!announce send` to post this announcement.*")
+
+# --- SET IMAGE FOR NEXT ANNOUNCEMENT ---
+@announce_group.command(name="image")
+@commands.has_permissions(manage_messages=True)
+async def announce_image(ctx, image_url: str):
+    """Set an image to include in the next announcement"""
+    # Validate URL
+    if not (image_url.startswith("http://") or image_url.startswith("https://")):
+        await ctx.send("❌ Please provide a valid image URL (http:// or https://)")
+        return
+    
+    server_id = str(ctx.guild.id)
+    bot.announcements.announcement_images[server_id] = image_url
+    
+    # Show preview
+    embed = discord.Embed(
+        title="✅ Image Set for Next Announcement",
+        description=f"URL: {image_url[:100]}...",
+        color=discord.Color.green()
     )
+    embed.set_image(url=image_url)
+    embed.set_footer(text="This image will be included in your next !announce send command")
     
     await ctx.send(embed=embed)
 
-# --- EVENTS ---
-@bot.event
-async def on_ready():
-    print(f"✅ {bot.user} is online!")
-    # Make view persistent
-    bot.add_view(RoleSetupView())
+# --- URGENT ANNOUNCEMENT (Red) ---
+@announce_group.command(name="urgent")
+@commands.has_permissions(manage_messages=True)
+async def announce_urgent(ctx, *, message: str):
+    """Send an urgent announcement (red color)"""
+    channel = await bot.announcements.get_announcement_channel(ctx.guild)
+    if not channel:
+        await ctx.send("❌ No announcement channel set!")
+        return
     
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="for !createsetup"
-        )
+    embed = bot.announcements.create_announcement_embed(
+        message=message,
+        author=ctx.author,
+        title="🚨 URGENT ANNOUNCEMENT",
+        color=0xFF0000,  # Red
+        image_url=bot.announcements.announcement_images.get(str(ctx.guild.id))
     )
-    print("✅ Button setup bot ready!")
-    print("✅ Commands: !ping, !createsetup, !mydata, !help")
+    
+    sent_message = await channel.send("@everyone", embed=embed)
+    
+    # Add urgent reactions
+    await sent_message.add_reaction("🚨")
+    await sent_message.add_reaction("⚠️")
+    
+    await ctx.send(f"✅ Urgent announcement sent to {channel.mention}", delete_after=5)
+    await ctx.message.delete(delay=3)
 
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You need administrator permissions to use this command!")
-    elif isinstance(error, commands.CommandNotFound):
-        pass  # Ignore unknown commands
-    else:
-        await ctx.send(f"❌ Error: {str(error)[:100]}")
+# --- UPDATE ANNOUNCEMENT (Blue) ---
+@announce_group.command(name="update")
+@commands.has_permissions(manage_messages=True)
+async def announce_update(ctx, *, message: str):
+    """Send an update announcement (blue color)"""
+    channel = await bot.announcements.get_announcement_channel(ctx.guild)
+    if not channel:
+        await ctx.send("❌ No announcement channel set!")
+        return
+    
+    embed = bot.announcements.create_announcement_embed(
+        message=message,
+        author=ctx.author,
+        title="🔄 SERVER UPDATE",
+        color=0x0080FF,  # Blue
+        image_url=bot.announcements.announcement_images.get(str(ctx.guild.id))
+    )
+    
+    sent_message = await channel.send("@here", embed=embed)
+    await sent_message.add_reaction("🔄")
+    await sent_message.add_reaction("📝")
+    
+    await ctx.send(f"✅ Update announcement sent to {channel.mention}", delete_after=5)
+    await ctx.message.delete(delay=3)
 
-# --- RUN ---
-if __name__ == "__main__":
-    if TOKEN:
-        bot.run(TOKEN)
-    else:
-        print("❌ ERROR: No TOKEN environment variable")
+# --- EVENT ANNOUNCEMENT (Green) ---
+@announce_group.command(name="event")
+@commands.has_permissions(manage_messages=True)
+async def announce_event(ctx, *, message: str):
+    """Send an event announcement (green color)"""
+    channel = await bot.announcements.get_announcement_channel(ctx.guild)
+    if not channel:
+        await ctx.send("❌ No announcement channel set!")
+        return
+    
+    embed = bot.announcements.create_announcement_embed(
+        message=message,
+        author=ctx.author,
+        title="🎉 UPCOMING EVENT",
+        color=0x00FF00,  # Green
+        image_url=bot.announcements.announcement_images.get(str(ctx.guild.id))
+    )
+    
+    sent_message = await channel.send("@here", embed=embed)
+    await sent_message.add_reaction("🎉")
+    await sent_message.add_reaction("📅")
+    
+    await ctx.send(f"✅ Event announcement sent to {channel.mention}", delete_after=5)
+    await ctx.message.delete(delay=3)
+
+# --- QUICK ANNOUNCE ALIAS ---
+@bot.command(name="a")
+@commands.has_permissions(manage_messages=True)
+async def quick_announce(ctx, *, message: str):
+    """Quick announcement alias"""
+    # This calls the send command
+    await announce_send.invoke(ctx, message=message)
