@@ -8,7 +8,7 @@ TOKEN = os.getenv('TOKEN')
 
 # --- 1. FIRST: Create the bot instance ---
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 
 # --- 2. Store user selections ---
 user_selections = {}
@@ -95,7 +95,7 @@ async def announce_send(ctx, *, message: str):
     """Send an announcement"""
     channel = await announcements.get_announcement_channel(ctx.guild)
     if not channel:
-        await ctx.send("❌ No announcement channel found! Use `!announce channel #channel`")
+        await ctx.send("❌ No announcement channel found! Use `!!announce channel #channel`")
         return
     
     server_id = str(ctx.guild.id)
@@ -155,7 +155,7 @@ async def announce_preview(ctx, *, message: str):
     )
     
     await ctx.send("**📝 Preview:**", embed=embed)
-    await ctx.send("*Use `!announce send` to post.*")
+    await ctx.send("*Use `!!announce send` to post.*")
 
 @announce_group.command(name="image")
 @commands.has_permissions(manage_messages=True)
@@ -211,29 +211,6 @@ async def quick_announce(ctx, *, message: str):
 async def ping(ctx):
     await ctx.send("🏓 Pong!")
 
-@bot.command(name="help")
-async def help_command(ctx):
-    """Show help"""
-    embed = discord.Embed(
-        title="Bot Commands",
-        description="Prefix: `!!`",
-        color=discord.Color.blue()
-    )
-    
-    embed.add_field(
-        name="🎮 General",
-        value="• `!!ping` - Check bot\n• `!help` - Show commands",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="📢 Announcements (Mods)",
-        value="• `!!announce` - Announcement commands\n• `!a <msg>` - Quick announce",
-        inline=False
-    )
-    
-    await ctx.send(embed=embed)
-
 # --- 8. EVENTS ---
 @bot.event
 async def on_ready():
@@ -244,7 +221,7 @@ async def on_ready():
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name="for !help"
+            name="for!!help"
         )
     )
     print("✅ Bot ready with announcements!")
