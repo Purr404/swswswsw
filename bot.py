@@ -986,6 +986,157 @@ async def on_message(message):
     
     await bot.process_commands(message)
 
+
+# Add to your existing QuizSystem class:
+
+@tasks.loop(seconds=1)  # Update every second
+async def countdown_task(self, total_time):
+    """Update live countdown bar every second"""
+    if not self.quiz_running:
+        self.countdown_task.stop()
+        return
+    
+    try:
+        elapsed = (datetime.utcnow() - self.question_start_time).seconds
+        time_left = total_time - elapsed
+        
+        if time_left <= 0:
+            self.countdown_task.stop()
+            return
+        
+        # Create progress bar (20 blocks)
+        progress = int((time_left / total_time) * 20)
+        progress_bar = "🟩" * progress + "⬜" * (20 - progress)
+        
+        # Update embed
+        embed = self.question_message.embeds[0]
+        
+        # Find and update the time field
+        for i, field in enumerate(embed.fields):
+            if "⏰" in field.name or "TIME" in field.name.upper():
+                embed.set_field_at(
+                    i,
+                    name=f"⏰ **{time_left:02d} SECONDS LEFT**",
+                    value=f"```\n{progress_bar}\n{time_left:02d} seconds\n```\n"
+                          f"**Max Points:** {self.quiz_questions[self.current_question]['points']} ⭐",
+                    inline=False
+                )
+                break
+        
+        # Change embed color based on time
+        if time_left <= 10:
+            embed.color = discord.Color.red()
+        elif time_left <= 30:
+            embed.color = discord.Color.orange()
+        else:
+            embed.color = discord.Color.blue()
+        
+        await self.question_message.edit(embed=embed)
+        
+    except Exception as e:
+        print(f"Countdown error: {e}")
+        self.countdown_task.stop()
+
+# Update your send_question method to include the progress bar:
+async def send_question(self):
+    """Send current question with countdown bar"""
+    if self.current_question >= len(self.quiz_questions):
+        await self.end_quiz()
+        return
+    
+    question = self.quiz_questions[self.current_question]
+    self.question_start_time = datetime.utcnow()
+    
+    # Initial progress bar (full)
+    progress_bar = "🟩" * 20
+    
+    # Create question embed
+    embed = discord.Embed(
+        title=f"❓ **Question {self.current_question + 1}/{len(self.quiz_questions)}**",
+        description=question["question"],
+        color=discord.Color.blue()
+    )
+    
+    for option in question["options"]:
+        embed.add_field(name="​", value=option, inline=False)
+    
+    # Add countdown bar field
+    embed.add_field(
+        name=f"⏰ **{question['time_limit']:02d} SECONDS LEFT**",
+        value=f"```\n{progress_bar}\n{question['time_limit']:02d} seconds\n```\n"
+              f"**Max Points:** {question['points']} ⭐",
+        inline=False
+    )
+    
+    embed.set_footer(text="Answer with A, B, C, or D")
+    
+    # Send question
+    self.question_message = await self.quiz_channel.send(embed=embed)
+    
+    # Start the countdown task
+    self.countdown_task.start(question["time_limit"])
+    
+    # Start question timer (for auto-ending)
+    self.start_question_timer(question["time_limit"])
+
+# Update end_question to stop the countdown:
+async def end_question(self):
+    """End current question"""
+    self.countdown_task.stop()  # Stop the countdown
+    
+    question = self.quiz_questions[self.current_question]
+    
+    # Create final embed with results
+    embed = discord.Embed(
+        title=f"⏰ **TIME'S UP!**",
+        description=f"**Correct answer: {question['correct']}**\n\n"
+                   f"**Question:** {question['question']}\n"
+                   f"**Options:**\n" + "\n".join(question["options"]),
+        color=discord.Color.orange()
+    )
+    
+    # Show top answers
+    correct_answers = []
+    for user_id, data in self.participants.items():
+        for answer in data["answers"]:
+            if answer["question"] == self.current_question and answer["correct"]:
+                correct_answers.append({
+                    "user": data["name"],
+                    "time": answer["time"],
+                    "points": answer["points"]
+                })
+    
+    if correct_answers:
+        correct_answers.sort(key=lambda x: x["time"])
+        embed.add_field(
+            name="🏆 Fastest Correct Answers",
+            value="\n".join([
+                f"**{i+1}. {ans['user']}** - {ans['time']}s ({ans['points']} pts)"
+                for i, ans in enumerate(correct_answers[:3])
+            ]),
+            inline=False
+        )
+    
+    await self.quiz_channel.send(embed=embed)
+    
+    # Wait before next question
+    await asyncio.sleep(3)
+    
+    # Move to next question
+    self.current_question += 1
+    await self.send_question()
+
+# Update end_quiz to stop the countdown:
+async def end_quiz(self):
+    """End the entire quiz"""
+    self.quiz_running = False
+    self.countdown_task.stop()  # Stop countdown
+    
+    if self.question_timer:
+        self.question_timer.cancel()
+    
+    # ... rest of your end_quiz code ...
+
 # --- UPDATE HELP COMMAND ---
 # Add to your existing help command:
 """
