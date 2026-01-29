@@ -439,106 +439,157 @@ import random
 from datetime import datetime, timedelta
 import os
 
-# --- QUIZ SYSTEM ---
+# --- QUIZ SYSTEM CLASS (Complete) ---
 class QuizSystem:
-    def __init__(self):
-        self.active_quiz = None
+    def __init__(self, bot):
+        self.bot = bot
         self.quiz_questions = []
         self.current_question = 0
-        self.participants = {}  # {user_id: {"score": 0, "answers": []}}
+        self.participants = {}
         self.question_timer = None
         self.quiz_channel = None
         self.quiz_logs_channel = None
         self.quiz_running = False
         self.question_start_time = None
         
-        # Load questions (you can expand this)
+        # Load 20 questions
         self.load_questions()
     
     def load_questions(self):
-        """Load quiz questions"""
+        """Load 20 quiz questions with open-ended answers"""
         self.quiz_questions = [
             {
-                "question": "What is the capital of France?",
-                "options": ["A) London", "B) Berlin", "C) Paris", "D) Madrid"],
-                "correct": "C",
+                "question": "What is the capital city of France?",
+                "correct_answers": ["paris"],
                 "points": 300,
-                "time_limit": 60  # seconds
+                "time_limit": 60
             },
             {
                 "question": "Which planet is known as the Red Planet?",
-                "options": ["A) Venus", "B) Mars", "C) Jupiter", "D) Saturn"],
-                "correct": "B",
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is 2 + 2?",
-                "options": ["A) 3", "B) 4", "C) 5", "D) 6"],
-                "correct": "B",
-                "points": 100,
-                "time_limit": 30
-            },
-            {
-                "question": "Who painted the Mona Lisa?",
-                "options": ["A) Van Gogh", "B) Picasso", "C) Da Vinci", "D) Rembrandt"],
-                "correct": "C",
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the largest ocean on Earth?",
-                "options": ["A) Atlantic", "B) Indian", "C) Arctic", "D) Pacific"],
-                "correct": "D",
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "How many continents are there?",
-                "options": ["A) 5", "B) 6", "C) 7", "D) 8"],
-                "correct": "C",
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "What is H2O?",
-                "options": ["A) Oxygen", "B) Hydrogen", "C) Water", "D) Carbon Dioxide"],
-                "correct": "C",
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "Who wrote 'Romeo and Juliet'?",
-                "options": ["A) Shakespeare", "B) Dickens", "C) Twain", "D) Hemingway"],
-                "correct": "A",
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the fastest land animal?",
-                "options": ["A) Lion", "B) Cheetah", "C) Horse", "D) Leopard"],
-                "correct": "B",
+                "correct_answers": ["mars", "planet mars"],
                 "points": 300,
                 "time_limit": 60
             },
             {
                 "question": "What is the chemical symbol for gold?",
-                "options": ["A) Go", "B) Gd", "C) Au", "D) Ag"],
-                "correct": "C",
+                "correct_answers": ["au"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "Who painted the Mona Lisa?",
+                "correct_answers": ["leonardo da vinci", "da vinci", "leonardo"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the largest mammal in the world?",
+                "correct_answers": ["blue whale", "whale"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "How many continents are there on Earth?",
+                "correct_answers": ["7", "seven"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "What is H2O commonly known as?",
+                "correct_answers": ["water", "h2o"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "Who wrote the play 'Romeo and Juliet'?",
+                "correct_answers": ["william shakespeare", "shakespeare"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the fastest land animal?",
+                "correct_answers": ["cheetah"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "Which country gifted the Statue of Liberty to the USA?",
+                "correct_answers": ["france"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "How many sides does a hexagon have?",
+                "correct_answers": ["6", "six"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "What is the hardest natural substance on Earth?",
+                "correct_answers": ["diamond"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "Which gas do plants absorb from the atmosphere?",
+                "correct_answers": ["carbon dioxide", "co2"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the smallest country in the world?",
+                "correct_answers": ["vatican city", "vatican"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "Which planet has the most moons?",
+                "correct_answers": ["saturn"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the capital of Japan?",
+                "correct_answers": ["tokyo"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "How many players are on a basketball team?",
+                "correct_answers": ["5", "five"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "What is the main ingredient in guacamole?",
+                "correct_answers": ["avocado"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "Which year did World War II end?",
+                "correct_answers": ["1945"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the currency of Japan?",
+                "correct_answers": ["yen"],
                 "points": 300,
                 "time_limit": 60
             }
         ]
-        # Add more questions to reach 20...
     
     def calculate_points(self, answer_time, total_time, max_points):
         """Calculate points based on answer speed"""
         time_left = total_time - answer_time
+        if time_left <= 0:
+            return 0
         percentage = time_left / total_time
         return int(max_points * percentage)
     
     async def start_quiz(self, channel, logs_channel):
-        """Start a new quiz"""
+        """Start a new quiz in specified channel"""
         self.quiz_channel = channel
         self.quiz_logs_channel = logs_channel
         self.quiz_running = True
@@ -551,27 +602,32 @@ class QuizSystem:
         # Send quiz start message
         embed = discord.Embed(
             title="🎯 **QUIZ STARTING!**",
-            description="Get ready for 20 questions!\n\n"
-                       "**How to play:**\n"
-                       "• Answer with A, B, C, or D\n"
-                       "• Faster answers = more points!\n"
-                       "• Max points: 300 per question\n\n"
-                       f"First question starts in **10 seconds**!",
+            description=(
+                "**Open-Ended Quiz**\n"
+                "Think carefully and type your answers!\n\n"
+                "**Rules:**\n"
+                "• Type your answer exactly\n"
+                "• Spelling matters!\n"
+                "• Faster answers = more points!\n"
+                "• Max points: 300 per question\n\n"
+                f"First question starts in **5 seconds**!"
+            ),
             color=discord.Color.gold()
         )
-        embed.set_footer(text="Type your answer in this channel!")
-        await channel.send(embed=embed)
+        start_msg = await channel.send(embed=embed)
         
         # Start countdown
         for i in range(5, 0, -1):
-            await channel.send(f"⏰ **{i}...**")
+            await start_msg.edit(content=f"⏰ **{i}...**")
             await asyncio.sleep(1)
+        
+        await start_msg.delete()
         
         # Start first question
         await self.send_question()
     
     async def send_question(self):
-        """Send current question"""
+        """Send current question with countdown bar"""
         if self.current_question >= len(self.quiz_questions):
             await self.end_quiz()
             return
@@ -579,82 +635,105 @@ class QuizSystem:
         question = self.quiz_questions[self.current_question]
         self.question_start_time = datetime.utcnow()
         
+        # Initial progress bar (full)
+        progress_bar = "🟩" * 20
+        
         # Create question embed
         embed = discord.Embed(
-            title=f"❓ **Question {self.current_question + 1}/20**",
+            title=f"❓ **Question {self.current_question + 1}/{len(self.quiz_questions)}**",
             description=question["question"],
             color=discord.Color.blue()
         )
         
-        for option in question["options"]:
-            embed.add_field(name="​", value=option, inline=False)
-        
+        # Add countdown bar field
         embed.add_field(
-            name="⏰ Time Limit",
-            value=f"**{question['time_limit']} seconds**\nMax points: **{question['points']}**",
+            name=f"⏰ **{question['time_limit']:02d} SECONDS LEFT**",
+            value=f"```\n{progress_bar}\n{question['time_limit']:02d} seconds\n```\n"
+                  f"**Max Points:** {question['points']} ⭐",
             inline=False
         )
         
-        embed.set_footer(text="Answer with A, B, C, or D!")
+        embed.set_footer(text="Type your answer in the chat")
         
         # Send question
-        message = await self.quiz_channel.send(embed=embed)
+        self.question_message = await self.quiz_channel.send(embed=embed)
         
-        # Start timer
-        self.start_question_timer(question["time_limit"], message)
+        # Start the live countdown
+        self.countdown_task.start(question["time_limit"])
         
-        # Start countdown updates
-        self.update_countdown.start(message, question["time_limit"])
+        # Start question timer (for auto-ending)
+        self.start_question_timer(question["time_limit"])
     
-    def start_question_timer(self, time_limit, message):
-        """Start timer for current question"""
-        async def timer():
-            await asyncio.sleep(time_limit)
-            await self.end_question(message)
-        
-        self.question_timer = asyncio.create_task(timer())
-    
-    @tasks.loop(seconds=5)
-    async def update_countdown(self, message, total_time):
-        """Update countdown in embed"""
+    @tasks.loop(seconds=1)
+    async def countdown_task(self, total_time):
+        """Update live countdown bar every second"""
         if not self.quiz_running:
-            self.update_countdown.stop()
+            self.countdown_task.stop()
             return
         
-        elapsed = (datetime.utcnow() - self.question_start_time).seconds
-        time_left = total_time - elapsed
-        
-        if time_left <= 0:
-            self.update_countdown.stop()
-            return
-        
-        # Update embed with time left
         try:
-            embed = message.embeds[0]
+            elapsed = (datetime.utcnow() - self.question_start_time).seconds
+            time_left = total_time - elapsed
             
-            # Find and update time field
+            if time_left <= 0:
+                self.countdown_task.stop()
+                return
+            
+            # Create progress bar
+            progress = int((time_left / total_time) * 20)
+            progress_bar = "🟩" * progress + "⬜" * (20 - progress)
+            
+            # Update embed
+            embed = self.question_message.embeds[0]
+            
+            # Find and update the time field
             for i, field in enumerate(embed.fields):
-                if field.name == "⏰ Time Limit":
+                if "⏰" in field.name:
                     embed.set_field_at(
                         i,
-                        name="⏰ Time Remaining",
-                        value=f"**{time_left} seconds**\nMax points: **{self.quiz_questions[self.current_question]['points']}**",
+                        name=f"⏰ **{time_left:02d} SECONDS LEFT**",
+                        value=f"```\n{progress_bar}\n{time_left:02d} seconds\n```\n"
+                              f"**Max Points:** {self.quiz_questions[self.current_question]['points']} ⭐",
                         inline=False
                     )
                     break
             
-            await message.edit(embed=embed)
+            # Change embed color based on time
+            if time_left <= 10:
+                embed.color = discord.Color.red()
+            elif time_left <= 30:
+                embed.color = discord.Color.orange()
+            else:
+                embed.color = discord.Color.blue()
             
-        except:
-            pass
+            await self.question_message.edit(embed=embed)
+            
+        except Exception as e:
+            print(f"Countdown error: {e}")
+            self.countdown_task.stop()
     
-    async def process_answer(self, user, answer):
-        """Process user's answer"""
+    def start_question_timer(self, time_limit):
+        """Start timer for current question"""
+        async def timer():
+            await asyncio.sleep(time_limit)
+            await self.end_question()
+        
+        if self.question_timer:
+            self.question_timer.cancel()
+        
+        self.question_timer = asyncio.create_task(timer())
+    
+    async def process_answer(self, user, answer_text):
+        """Process user's answer silently (no reactions)"""
         if not self.quiz_running:
             return False
         
         question = self.quiz_questions[self.current_question]
         answer_time = (datetime.utcnow() - self.question_start_time).seconds
+        
+        # Check if time's up
+        if answer_time > question["time_limit"]:
+            return False
         
         # Initialize user in participants
         user_id = str(user.id)
@@ -671,8 +750,10 @@ class QuizSystem:
             if a["question"] == self.current_question:
                 return False  # Already answered
         
-        # Check answer
-        is_correct = (answer.upper() == question["correct"])
+        # Check if answer is correct (case-insensitive, trim spaces)
+        user_answer = answer_text.lower().strip()
+        is_correct = any(correct_answer == user_answer 
+                        for correct_answer in question["correct_answers"])
         
         # Calculate points
         points = 0
@@ -687,14 +768,14 @@ class QuizSystem:
         # Record answer
         self.participants[user_id]["answers"].append({
             "question": self.current_question,
-            "answer": answer.upper(),
+            "answer": answer_text,
             "correct": is_correct,
             "points": points,
             "time": answer_time
         })
         
-        # Log to quiz logs
-        await self.log_answer(user, question["question"], answer.upper(), 
+        # Log to quiz logs (silently)
+        await self.log_answer(user, question["question"], answer_text, 
                              is_correct, points, answer_time)
         
         return True
@@ -712,64 +793,169 @@ class QuizSystem:
         
         embed.add_field(name="👤 User", value=user.mention, inline=True)
         embed.add_field(name="📋 Question", value=question[:100] + "...", inline=True)
-        embed.add_field(name="✏️ Answer", value=answer, inline=True)
+        embed.add_field(name="✏️ Answer", value=answer[:50], inline=True)
         embed.add_field(name="✅ Correct", value="Yes" if correct else "No", inline=True)
         embed.add_field(name="⭐ Points", value=str(points), inline=True)
         embed.add_field(name="⏱️ Time", value=f"{time}s", inline=True)
         
         await self.quiz_logs_channel.send(embed=embed)
     
-    async def end_question(self, message):
-        """End current question"""
-        self.update_countdown.stop()
+    async def end_question(self):
+        """End current question and show live leaderboard"""
+        self.countdown_task.stop()
         
         question = self.quiz_questions[self.current_question]
         
-        # Send results
+        # Show correct answer(s)
+        correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
+        
         embed = discord.Embed(
-            title=f"⏰ **TIME'S UP!**",
-            description=f"**Correct answer: {question['correct']}**\n\n"
-                       f"**Question:** {question['question']}\n"
-                       f"**Options:**\n" + "\n".join(question["options"]),
-            color=discord.Color.orange()
+            title=f"✅ **Question {self.current_question + 1} Complete**",
+            description=f"**Correct answer(s):** {correct_answers}",
+            color=discord.Color.green()
         )
         
-        # Show top 3 quickest correct answers
-        correct_answers = []
+        # Show top 3 fastest for THIS question
+        question_answers = []
         for user_id, data in self.participants.items():
             for answer in data["answers"]:
                 if answer["question"] == self.current_question and answer["correct"]:
-                    correct_answers.append({
+                    question_answers.append({
                         "user": data["name"],
                         "time": answer["time"],
                         "points": answer["points"]
                     })
         
-        correct_answers.sort(key=lambda x: x["time"])
+        question_answers.sort(key=lambda x: x["time"])
         
-        if correct_answers:
+        if question_answers:
             embed.add_field(
-                name="🏆 Fastest Correct Answers",
+                name="🏆 **Fastest This Question**",
                 value="\n".join([
                     f"**{i+1}. {ans['user']}** - {ans['time']}s ({ans['points']} pts)"
-                    for i, ans in enumerate(correct_answers[:3])
+                    for i, ans in enumerate(question_answers[:3])
                 ]),
                 inline=False
             )
         
         await self.quiz_channel.send(embed=embed)
         
-        # Wait 5 seconds before next question
-        await asyncio.sleep(5)
+        # Wait 2 seconds
+        await asyncio.sleep(2)
+        
+        # SHOW LIVE LEADERBOARD WITH ALL USERS
+        leaderboard_embed = await self.create_live_leaderboard()
+        leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
+        
+        # Countdown to next question with leaderboard showing
+        countdown_seconds = 5
+        for i in range(countdown_seconds, 0, -1):
+            # Update leaderboard countdown
+            updated_embed = await self.create_live_leaderboard(countdown=i)
+            await leaderboard_message.edit(embed=updated_embed)
+            await asyncio.sleep(1)
+        
+        await leaderboard_message.delete()
         
         # Move to next question
         self.current_question += 1
         await self.send_question()
     
+    async def create_live_leaderboard(self, countdown=None):
+        """Create a live leaderboard embed showing all participants"""
+        if not self.participants:
+            embed = discord.Embed(
+                title="📊 **Current Leaderboard**",
+                description="No participants yet!",
+                color=discord.Color.blue()
+            )
+            return embed
+        
+        # Sort by score (highest first)
+        sorted_participants = sorted(
+            self.participants.items(),
+            key=lambda x: x[1]["score"],
+            reverse=True
+        )
+        
+        # Calculate statistics
+        total_questions = self.current_question + 1
+        max_possible = total_questions * 300
+        
+        embed = discord.Embed(
+            title="📊 **LIVE LEADERBOARD**",
+            color=discord.Color.gold()
+        )
+        
+        # Add countdown if provided
+        if countdown:
+            embed.description = f"**Next question in:** {countdown} seconds\n"
+        
+        # Show question progress
+        embed.add_field(
+            name="📈 **Progress**",
+            value=f"**Question:** {self.current_question + 1}/{len(self.quiz_questions)}\n"
+                  f"**Max Possible:** {max_possible} points",
+            inline=False
+        )
+        
+        # Create leaderboard entries
+        leaderboard_lines = []
+        for i, (user_id, data) in enumerate(sorted_participants):
+            # Get user's performance on current question
+            current_q_answer = None
+            for answer in data["answers"]:
+                if answer["question"] == self.current_question:
+                    current_q_answer = answer
+                    break
+            
+            # Format line with emoji based on rank
+            rank_emoji = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            emoji = rank_emoji[i] if i < len(rank_emoji) else f"{i+1}."
+            
+            # Format current question performance
+            if current_q_answer:
+                if current_q_answer["correct"]:
+                    q_perf = f"✅ +{current_q_answer['points']}"
+                else:
+                    q_perf = "❌ +0"
+            else:
+                q_perf = "⏳ No answer"
+            
+            leaderboard_lines.append(
+                f"{emoji} **{data['name']}**\n"
+                f"   Total: **{data['score']}** pts | This Q: {q_perf}"
+            )
+        
+        # Split leaderboard into chunks (10 per field)
+        for i in range(0, len(leaderboard_lines), 10):
+            chunk = leaderboard_lines[i:i + 10]
+            embed.add_field(
+                name=f"**Rank {i+1}-{i+len(chunk)}**" if i > 0 else "**🏆 TOP 10**",
+                value="\n".join(chunk),
+                inline=False
+            )
+        
+        # Add statistics
+        total_participants = len(self.participants)
+        answered_this_q = len([a for data in self.participants.values() 
+                              for a in data["answers"] if a["question"] == self.current_question])
+        
+        embed.add_field(
+            name="📊 **Statistics**",
+            value=f"**Participants:** {total_participants}\n"
+                  f"**Answered Q{self.current_question + 1}:** {answered_this_q}/{total_participants}",
+            inline=True
+        )
+        
+        embed.set_footer(text=f"Question {self.current_question + 1} of {len(self.quiz_questions)}")
+        
+        return embed
+    
     async def end_quiz(self):
         """End the entire quiz"""
         self.quiz_running = False
-        self.update_countdown.stop()
+        self.countdown_task.stop()
         
         if self.question_timer:
             self.question_timer.cancel()
@@ -781,10 +967,10 @@ class QuizSystem:
             reverse=True
         )
         
-        # Create results embed
+        # Create final results embed
         embed = discord.Embed(
             title="🎉 **QUIZ FINISHED!**",
-            description="Here are the final results:",
+            description="**Final Results:**",
             color=discord.Color.gold()
         )
         
@@ -795,7 +981,7 @@ class QuizSystem:
         
         if leaderboard:
             embed.add_field(
-                name="🏆 **TOP 10 LEADERBOARD**",
+                name="🏆 **FINAL TOP 10**",
                 value="\n".join(leaderboard),
                 inline=False
             )
@@ -812,39 +998,14 @@ class QuizSystem:
         
         await self.quiz_channel.send(embed=embed)
         
-        # Save results to file
-        await self.save_results(sorted_participants)
-    
-    async def save_results(self, participants):
-        """Save quiz results to file"""
-        results = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "participants": {}
-        }
-        
-        for user_id, data in participants:
-            results["participants"][user_id] = data
-        
-        # Save to JSON file
-        filename = f"quiz_results_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(filename, 'w') as f:
-            json.dump(results, f, indent=2)
-        
-        # Send file to logs channel
-        if self.quiz_logs_channel:
-            await self.quiz_logs_channel.send(
-                f"📊 **Quiz Results File**",
-                file=discord.File(filename)
-            )
-        
-        # Clean up
-        try:
-            os.remove(filename)
-        except:
-            pass
+        # Reset for next quiz
+        self.quiz_channel = None
+        self.quiz_logs_channel = None
+        self.current_question = 0
+        self.participants = {}
 
-# --- ADD TO YOUR BOT ---
-quiz_system = QuizSystem()
+# Create quiz system instance
+quiz_system = QuizSystem(bot)
 
 # --- QUIZ COMMANDS ---
 @bot.group(name="quiz", invoke_without_command=True)
@@ -854,21 +1015,33 @@ async def quiz_group(ctx):
     embed = discord.Embed(
         title="🎯 **Quiz System**",
         description="**Commands:**\n"
-                   "• `!!quiz start` - Start a new quiz\n"
+                   "• `!!quiz start` - Start quiz in THIS channel\n"
+                   "• `!!quiz start #channel` - Start quiz in specific channel\n"
                    "• `!!quiz stop` - Stop current quiz\n"
                    "• `!!quiz leaderboard` - Show current scores\n"
-                   "• `!!quiz addq` - Add a new question\n"
-                   "• `!!quiz questions` - List all questions",
+                   "• `!!quiz addq` - Add a new question",
         color=0x5865F2
     )
     await ctx.send(embed=embed)
 
 @quiz_group.command(name="start")
 @commands.has_permissions(manage_messages=True)
-async def quiz_start(ctx):
-    """Start a quiz in this channel"""
+async def quiz_start(ctx, channel: discord.TextChannel = None):
+    """
+    Start a quiz in specific channel
+    Usage: !!quiz start #channel  (starts in mentioned channel)
+           !!quiz start           (starts in current channel)
+    """
     if quiz_system.quiz_running:
         await ctx.send("❌ Quiz is already running!", delete_after=5)
+        return
+    
+    # Determine which channel to use
+    quiz_channel = channel or ctx.channel
+    
+    # Check permissions
+    if not quiz_channel.permissions_for(ctx.guild.me).send_messages:
+        await ctx.send(f"❌ I don't have permission to send messages in {quiz_channel.mention}!")
         return
     
     # Find or create quiz-logs channel
@@ -882,8 +1055,16 @@ async def quiz_start(ctx):
         except:
             logs_channel = ctx.channel
     
-    await ctx.send(f"✅ **Quiz starting in this channel!**\nLogs will go to {logs_channel.mention}")
-    await quiz_system.start_quiz(ctx.channel, logs_channel)
+    # Confirm
+    embed = discord.Embed(
+        description=f"✅ **Quiz starting in {quiz_channel.mention}!**\n"
+                   f"Logs will go to {logs_channel.mention}",
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed, delete_after=10)
+    
+    # Start quiz
+    await quiz_system.start_quiz(quiz_channel, logs_channel)
 
 @quiz_group.command(name="stop")
 @commands.has_permissions(manage_messages=True)
@@ -906,44 +1087,27 @@ async def quiz_leaderboard(ctx):
         await ctx.send("❌ No quiz data available!", delete_after=5)
         return
     
-    sorted_participants = sorted(
-        quiz_system.participants.items(),
-        key=lambda x: x[1]["score"],
-        reverse=True
-    )
-    
-    embed = discord.Embed(
-        title="🏆 **Current Leaderboard**",
-        color=discord.Color.gold()
-    )
-    
-    for i, (user_id, data) in enumerate(sorted_participants[:10]):
-        embed.add_field(
-            name=f"{i+1}. {data['name']}",
-            value=f"**Score:** {data['score']}\n"
-                  f"**Correct:** {sum(1 for a in data['answers'] if a['correct'])}/{len(data['answers'])}",
-            inline=True
-        )
-    
+    # Create leaderboard embed
+    embed = await quiz_system.create_live_leaderboard()
     await ctx.send(embed=embed)
 
-@quiz_group.command(name="addquestion")
+@quiz_group.command(name="addq")
 @commands.has_permissions(administrator=True)
 async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
     """
     Add a new quiz question
-    Format: !!quiz addq 300 60 Question? | A) Option1 | B) Option2 | C) Option3 | D) Option4 | C
+    Format: !!quiz addq 300 60 Question? | correct answer 1 | correct answer 2
+    Example: !!quiz addq 300 60 Capital of France? | paris
     """
     try:
         parts = question_data.split(" | ")
-        if len(parts) != 6:
-            await ctx.send("❌ Wrong format! Use: `Question? | A) opt1 | B) opt2 | C) opt3 | D) opt4 | C`")
+        if len(parts) < 2:
+            await ctx.send("❌ Format: `Question? | correct answer 1 | correct answer 2`")
             return
         
         new_question = {
             "question": parts[0],
-            "options": [parts[1], parts[2], parts[3], parts[4]],
-            "correct": parts[5].upper(),
+            "correct_answers": [ans.lower().strip() for ans in parts[1:]],
             "points": points,
             "time_limit": time_limit
         }
@@ -956,10 +1120,8 @@ async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
             color=discord.Color.green()
         )
         
-        for option in new_question["options"]:
-            embed.add_field(name="​", value=option, inline=False)
-        
-        embed.add_field(name="✅ Correct Answer", value=new_question["correct"])
+        embed.add_field(name="✅ Correct Answers", 
+                       value=", ".join(new_question["correct_answers"]))
         embed.add_field(name="⭐ Points", value=str(points))
         embed.add_field(name="⏱️ Time Limit", value=f"{time_limit}s")
         
@@ -974,182 +1136,25 @@ async def on_message(message):
     if message.author.bot:
         return
     
-    # Check for quiz answers (A, B, C, D)
+    # Check for quiz answers (any text answer)
     if (quiz_system.quiz_running and 
-        message.channel == quiz_system.quiz_channel and
-        message.content.upper() in ["A", "B", "C", "D"]):
+        message.channel == quiz_system.quiz_channel):
         
+        # Process the answer silently (NO REACTIONS)
         await quiz_system.process_answer(message.author, message.content)
-        
-        # Add reaction to show answer received
-        await message.add_reaction("✅")
     
     await bot.process_commands(message)
 
-
-# Add to your existing QuizSystem class:
-
-@tasks.loop(seconds=1)  # Update every second
-async def countdown_task(self, total_time):
-    """Update live countdown bar every second"""
-    if not self.quiz_running:
-        self.countdown_task.stop()
-        return
-    
-    try:
-        elapsed = (datetime.utcnow() - self.question_start_time).seconds
-        time_left = total_time - elapsed
-        
-        if time_left <= 0:
-            self.countdown_task.stop()
-            return
-        
-        # Create progress bar (20 blocks)
-        progress = int((time_left / total_time) * 20)
-        progress_bar = "🟩" * progress + "⬜" * (20 - progress)
-        
-        # Update embed
-        embed = self.question_message.embeds[0]
-        
-        # Find and update the time field
-        for i, field in enumerate(embed.fields):
-            if "⏰" in field.name or "TIME" in field.name.upper():
-                embed.set_field_at(
-                    i,
-                    name=f"⏰ **{time_left:02d} SECONDS LEFT**",
-                    value=f"```\n{progress_bar}\n{time_left:02d} seconds\n```\n"
-                          f"**Max Points:** {self.quiz_questions[self.current_question]['points']} ⭐",
-                    inline=False
-                )
-                break
-        
-        # Change embed color based on time
-        if time_left <= 10:
-            embed.color = discord.Color.red()
-        elif time_left <= 30:
-            embed.color = discord.Color.orange()
-        else:
-            embed.color = discord.Color.blue()
-        
-        await self.question_message.edit(embed=embed)
-        
-    except Exception as e:
-        print(f"Countdown error: {e}")
-        self.countdown_task.stop()
-
-# Update your send_question method to include the progress bar:
-async def send_question(self):
-    """Send current question with countdown bar"""
-    if self.current_question >= len(self.quiz_questions):
-        await self.end_quiz()
-        return
-    
-    question = self.quiz_questions[self.current_question]
-    self.question_start_time = datetime.utcnow()
-    
-    # Initial progress bar (full)
-    progress_bar = "🟩" * 20
-    
-    # Create question embed
-    embed = discord.Embed(
-        title=f"❓ **Question {self.current_question + 1}/{len(self.quiz_questions)}**",
-        description=question["question"],
-        color=discord.Color.blue()
-    )
-    
-    for option in question["options"]:
-        embed.add_field(name="​", value=option, inline=False)
-    
-    # Add countdown bar field
-    embed.add_field(
-        name=f"⏰ **{question['time_limit']:02d} SECONDS LEFT**",
-        value=f"```\n{progress_bar}\n{question['time_limit']:02d} seconds\n```\n"
-              f"**Max Points:** {question['points']} ⭐",
-        inline=False
-    )
-    
-    embed.set_footer(text="Answer with A, B, C, or D")
-    
-    # Send question
-    self.question_message = await self.quiz_channel.send(embed=embed)
-    
-    # Start the countdown task
-    self.countdown_task.start(question["time_limit"])
-    
-    # Start question timer (for auto-ending)
-    self.start_question_timer(question["time_limit"])
-
-# Update end_question to stop the countdown:
-async def end_question(self):
-    """End current question"""
-    self.countdown_task.stop()  # Stop the countdown
-    
-    question = self.quiz_questions[self.current_question]
-    
-    # Create final embed with results
-    embed = discord.Embed(
-        title=f"⏰ **TIME'S UP!**",
-        description=f"**Correct answer: {question['correct']}**\n\n"
-                   f"**Question:** {question['question']}\n"
-                   f"**Options:**\n" + "\n".join(question["options"]),
-        color=discord.Color.orange()
-    )
-    
-    # Show top answers
-    correct_answers = []
-    for user_id, data in self.participants.items():
-        for answer in data["answers"]:
-            if answer["question"] == self.current_question and answer["correct"]:
-                correct_answers.append({
-                    "user": data["name"],
-                    "time": answer["time"],
-                    "points": answer["points"]
-                })
-    
-    if correct_answers:
-        correct_answers.sort(key=lambda x: x["time"])
-        embed.add_field(
-            name="🏆 Fastest Correct Answers",
-            value="\n".join([
-                f"**{i+1}. {ans['user']}** - {ans['time']}s ({ans['points']} pts)"
-                for i, ans in enumerate(correct_answers[:3])
-            ]),
-            inline=False
-        )
-    
-    await self.quiz_channel.send(embed=embed)
-    
-    # Wait before next question
-    await asyncio.sleep(3)
-    
-    # Move to next question
-    self.current_question += 1
-    await self.send_question()
-
-# Update end_quiz to stop the countdown:
-async def end_quiz(self):
-    """End the entire quiz"""
-    self.quiz_running = False
-    self.countdown_task.stop()  # Stop countdown
-    
-    if self.question_timer:
-        self.question_timer.cancel()
-    
-    # ... rest of your end_quiz code ...
-
-# --- UPDATE HELP COMMAND ---
-# Add to your existing help command:
+# Add to your help command:
 """
-**🎯 Quiz Commands (Mods)**
-• `!!quiz start` - Start quiz
-• `!!quiz stop` - Stop quiz  
+**🎯 Quiz System (Mods)**
+• `!!quiz` - Quiz commands
+• `!!quiz start` - Start quiz in current channel
+• `!!quiz start #channel` - Start in specific channel
+• `!!quiz stop` - Stop quiz
 • `!!quiz leaderboard` - Show scores
 • `!!quiz addq` - Add question
-• `!!quiz questions` - List questions
 """
-
-# Add this line to on_ready():
-print("✅ Quiz system loaded! Commands: !!quiz")
 
 
 
