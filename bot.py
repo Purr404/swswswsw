@@ -79,11 +79,11 @@ async def announce_group(ctx):
         title="📢 **Announcement System**",
         description=(
             "**Commands:**\n"
-            "• `!announce send <message>` - Send announcement\n"
-            "• `!announce channel #channel` - Set announcement channel\n"
-            "• `!announce preview <message>` - Preview announcement\n"
-            "• `!announce image <url>` - Add image to announcement\n"
-            "• `!announce urgent <message>` - Red urgent announcement\n"
+            "• `!!announce send <message>` - Send announcement\n"
+            "• `!!announce channel #channel` - Set announcement channel\n"
+            "• `!!announce preview <message>` - Preview announcement\n"
+            "• `!!announce image <url>` - Add image to announcement\n"
+            "• `!!announce urgent <message>` - Red urgent announcement\n"
         ),
         color=0x5865F2
     )
@@ -216,25 +216,19 @@ async def help_command(ctx):
     """Show help"""
     embed = discord.Embed(
         title="Bot Commands",
-        description="Prefix: `!`",
+        description="Prefix: `!!`",
         color=discord.Color.blue()
     )
     
     embed.add_field(
         name="🎮 General",
-        value="• `!ping` - Check bot\n• `!help` - Show commands",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="⚙️ Setup (Admin)",
-        value="• `!createsetup` - Create role setup",
+        value="• `!!ping` - Check bot\n• `!help` - Show commands",
         inline=False
     )
     
     embed.add_field(
         name="📢 Announcements (Mods)",
-        value="• `!announce` - Announcement commands\n• `!a <msg>` - Quick announce",
+        value="• `!!announce` - Announcement commands\n• `!a <msg>` - Quick announce",
         inline=False
     )
     
@@ -246,7 +240,6 @@ async def on_ready():
     print(f"✅ {bot.user} is online!")
     
     # Make your view persistent
-    # bot.add_view(RoleSetupView())  # Uncomment if you have this
     
     await bot.change_presence(
         activity=discord.Activity(
