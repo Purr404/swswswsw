@@ -211,6 +211,181 @@ async def quick_announce(ctx, *, message: str):
 async def ping(ctx):
     await ctx.send("🏓 Pong!")
 
+# --- MESSAGE SENDING SYSTEM ---
+@bot.group(name="say", invoke_without_command=True)
+@commands.has_permissions(manage_messages=True)
+async def say_group(ctx):
+    """Send messages through the bot"""
+    embed = discord.Embed(
+        title="💬 Message Sending System",
+        description=(
+            "**Commands:**\n"
+            "• `!!say <message>` - Send message in current channel\n"
+            "• `!!say #channel <message>` - Send to specific channel\n"
+            "• `!!say embed #channel <title> | <description>` - Send embed\n"
+            "• `!!say reply <message_id> <message>` - Reply to a message\n"
+            "• `!!say dm @user <message>` - Send DM to user\n"
+        ),
+        color=0x5865F2
+    )
+    await ctx.send(embed=embed)
+
+@say_group.command(name="send")
+@commands.has_permissions(manage_messages=True)
+async def say_send(ctx, channel: discord.TextChannel = None, *, message: str):
+    """
+    Send a message to any channel
+    Usage: !!say #channel Hello everyone!
+           !!say Hello (sends in current channel)
+    """
+    target_channel = channel or ctx.channel
+    
+    try:
+        # Send the message
+        sent_message = await target_channel.send(message)
+        
+        # Send confirmation
+        if target_channel != ctx.channel:
+            confirm_embed = discord.Embed(
+                description=f"✅ **Message sent to {target_channel.mention}**\n[Jump to message]({sent_message.jump_url})",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=confirm_embed, delete_after=10)
+        else:
+            # If sending in same channel, just delete command
+            await ctx.message.delete(delay=2)
+        
+        # Log
+        print(f"[SAY] {ctx.author} sent message to #{target_channel.name}: {message[:50]}...")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Failed to send message: {str(e)[:100]}")
+
+@say_group.command(name="embed")
+@commands.has_permissions(manage_messages=True)
+async def say_embed(ctx, channel: discord.TextChannel = None, *, content: str):
+    """
+    Send an embed message
+    Usage: !!say embed #channel Title | Description
+           !!say embed Welcome | Hello everyone!
+    """
+    target_channel = channel or ctx.channel
+    
+    # Parse title and description (split by |)
+    if "|" in content:
+        title, description = content.split("|", 1)
+        title = title.strip()
+        description = description.strip()
+    else:
+        title = "Message"
+        description = content
+    
+    try:
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=0x5865F2,
+            timestamp=datetime.datetime.utcnow()
+        )
+        
+        # Add author and footer
+        embed.set_author(
+            name=f"Sent by {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+        embed.set_footer(text="©️ 558 Discord Server")
+        
+        # Send embed
+        sent_message = await target_channel.send(embed=embed)
+        
+        # Confirm
+        if target_channel != ctx.channel:
+            confirm = await ctx.send(
+                f"✅ **Embed sent to {target_channel.mention}**\n"
+                f"[Jump to message]({sent_message.jump_url})"
+            )
+            await confirm.delete(delay=10)
+        
+        # Delete command
+        await ctx.message.delete(delay=2)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Failed to send embed: {str(e)[:100]}")
+
+@say_group.command(name="reply")
+@commands.has_permissions(manage_messages=True)
+async def say_reply(ctx, message_id: int, *, reply_message: str):
+    """
+    Reply to a specific message
+    Usage: !!say reply 123456789 Hello (reply to message with that ID)
+    """
+    try:
+        # Try to find the message
+        target_message = await ctx.channel.fetch_message(message_id)
+        
+        # Send reply
+        await target_message.reply(reply_message)
+        
+        # Delete command
+        await ctx.message.delete(delay=2)
+        
+        print(f"[REPLY] {ctx.author} replied to message {message_id}")
+        
+    except discord.NotFound:
+        await ctx.send("❌ Message not found. Make sure the ID is correct.", delete_after=5)
+    except Exception as e:
+        await ctx.send(f"❌ Failed to reply: {str(e)[:100]}")
+
+@say_group.command(name="dm")
+@commands.has_permissions(manage_messages=True)
+async def say_dm(ctx, user: discord.Member, *, message: str):
+    """
+    Send a DM to a user
+    Usage: !!say dm @user Hello!
+    """
+    try:
+        # Send DM
+        embed = discord.Embed(
+            title=f"Message from {ctx.guild.name}",
+            description=message,
+            color=0x5865F2,
+            timestamp=datetime.datetime.utcnow()
+        )
+        
+        embed.set_author(
+            name=f"From {ctx.author.display_name}",
+            icon_url=ctx.author.display_avatar.url
+        )
+        embed.set_footer(text="©️ 558 Discord Server")
+        
+        await user.send(embed=embed)
+        
+        # Confirm
+        confirm = await ctx.send(f"✅ **DM sent to {user.mention}**")
+        await confirm.delete(delay=5)
+        await ctx.message.delete(delay=2)
+        
+        print(f"[DM] {ctx.author} DM'd {user}: {message[:50]}...")
+        
+    except discord.Forbidden:
+        await ctx.send(f"❌ Cannot DM {user.mention}. They might have DMs disabled.", delete_after=5)
+    except Exception as e:
+        await ctx.send(f"❌ Failed to send DM: {str(e)[:100]}")
+
+# --- QUICK ALIASES ---
+@bot.command(name="send")
+@commands.has_permissions(manage_messages=True)
+async def quick_send(ctx, channel: discord.TextChannel = None, *, message: str):
+    """Quick send: !!send #channel message"""
+    await say_send.invoke(ctx, channel=channel, message=message)
+
+@bot.command(name="message")
+@commands.has_permissions(manage_messages=True)
+async def quick_message(ctx, *, message: str):
+    """Quick message in current channel: !!message hello"""
+    await say_send.invoke(ctx, channel=None, message=message)
+
+
 # --- 8. EVENTS ---
 @bot.event
 async def on_ready():
