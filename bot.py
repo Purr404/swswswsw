@@ -388,21 +388,46 @@ async def send_dm(ctx, user: discord.Member, *, message: str):
         await ctx.send(f"❌ Error: {str(e)[:100]}")
 
 # --- REPLY COMMAND ---
-@bot.command(name="reply")
+@bot.command(name="smartreply")
 @commands.has_permissions(manage_messages=True)
-async def reply_to(ctx, message_id: int, *, reply_message: str):
+async def smart_reply(ctx, message_id: int, *, reply_message: str):
     """
-    Reply to a message
-    Usage: !!reply 123456789012345678 Your reply
+    Try to find and reply to message in any channel
+    Usage: !!smartreply 123456789012345678 Your reply
     """
-    try:
-        target_message = await ctx.channel.fetch_message(message_id)
-        await target_message.reply(reply_message)
-        await ctx.message.delete(delay=2)
-    except discord.NotFound:
-        await ctx.send("❌ Message not found", delete_after=5)
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
+    message_found = False
+    
+    # Search through all text channels
+    for channel in ctx.guild.text_channels:
+        try:
+            # Check if bot has permission to read this channel
+            if channel.permissions_for(ctx.guild.me).read_messages:
+                try:
+                    # Try to fetch the message
+                    message_to_reply = await channel.fetch_message(message_id)
+                    
+                    # Found it! Reply and stop searching
+                    await message_to_reply.reply(reply_message)
+                    await ctx.send(f"✅ Replied in {channel.mention}", delete_after=5)
+                    await ctx.message.delete()
+                    message_found = True
+                    break
+                    
+                except discord.NotFound:
+                    continue  # Message not in this channel, try next
+        except:
+            continue
+    
+    if not message_found:
+        await ctx.send(
+            "❌ **Could not find message!**\n"
+            "The message might be:\n"
+            "• In a channel I can't access\n"
+            "• Deleted\n"
+            "• Wrong ID\n\n"
+            "Try: `!!replyto #channel message_id your_message`",
+            delete_after=10
+        )
 
 # --- 8. EVENTS ---
 @bot.event
