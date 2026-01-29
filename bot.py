@@ -431,6 +431,14 @@ async def smart_reply(ctx, message_id: int, *, reply_message: str):
 
 
 
+import discord
+from discord.ext import commands, tasks
+import asyncio
+import json
+import random
+from datetime import datetime, timedelta
+import os
+
 # --- QUIZ SYSTEM ---
 class QuizSystem:
     def __init__(self):
