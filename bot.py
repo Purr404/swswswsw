@@ -230,15 +230,31 @@ async def say_group(ctx):
     )
     await ctx.send(embed=embed)
 
+# --- FIXED: Use converter for optional channel ---
 @say_group.command(name="send")
 @commands.has_permissions(manage_messages=True)
-async def say_send(ctx, channel: discord.TextChannel = None, *, message: str):
+async def say_send(ctx, target: str = None, *, message: str = None):
     """
     Send a message to any channel
     Usage: !!say #channel Hello everyone!
            !!say Hello (sends in current channel)
     """
-    target_channel = channel or ctx.channel
+    # Handle the case where no target is provided
+    if message is None:
+        # If no target, the entire content is the message
+        message = target
+        target_channel = ctx.channel
+        target = None
+    else:
+        # Try to parse target as a channel
+        try:
+            # Try to convert target to a channel
+            converter = commands.TextChannelConverter()
+            target_channel = await converter.convert(ctx, target)
+        except:
+            # If conversion fails, treat target as part of message
+            message = f"{target} {message}"
+            target_channel = ctx.channel
     
     try:
         # Send the message
@@ -261,23 +277,58 @@ async def say_send(ctx, channel: discord.TextChannel = None, *, message: str):
     except Exception as e:
         await ctx.send(f"❌ Failed to send message: {str(e)[:100]}")
 
-@say_group.command(name="embed")
+# Alternative simpler version:
+@bot.command(name="sendto")
 @commands.has_permissions(manage_messages=True)
-async def say_embed(ctx, channel: discord.TextChannel = None, *, content: str):
+async def send_to(ctx, channel: discord.TextChannel, *, message: str):
     """
-    Send an embed message
-    Usage: !!say embed #channel Title | Description
-           !!say embed Welcome | Hello everyone!
+    Send message to specific channel
+    Usage: !!sendto #channel Your message here
+    """
+    try:
+        sent_message = await channel.send(message)
+        
+        confirm_embed = discord.Embed(
+            description=f"✅ **Message sent to {channel.mention}**\n[Jump to message]({sent_message.jump_url})",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=confirm_embed, delete_after=10)
+        await ctx.message.delete(delay=2)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
+
+@bot.command(name="sendhere")
+@commands.has_permissions(manage_messages=True)
+async def send_here(ctx, *, message: str):
+    """
+    Send message in current channel
+    Usage: !!sendhere Your message here
+    """
+    try:
+        await ctx.send(message)
+        await ctx.message.delete(delay=2)
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
+
+# --- SIMPLER EMBED COMMAND ---
+@bot.command(name="embed")
+@commands.has_permissions(manage_messages=True)
+async def send_embed(ctx, channel: discord.TextChannel = None, *, content: str):
+    """
+    Send embed message
+    Usage: !!embed #channel Title | Description
+           !!embed Title | Description (sends in current channel)
     """
     target_channel = channel or ctx.channel
     
-    # Parse title and description (split by |)
+    # Parse title and description
     if "|" in content:
         title, description = content.split("|", 1)
         title = title.strip()
         description = description.strip()
     else:
-        title = "Message"
+        title = "Announcement"
         description = content
     
     try:
@@ -288,65 +339,33 @@ async def say_embed(ctx, channel: discord.TextChannel = None, *, content: str):
             timestamp=datetime.datetime.utcnow()
         )
         
-        # Add author and footer
         embed.set_author(
-            name=f"Sent by {ctx.author.display_name}",
+            name=f"From {ctx.author.display_name}",
             icon_url=ctx.author.display_avatar.url
         )
         embed.set_footer(text="©️ 558 Discord Server")
         
-        # Send embed
         sent_message = await target_channel.send(embed=embed)
         
-        # Confirm
         if target_channel != ctx.channel:
-            confirm = await ctx.send(
-                f"✅ **Embed sent to {target_channel.mention}**\n"
-                f"[Jump to message]({sent_message.jump_url})"
-            )
-            await confirm.delete(delay=10)
+            await ctx.send(f"✅ Embed sent to {target_channel.mention}", delete_after=5)
         
-        # Delete command
         await ctx.message.delete(delay=2)
         
     except Exception as e:
-        await ctx.send(f"❌ Failed to send embed: {str(e)[:100]}")
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
 
-@say_group.command(name="reply")
+# --- DM COMMAND ---
+@bot.command(name="dm")
 @commands.has_permissions(manage_messages=True)
-async def say_reply(ctx, message_id: int, *, reply_message: str):
+async def send_dm(ctx, user: discord.Member, *, message: str):
     """
-    Reply to a specific message
-    Usage: !!say reply 123456789 Hello (reply to message with that ID)
+    Send DM to a user
+    Usage: !!dm @user Your message here
     """
     try:
-        # Try to find the message
-        target_message = await ctx.channel.fetch_message(message_id)
-        
-        # Send reply
-        await target_message.reply(reply_message)
-        
-        # Delete command
-        await ctx.message.delete(delay=2)
-        
-        print(f"[REPLY] {ctx.author} replied to message {message_id}")
-        
-    except discord.NotFound:
-        await ctx.send("❌ Message not found. Make sure the ID is correct.", delete_after=5)
-    except Exception as e:
-        await ctx.send(f"❌ Failed to reply: {str(e)[:100]}")
-
-@say_group.command(name="dm")
-@commands.has_permissions(manage_messages=True)
-async def say_dm(ctx, user: discord.Member, *, message: str):
-    """
-    Send a DM to a user
-    Usage: !!say dm @user Hello!
-    """
-    try:
-        # Send DM
         embed = discord.Embed(
-            title=f"Message from {ctx.guild.name}",
+            title=f"Message from {ctx.guild.name} Staff",
             description=message,
             color=0x5865F2,
             timestamp=datetime.datetime.utcnow()
@@ -360,31 +379,30 @@ async def say_dm(ctx, user: discord.Member, *, message: str):
         
         await user.send(embed=embed)
         
-        # Confirm
-        confirm = await ctx.send(f"✅ **DM sent to {user.mention}**")
-        await confirm.delete(delay=5)
+        await ctx.send(f"✅ DM sent to {user.mention}", delete_after=5)
         await ctx.message.delete(delay=2)
         
-        print(f"[DM] {ctx.author} DM'd {user}: {message[:50]}...")
-        
     except discord.Forbidden:
-        await ctx.send(f"❌ Cannot DM {user.mention}. They might have DMs disabled.", delete_after=5)
+        await ctx.send(f"❌ Cannot DM {user.mention} (DMs disabled)", delete_after=5)
     except Exception as e:
-        await ctx.send(f"❌ Failed to send DM: {str(e)[:100]}")
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
 
-# --- QUICK ALIASES ---
-@bot.command(name="send")
+# --- REPLY COMMAND ---
+@bot.command(name="reply")
 @commands.has_permissions(manage_messages=True)
-async def quick_send(ctx, channel: discord.TextChannel = None, *, message: str):
-    """Quick send: !!send #channel message"""
-    await say_send.invoke(ctx, channel=channel, message=message)
-
-@bot.command(name="message")
-@commands.has_permissions(manage_messages=True)
-async def quick_message(ctx, *, message: str):
-    """Quick message in current channel: !!message hello"""
-    await say_send.invoke(ctx, channel=None, message=message)
-
+async def reply_to(ctx, message_id: int, *, reply_message: str):
+    """
+    Reply to a message
+    Usage: !!reply 123456789012345678 Your reply
+    """
+    try:
+        target_message = await ctx.channel.fetch_message(message_id)
+        await target_message.reply(reply_message)
+        await ctx.message.delete(delay=2)
+    except discord.NotFound:
+        await ctx.send("❌ Message not found", delete_after=5)
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
 
 # --- 8. EVENTS ---
 @bot.event
