@@ -41,7 +41,7 @@ class AnnouncementSystem:
         
         # YOUR CUSTOM FOOTER
         embed.set_footer(
-            text="TH 558 Discord Server • Official Announcement",
+            text="©️ 558 Discord Server • Official Announcement",
             icon_url="https://cdn.discordapp.com/emojis/1065149931136663624.png"
         )
         
@@ -70,18 +70,7 @@ class AnnouncementSystem:
 # --- 4. Create announcement system AFTER bot is defined ---
 announcements = AnnouncementSystem()
 
-# --- 5. YOUR EXISTING ROLE SETUP VIEW (keep this) ---
-class RoleSetupView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.selected_troop = None
-        self.selected_languages = []
-        self.selected_server = None
-    
-    # ... [KEEP ALL YOUR EXISTING BUTTON CODE HERE] ...
-    # Add your existing RoleSetupView code here
-
-# --- 6. ANNOUNCEMENT COMMANDS ---
+# --- 5. ANNOUNCEMENT COMMANDS ---
 @bot.group(name="announce", invoke_without_command=True)
 @commands.has_permissions(manage_messages=True)
 async def announce_group(ctx):
@@ -217,39 +206,6 @@ async def quick_announce(ctx, *, message: str):
     """Quick announcement"""
     await announce_send.invoke(ctx, message=message)
 
-# --- 7. YOUR EXISTING COMMANDS (add these back) ---
-@bot.command(name="createsetup")
-@commands.has_permissions(administrator=True)
-async def createsetup(ctx):
-    """Create role setup message"""
-    embed = discord.Embed(
-        title="Channels & Roles",
-        description="### Customize\nAnswer questions to get access to more channels and roles.",
-        color=0x5865F2
-    )
-    
-    embed.add_field(
-        name="Please select your main troop type *",
-        value="✅ Horde\n⬜ League\n⬜ Nature",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Please select any languages you speak",
-        value="⬜ Chinese\n✅ English\n⬜ Japanese\n✅ Korean",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="Please select the server range of your main account *",
-        value="⬜ Server 1 - 107\n⬜ Server 108 - 224\n✅ Server 225+",
-        inline=False
-    )
-    
-    embed.set_footer(text="Click buttons to select")
-    
-    await ctx.send(embed=embed, view=RoleSetupView())
-    await ctx.message.delete()
 
 @bot.command(name="ping")
 async def ping(ctx):
