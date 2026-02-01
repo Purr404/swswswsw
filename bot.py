@@ -1,12 +1,9 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord.ui import View, Button
 import os
-from datetime import datetime, timedelta
-import asyncio
-import json
-import random
-from typing import Optional
+import datetime
+
 TOKEN = os.getenv('TOKEN')
 
 # --- 1. FIRST: Create the bot instance ---
