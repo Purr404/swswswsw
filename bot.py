@@ -74,7 +74,6 @@ class AnnouncementSystem:
 announcements = AnnouncementSystem()
 
 # --- 5. ANNOUNCEMENT COMMANDS ---
-# --- ANNOUNCEMENT COMMANDS (Correct Version) ---
 @bot.group(name="announce", invoke_without_command=True)
 @commands.has_permissions(manage_messages=True)
 async def announce_group(ctx):
@@ -209,7 +208,6 @@ async def announce_urgent(ctx, *, message: str):
 async def quick_announce(ctx, *, message: str):
     """Quick announcement"""
     await announce_send.invoke(ctx, message=message)
-
 
 @bot.command(name="ping")
 async def ping(ctx):
