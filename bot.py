@@ -3,6 +3,7 @@ from discord.ext import commands
 from discord.ui import View, Button
 import os
 import datetime
+from typing import Optional
 
 TOKEN = os.getenv('TOKEN')
 
