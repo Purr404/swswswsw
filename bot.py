@@ -1244,6 +1244,95 @@ class QuizSystem:
         }
         return rank_emojis.get(rank, f"{rank}.")
 
+# QUIZ REWARDS SYSTEM  ----
+# In your QuizSystem class:
+
+async def distribute_quiz_rewards(self, sorted_participants):
+    """Distribute gems based on quiz performance"""
+    rewards = {}
+    total_participants = len(sorted_participants)
+    
+    for rank, (user_id, data) in enumerate(sorted_participants, 1):
+        base_gems = 50  # Participation reward (reduced from 100)
+        
+        # Rank-based bonuses (reduced)
+        if rank == 1:  # 1st place
+            base_gems += 500  # reduced from 1000
+        elif rank == 2:  # 2nd place
+            base_gems += 250  # reduced from 500
+        elif rank == 3:  # 3rd place
+            base_gems += 125  # reduced from 250
+        elif rank <= 10:  # Top 10
+            base_gems += 75   # reduced from 150
+        
+        # Score-based bonus: 10 gems per 100 points (reduced from 50)
+        score_bonus = (data["score"] // 100) * 10
+        base_gems += score_bonus
+        
+        # Perfect score bonus (reduced)
+        max_score = len(self.quiz_questions) * 300
+        if data["score"] == max_score:
+            base_gems += 250  # reduced from 500
+            reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+        else:
+            reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+        
+        # Speed bonus for fast answers
+        speed_bonus = self.calculate_speed_bonus(user_id)
+        if speed_bonus:
+            base_gems += speed_bonus
+            reason += f" + ⚡{speed_bonus} speed bonus"
+        
+        # Add gems to user
+        transaction = self.currency.add_gems(
+            user_id=user_id,
+            gems=base_gems,
+            reason=reason
+        )
+        
+        rewards[user_id] = {
+            "gems": base_gems,
+            "rank": rank
+        }
+        
+        # Log reward distribution
+        await self.log_reward(user_id, data["name"], base_gems, rank)
+    
+    return rewards
+
+def calculate_speed_bonus(self, user_id):
+    """Calculate speed bonus for fast answers"""
+    if user_id not in self.participants:
+        return 0
+    
+    speed_bonus = 0
+    for answer in self.participants[user_id]["answers"]:
+        if answer["correct"] and answer["time"] < 10:
+            # Bonus gems for answering under 10 seconds
+            speed_bonus += max(1, 10 - answer["time"])
+    
+    return min(speed_bonus, 50)  # Cap at 50 gems
+
+async def log_reward(self, user_id, username, gems, rank):
+    """Log reward distribution"""
+    if not self.quiz_logs_channel:
+        return
+    
+    embed = discord.Embed(
+        title="💰 **Gems Distributed**",
+        color=discord.Color.gold(),
+        timestamp=datetime.utcnow()
+    )
+    
+    embed.add_field(name="👤 User", value=username, inline=True)
+    embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
+    embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
+    embed.add_field(name="📊 Total", value=f"{gems} gems", inline=True)
+    
+    await self.quiz_logs_channel.send(embed=embed)
+
+# END REWARD CLASS -----
+
 # Create quiz system instance
 quiz_system = QuizSystem(bot)
 
@@ -1399,6 +1488,316 @@ async def quiz_stats(ctx):
         )
     
     await ctx.send(embed=embed)
+
+# CURRENCY COMMANDS -----
+
+@bot.group(name="currency", invoke_without_command=True)
+async def currency_group(ctx):
+    """Currency and rewards commands"""
+    # Get user balance
+    user_id = str(ctx.author.id)
+    balance = quiz_system.currency.get_balance(user_id)
+    
+    embed = discord.Embed(
+        title="💰 **Your Gems**",
+        description=f"**💎 {balance['gems']} gems**\n"
+                   f"Total earned: **{balance['total_earned']} gems**",
+        color=discord.Color.gold()
+    )
+    
+    # Check daily streak
+    user_data = quiz_system.currency.get_user(user_id)
+    if user_data["daily_streak"] > 0:
+        embed.add_field(
+            name="🔥 Daily Streak",
+            value=f"{user_data['daily_streak']} days",
+            inline=True
+        )
+    
+    # Check next daily
+    if quiz_system.currency.can_claim_daily(user_id):
+        embed.add_field(
+            name="🎁 Daily Reward",
+            value="Available now!",
+            inline=True
+        )
+    else:
+        embed.add_field(
+            name="⏰ Next Daily",
+            value="Check back soon",
+            inline=True
+        )
+    
+    embed.set_footer(text="Earn more by participating in quizzes!")
+    await ctx.send(embed=embed)
+
+@currency_group.command(name="leaderboard")
+async def currency_leaderboard(ctx):
+    """Show gems leaderboard"""
+    leaderboard = quiz_system.currency.get_leaderboard(limit=10)
+    
+    embed = discord.Embed(
+        title="🏆 **Gems Leaderboard**",
+        color=discord.Color.gold()
+    )
+    
+    if not leaderboard:
+        embed.description = "No data yet! Join a quiz to earn gems!"
+    else:
+        entries = []
+        for i, user in enumerate(leaderboard, 1):
+            try:
+                user_obj = await bot.fetch_user(int(user["user_id"]))
+                username = user_obj.display_name
+            except:
+                username = f"User {user['user_id'][:8]}"
+            
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            medal = medals[i-1] if i <= len(medals) else f"{i}."
+            
+            entries.append(f"{medal} **{username}** - 💎 {user['gems']:,}")
+        
+        embed.description = "\n".join(entries)
+    
+    await ctx.send(embed=embed)
+
+@currency_group.command(name="transfer")
+@commands.cooldown(1, 300, commands.BucketType.user)  # 5 minute cooldown
+async def currency_transfer(ctx, member: discord.Member, amount: int):
+    """Transfer gems to another user"""
+    if amount <= 0:
+        await ctx.send("❌ Amount must be positive!", delete_after=5)
+        return
+    
+    if amount > 1000:
+        await ctx.send("❌ Maximum transfer is 1,000 gems!", delete_after=5)
+        return
+    
+    if member.bot:
+        await ctx.send("❌ You can't transfer gems to bots!", delete_after=5)
+        return
+    
+    sender_id = str(ctx.author.id)
+    receiver_id = str(member.id)
+    
+    if sender_id == receiver_id:
+        await ctx.send("❌ You can't transfer gems to yourself!", delete_after=5)
+        return
+    
+    # Check sender's balance
+    sender_balance = quiz_system.currency.get_balance(sender_id)
+    
+    if sender_balance["gems"] < amount:
+        await ctx.send(f"❌ You don't have enough gems! You have {sender_balance['gems']} gems.", delete_after=5)
+        return
+    
+    # Transfer gems (5% tax)
+    tax = max(1, amount // 20)  # 5% tax, minimum 1 gem
+    net_amount = amount - tax
+    
+    # Deduct from sender (full amount)
+    quiz_system.currency.deduct_gems(
+        sender_id,
+        gems=amount,
+        reason=f"Transfer to {member.display_name}"
+    )
+    
+    # Add to receiver (after tax)
+    quiz_system.currency.add_gems(
+        receiver_id,
+        gems=net_amount,
+        reason=f"Received from {ctx.author.display_name}"
+    )
+    
+    embed = discord.Embed(
+        title="✅ **Transfer Successful!**",
+        description=f"Sent {amount} gems to {member.mention}\n"
+                   f"💰 **Tax:** {tax} gems\n"
+                   f"📥 **Net received:** {net_amount} gems",
+        color=discord.Color.green()
+    )
+    
+    await ctx.send(embed=embed)
+
+@currency_transfer.error
+async def currency_transfer_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        minutes = int(error.retry_after // 60)
+        seconds = int(error.retry_after % 60)
+        await ctx.send(f"⏰ Transfer cooldown! Try again in {minutes}m {seconds}s.", delete_after=5)
+
+@currency_group.command(name="daily")
+async def daily_reward(ctx):
+    """Claim daily reward (1-100 gems + streak bonus)"""
+    user_id = str(ctx.author.id)
+    
+    if not quiz_system.currency.can_claim_daily(user_id):
+        # Calculate time until next daily
+        user = quiz_system.currency.get_user(user_id)
+        last_claim = datetime.fromisoformat(user["last_daily"])
+        next_claim = last_claim.replace(hour=last_claim.hour, minute=last_claim.minute)
+        next_claim = next_claim.replace(day=last_claim.day + 1)
+        
+        hours_left = (next_claim - datetime.utcnow()).seconds // 3600
+        minutes_left = ((next_claim - datetime.utcnow()).seconds % 3600) // 60
+        
+        await ctx.send(
+            f"⏰ You can claim your daily reward in {hours_left}h {minutes_left}m!\n"
+            f"Current streak: **{user['daily_streak']} days** 🔥",
+            delete_after=10
+        )
+        return
+    
+    # Claim daily reward
+    transaction = quiz_system.currency.claim_daily(user_id)
+    user = quiz_system.currency.get_user(user_id)
+    
+    # Extract gems from transaction
+    gems_earned = transaction["gems"]
+    
+    embed = discord.Embed(
+        title="🎁 **Daily Reward Claimed!**",
+        description=f"Here's your daily reward, {ctx.author.mention}!",
+        color=discord.Color.gold()
+    )
+    
+    embed.add_field(
+        name="💎 Gems Earned",
+        value=f"**+{gems_earned} gems**",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🔥 Daily Streak",
+        value=f"**{user['daily_streak']} days**",
+        inline=True
+    )
+    
+    # Show next claim info
+    next_claim = datetime.fromisoformat(user["last_daily"]).replace(
+        hour=datetime.fromisoformat(user["last_daily"]).hour,
+        minute=datetime.fromisoformat(user["last_daily"]).minute
+    )
+    next_claim = next_claim.replace(day=next_claim.day + 1)
+    
+    embed.set_footer(text="Come back tomorrow for more gems!")
+    await ctx.send(embed=embed)
+
+# Add stats command
+@currency_group.command(name="stats")
+async def currency_stats(ctx, member: discord.Member = None):
+    """Show detailed currency statistics"""
+    target = member or ctx.author
+    user_id = str(target.id)
+    
+    balance = quiz_system.currency.get_balance(user_id)
+    user_data = quiz_system.currency.get_user(user_id)
+    
+    embed = discord.Embed(
+        title=f"📊 **{target.display_name}'s Gem Stats**",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="💰 **Current Balance**",
+        value=f"💎 **{balance['gems']:,} gems**",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📈 **Lifetime Earnings**",
+        value=f"**{balance['total_earned']:,} gems** earned",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🔥 **Daily Streak**",
+        value=f"**{user_data['daily_streak']} days**",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🔄 **Transactions**",
+        value=f"**{len(user_data['transactions'])}** recorded",
+        inline=True
+    )
+    
+    # Recent transactions (last 5)
+    if user_data["transactions"]:
+        recent = user_data["transactions"][-5:]
+        recent_text = []
+        for tx in reversed(recent):
+            sign = "+" if tx["gems"] > 0 else ""
+            reason = tx["reason"][:20] + "..." if len(tx["reason"]) > 20 else tx["reason"]
+            recent_text.append(f"`{sign}{tx['gems']}` gems - {reason}")
+        
+        embed.add_field(
+            name="📝 **Recent Activity**",
+            value="\n".join(recent_text) if recent_text else "No recent activity",
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
+# Update help command:
+"""
+**💰 Gems System**
+• `!!currency` - Check your gems balance
+• `!!currency leaderboard` - Show top gem earners
+• `!!currency transfer @user amount` - Send gems (5% tax)
+• `!!currency daily` - Claim daily reward (1-100 gems + streak bonus)
+• `!!currency stats [@user]` - View detailed stats
+
+**🎯 Quiz Rewards**
+• 1st Place: 💎 500 gems + participation
+• 2nd Place: 💎 250 gems + participation  
+• 3rd Place: 💎 125 gems + participation
+• Top 10: 💎 75 gems + participation
+• All Participants: 💎 50 gems
+• Score Bonus: +10 gems per 100 points
+• Perfect Score: 💎 250 gems bonus
+• Speed Bonus: +1-10 gems per fast answer
+"""
+# END CURRENCY COMMAND ----
+
+# QUIZ END DISPLAY ------
+
+async def end_quiz(self):
+    """End the entire quiz and distribute rewards"""
+    # ... existing code ...
+    
+    # Show top 3 with rewards
+    top_3 = []
+    for i, (user_id, data) in enumerate(sorted_participants[:3]):
+        reward = rewards_distributed.get(user_id, {})
+        gems = reward.get("gems", 0)
+        
+        medal = ["🥇", "🥈", "🥉"][i]
+        top_3.append(
+            f"{medal} **{data['name']}** - {data['score']} pts\n"
+            f"   Reward: 💎 {gems} gems"
+        )
+    
+    if top_3:
+        embed.add_field(
+            name="🏆 **TOP 3 WINNERS**",
+            value="\n".join(top_3),
+            inline=False
+        )
+    
+    # Show participation rewards
+    if len(sorted_participants) > 3:
+        embed.add_field(
+            name="🎁 **Participation Rewards**",
+            value=f"All {len(sorted_participants)} participants received:\n"
+                  f"• 💎 50 gems for joining\n"
+                  f"• +10 gems per 100 points scored\n"
+                  f"• Speed bonuses for fast answers!",
+            inline=False
+        )
+
+# END END DISPLAY -----
+
 
 # --- ANSWER DETECTION ---
 @bot.event
