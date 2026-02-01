@@ -76,6 +76,7 @@ class AnnouncementSystem:
 announcements = AnnouncementSystem()
 
 # --- 5. ANNOUNCEMENT COMMANDS ---
+# --- ANNOUNCEMENT COMMANDS (Correct Version) ---
 @bot.group(name="announce", invoke_without_command=True)
 @commands.has_permissions(manage_messages=True)
 async def announce_group(ctx):
