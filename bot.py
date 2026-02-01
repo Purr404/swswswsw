@@ -1,10 +1,21 @@
+
+
+import os
+import sys
+
+print("=== DEBUG INFO ===")
+print("Current working directory:", os.getcwd())
+print("Python path:", sys.path)
+print("Files in directory:", os.listdir('.'))
+print("==================")
+
 import discord
 from discord.ext import commands, tasks
 from discord.ui import View, Button
 import os
 import datetime
 from typing import Optional
-from .currency_system import CurrencySystem
+from currency_system import CurrencySystem
 
 TOKEN = os.getenv('TOKEN')
 
