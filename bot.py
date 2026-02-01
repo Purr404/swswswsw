@@ -1,8 +1,13 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import View, Button
 import os
 import datetime
+import asyncio
+import json
+import random
+from datetime import datetime, timedelta
+from typing import Optional
 
 TOKEN = os.getenv('TOKEN')
 
@@ -230,31 +235,27 @@ async def say_group(ctx):
     )
     await ctx.send(embed=embed)
 
-# --- FIXED: Use converter for optional channel ---
+# --- FIXED SAY COMMAND ---
 @say_group.command(name="send")
 @commands.has_permissions(manage_messages=True)
-async def say_send(ctx, target: str = None, *, message: str = None):
+async def say_send(ctx, target: Optional[discord.TextChannel] = None, *, message: str = None):
     """
     Send a message to any channel
     Usage: !!say #channel Hello everyone!
            !!say Hello (sends in current channel)
     """
-    # Handle the case where no target is provided
-    if message is None:
-        # If no target, the entire content is the message
-        message = target
+    # If no channel provided, send in current channel
+    if target is None:
+        # The entire content is the message
+        message = ctx.message.content[len(ctx.prefix + ctx.command.name) + 1:]
         target_channel = ctx.channel
-        target = None
     else:
-        # Try to parse target as a channel
-        try:
-            # Try to convert target to a channel
-            converter = commands.TextChannelConverter()
-            target_channel = await converter.convert(ctx, target)
-        except:
-            # If conversion fails, treat target as part of message
-            message = f"{target} {message}"
-            target_channel = ctx.channel
+        # Channel was provided, message is already set
+        target_channel = target
+    
+    if not message or message.strip() == "":
+        await ctx.send("❌ Please provide a message!")
+        return
     
     try:
         # Send the message
@@ -429,17 +430,7 @@ async def smart_reply(ctx, message_id: int, *, reply_message: str):
             delete_after=10
         )
 
-
-
-import discord
-from discord.ext import commands, tasks
-import asyncio
-import json
-import random
-from datetime import datetime, timedelta
-import os
-
-# --- QUIZ SYSTEM CLASS (Complete) ---
+# --- QUIZ SYSTEM CLASS (Complete with improvements) ---
 class QuizSystem:
     def __init__(self, bot):
         self.bot = bot
@@ -967,304 +958,509 @@ class QuizSystem:
         return embed
     
     async def end_quiz(self):
-    """End the entire quiz with improved leaderboard"""
-    self.quiz_running = False
-    self.countdown_task.stop()
-    
-    if self.question_timer:
-        self.question_timer.cancel()
-    
-    # Sort participants by score
-    sorted_participants = sorted(
-        self.participants.items(),
-        key=lambda x: x[1]["score"],
-        reverse=True
-    )
-    
-    # First, send a congratulations embed
-    embed = discord.Embed(
-        title="🏆 **QUIZ FINISHED!** 🏆",
-        description="Congratulations to all participants!\nHere are the final results:",
-        color=discord.Color.gold(),
-        timestamp=datetime.utcnow()
-    )
-    
-    # Add quiz statistics
-    total_questions = len(self.quiz_questions)
-    total_correct = sum(p['correct_answers'] for p in self.participants.values())
-    total_attempts = sum(len(p['answers']) for p in self.participants.values())
-    total_participants = len(self.participants)
-    
-    embed.add_field(
-        name="📊 **Quiz Statistics**",
-        value=(
-            f"**• Participants:** {total_participants}\n"
-            f"**• Questions:** {total_questions}\n"
-            f"**• Total Attempts:** {total_attempts}\n"
-            f"**• Correct Answers:** {total_correct}\n"
-            f"**• Overall Accuracy:** {round(total_correct/total_attempts*100 if total_attempts > 0 else 0, 1)}%\n"
-            f"**• Max Possible:** {total_questions * 300} pts"
-        ),
-        inline=False
-    )
-    
-    await self.quiz_channel.send(embed=embed)
-    
-    # Wait 2 seconds
-    await asyncio.sleep(2)
-    
-    # Send TOP 3 WINNERS with avatars
-    if len(sorted_participants) >= 3:
-        # Get top 3 users
-        top3_embed = discord.Embed(
-            title="🎉 **TOP 3 WINNERS** 🎉",
-            color=discord.Color.nitro_pink()
+        """End the entire quiz with improved leaderboard"""
+        self.quiz_running = False
+        self.countdown_task.stop()
+        
+        if self.question_timer:
+            self.question_timer.cancel()
+        
+        # Sort participants by score
+        sorted_participants = sorted(
+            self.participants.items(),
+            key=lambda x: x[1]["score"],
+            reverse=True
         )
         
-        # Fetch user objects for top 3
-        top3_users = []
-        for i in range(min(3, len(sorted_participants))):
-            user_id = int(sorted_participants[i][0])
-            user_data = sorted_participants[i][1]
-            
-            try:
-                user = await self.bot.fetch_user(user_id)
-                top3_users.append((user, user_data))
-            except:
-                # Fallback if can't fetch user
-                top3_users.append((None, user_data))
-        
-        # Define medals and colors
-        medals = ["🥇", "🥈", "🥉"]
-        colors = [0xFFD700, 0xC0C0C0, 0xCD7F32]  # Gold, Silver, Bronze
-        
-        # Create top 3 display
-        top3_text = ""
-        for i, (user, data) in enumerate(top3_users):
-            medal = medals[i]
-            
-            # Calculate accuracy
-            user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
-            
-            # Format user mention or name
-            user_display = user.mention if user else f"**{data['name']}**"
-            
-            top3_text += (
-                f"{medal} **{user_display}**\n"
-                f"   ⭐ **{data['score']}** points\n"
-                f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n"
-                f"   ⏱️ Avg time per correct answer: {self.calculate_average_time(data):.1f}s\n\n"
-            )
-        
-        top3_embed.description = top3_text
-        top3_embed.color = colors[0]  # Gold color for winner
-        
-        # Set winner's avatar as thumbnail
-        if top3_users[0][0] and top3_users[0][0].avatar:
-            top3_embed.set_thumbnail(url=top3_users[0][0].avatar.url)
-        
-        await self.quiz_channel.send(embed=top3_embed)
-    
-    # Wait 2 seconds
-    await asyncio.sleep(2)
-    
-    # Send FULL LEADERBOARD with pagination if many participants
-    if sorted_participants:
-        # Create main leaderboard embed
-        leaderboard_embed = discord.Embed(
-            title="📋 **FINAL LEADERBOARD**",
-            description="All participants ranked by score:",
-            color=discord.Color.blue(),
+        # First, send a congratulations embed
+        embed = discord.Embed(
+            title="🏆 **QUIZ FINISHED!** 🏆",
+            description="Congratulations to all participants!\nHere are the final results:",
+            color=discord.Color.gold(),
             timestamp=datetime.utcnow()
         )
         
-        # Split participants into chunks of 15 for readability
-        chunk_size = 15
-        chunks = [sorted_participants[i:i + chunk_size] 
-                 for i in range(0, len(sorted_participants), chunk_size)]
+        # Add quiz statistics
+        total_questions = len(self.quiz_questions)
+        total_correct = sum(p['correct_answers'] for p in self.participants.values())
+        total_attempts = sum(len(p['answers']) for p in self.participants.values())
+        total_participants = len(self.participants)
         
-        for chunk_idx, chunk in enumerate(chunks):
-            leaderboard_text = ""
-            
-            for rank, (user_id, data) in enumerate(chunk, start=chunk_idx * chunk_size + 1):
-                # Get rank emoji
-                rank_emoji = self.get_rank_emoji(rank)
-                
-                # Try to fetch user for avatar in field
-                try:
-                    user = await self.bot.fetch_user(int(user_id))
-                    user_display = user.display_name
-                except:
-                    user_display = data['name']
-                
-                # Calculate user stats
-                user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
-                avg_time = self.calculate_average_time(data)
-                
-                leaderboard_text += (
-                    f"{rank_emoji} **{user_display}**\n"
-                    f"   ⭐ {data['score']} pts | 📊 {data['correct_answers']}/{total_questions} ({user_accuracy}%)\n"
-                    f"   ⏱️ Avg: {avg_time:.1f}s | 📈 Rank: #{rank}\n"
-                )
-                
-                # Add separator between entries
-                if rank < len(chunk) + chunk_idx * chunk_size:
-                    leaderboard_text += "━━━━━━━━━━━━━━━━━━━━\n"
-            
-            # Add chunk as a field
-            field_name = f"🏆 **Rank {chunk_idx * chunk_size + 1}-{chunk_idx * chunk_size + len(chunk)}**"
-            if chunk_idx == 0:
-                field_name = "🏆 **TOP CONTENDERS**"
-            
-            leaderboard_embed.add_field(
-                name=field_name,
-                value=leaderboard_text if leaderboard_text else "No participants",
-                inline=False
+        embed.add_field(
+            name="📊 **Quiz Statistics**",
+            value=(
+                f"**• Participants:** {total_participants}\n"
+                f"**• Questions:** {total_questions}\n"
+                f"**• Total Attempts:** {total_attempts}\n"
+                f"**• Correct Answers:** {total_correct}\n"
+                f"**• Overall Accuracy:** {round(total_correct/total_attempts*100 if total_attempts > 0 else 0, 1)}%\n"
+                f"**• Max Possible:** {total_questions * 300} pts"
+            ),
+            inline=False
+        )
+        
+        await self.quiz_channel.send(embed=embed)
+        
+        # Wait 2 seconds
+        await asyncio.sleep(2)
+        
+        # Send TOP 3 WINNERS with avatars
+        if len(sorted_participants) >= 3:
+            # Get top 3 users
+            top3_embed = discord.Embed(
+                title="🎉 **TOP 3 WINNERS** 🎉",
+                color=discord.Color.nitro_pink()
             )
-        
-        # Add footer with quiz completion time
-        leaderboard_embed.set_footer(
-            text=f"Quiz completed • {total_participants} participants",
-            icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None
-        )
-        
-        await self.quiz_channel.send(embed=leaderboard_embed)
-    
-    # Wait 2 seconds
-    await asyncio.sleep(2)
-    
-    # Send INDIVIDUAL HIGHLIGHTS for special achievements
-    if sorted_participants:
-        highlights_embed = discord.Embed(
-            title="🌟 **SPECIAL ACHIEVEMENTS** 🌟",
-            color=discord.Color.purple()
-        )
-        
-        highlights = []
-        
-        # 1. Perfect Score (if any)
-        perfect_score_users = []
-        for user_id, data in sorted_participants:
-            if data['correct_answers'] == total_questions and data['score'] == total_questions * 300:
-                perfect_score_users.append(data['name'])
-        
-        if perfect_score_users:
-            if len(perfect_score_users) == 1:
-                highlights.append(f"🎯 **Perfect Score**: {perfect_score_users[0]} got ALL questions correct with maximum points!")
-            else:
-                highlights.append(f"🎯 **Perfect Scores**: {', '.join(perfect_score_users)} achieved perfect scores!")
-        
-        # 2. Fastest Average Answer
-        fastest_users = []
-        fastest_avg = float('inf')
-        for user_id, data in sorted_participants:
-            if data['correct_answers'] > 0:
-                avg_time = self.calculate_average_time(data)
-                if avg_time < fastest_avg:
-                    fastest_avg = avg_time
-                    fastest_users = [data['name']]
-                elif avg_time == fastest_avg:
-                    fastest_users.append(data['name'])
-        
-        if fastest_users and fastest_avg < float('inf'):
-            highlights.append(f"⚡ **Speed Demon**: {', '.join(fastest_users)} with average answer time of {fastest_avg:.1f}s!")
-        
-        # 3. Most Improved (compare first vs last half accuracy)
-        if len(sorted_participants) >= 5:
-            mid_point = total_questions // 2
-            most_improved_users = []
-            highest_improvement = 0
             
-            for user_id, data in sorted_participants:
-                # Calculate first half vs second half accuracy
-                first_half_correct = sum(1 for a in data['answers'] 
-                                       if a['question'] < mid_point and a['correct'])
-                second_half_correct = sum(1 for a in data['answers'] 
-                                        if a['question'] >= mid_point and a['correct'])
+            # Fetch user objects for top 3
+            top3_users = []
+            for i in range(min(3, len(sorted_participants))):
+                user_id = int(sorted_participants[i][0])
+                user_data = sorted_participants[i][1]
                 
-                if first_half_correct > 0 and second_half_correct > first_half_correct:
-                    improvement = (second_half_correct - first_half_correct) / first_half_correct * 100
-                    if improvement > highest_improvement:
-                        highest_improvement = improvement
-                        most_improved_users = [data['name']]
-                    elif improvement == highest_improvement:
-                        most_improved_users.append(data['name'])
+                try:
+                    user = await self.bot.fetch_user(user_id)
+                    top3_users.append((user, user_data))
+                except:
+                    # Fallback if can't fetch user
+                    top3_users.append((None, user_data))
             
-            if most_improved_users and highest_improvement > 0:
-                highlights.append(f"📈 **Most Improved**: {', '.join(most_improved_users)} improved by {highest_improvement:.0f}%!")
-        
-        # 4. Persistence Award (most attempts)
-        most_attempts_users = []
-        max_attempts = 0
-        for user_id, data in sorted_participants:
-            attempts = len(data['answers'])
-            if attempts > max_attempts:
-                max_attempts = attempts
-                most_attempts_users = [data['name']]
-            elif attempts == max_attempts:
-                most_attempts_users.append(data['name'])
-        
-        if most_attempts_users and max_attempts > total_questions:
-            highlights.append(f"💪 **Most Persistent**: {', '.join(most_attempts_users)} with {max_attempts} attempts!")
-        
-        # Add highlights to embed
-        if highlights:
-            highlights_text = "\n".join(highlights)
-            highlights_embed.description = highlights_text
+            # Define medals and colors
+            medals = ["🥇", "🥈", "🥉"]
+            colors = [0xFFD700, 0xC0C0C0, 0xCD7F32]  # Gold, Silver, Bronze
             
-            # Add a fun image or GIF based on achievements
+            # Create top 3 display
+            top3_text = ""
+            for i, (user, data) in enumerate(top3_users):
+                medal = medals[i]
+                
+                # Calculate accuracy
+                user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
+                
+                # Format user mention or name
+                user_display = user.mention if user else f"**{data['name']}**"
+                
+                top3_text += (
+                    f"{medal} **{user_display}**\n"
+                    f"   ⭐ **{data['score']}** points\n"
+                    f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n"
+                    f"   ⏱️ Avg time per correct answer: {self.calculate_average_time(data):.1f}s\n\n"
+                )
+            
+            top3_embed.description = top3_text
+            top3_embed.color = colors[0]  # Gold color for winner
+            
+            # Set winner's avatar as thumbnail
+            if top3_users[0][0] and top3_users[0][0].avatar:
+                top3_embed.set_thumbnail(url=top3_users[0][0].avatar.url)
+            
+            await self.quiz_channel.send(embed=top3_embed)
+        
+        # Wait 2 seconds
+        await asyncio.sleep(2)
+        
+        # Send FULL LEADERBOARD with pagination if many participants
+        if sorted_participants:
+            # Create main leaderboard embed
+            leaderboard_embed = discord.Embed(
+                title="📋 **FINAL LEADERBOARD**",
+                description="All participants ranked by score:",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+            
+            # Split participants into chunks of 15 for readability
+            chunk_size = 15
+            chunks = [sorted_participants[i:i + chunk_size] 
+                     for i in range(0, len(sorted_participants), chunk_size)]
+            
+            for chunk_idx, chunk in enumerate(chunks):
+                leaderboard_text = ""
+                
+                for rank, (user_id, data) in enumerate(chunk, start=chunk_idx * chunk_size + 1):
+                    # Get rank emoji
+                    rank_emoji = self.get_rank_emoji(rank)
+                    
+                    # Try to fetch user for avatar in field
+                    try:
+                        user = await self.bot.fetch_user(int(user_id))
+                        user_display = user.display_name
+                    except:
+                        user_display = data['name']
+                    
+                    # Calculate user stats
+                    user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
+                    avg_time = self.calculate_average_time(data)
+                    
+                    leaderboard_text += (
+                        f"{rank_emoji} **{user_display}**\n"
+                        f"   ⭐ {data['score']} pts | 📊 {data['correct_answers']}/{total_questions} ({user_accuracy}%)\n"
+                        f"   ⏱️ Avg: {avg_time:.1f}s | 📈 Rank: #{rank}\n"
+                    )
+                    
+                    # Add separator between entries
+                    if rank < len(chunk) + chunk_idx * chunk_size:
+                        leaderboard_text += "━━━━━━━━━━━━━━━━━━━━\n"
+                
+                # Add chunk as a field
+                field_name = f"🏆 **Rank {chunk_idx * chunk_size + 1}-{chunk_idx * chunk_size + len(chunk)}**"
+                if chunk_idx == 0:
+                    field_name = "🏆 **TOP CONTENDERS**"
+                
+                leaderboard_embed.add_field(
+                    name=field_name,
+                    value=leaderboard_text if leaderboard_text else "No participants",
+                    inline=False
+                )
+            
+            # Add footer with quiz completion time
+            leaderboard_embed.set_footer(
+                text=f"Quiz completed • {total_participants} participants",
+                icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None
+            )
+            
+            await self.quiz_channel.send(embed=leaderboard_embed)
+        
+        # Wait 2 seconds
+        await asyncio.sleep(2)
+        
+        # Send INDIVIDUAL HIGHLIGHTS for special achievements
+        if sorted_participants:
+            highlights_embed = discord.Embed(
+                title="🌟 **SPECIAL ACHIEVEMENTS** 🌟",
+                color=discord.Color.purple()
+            )
+            
+            highlights = []
+            
+            # 1. Perfect Score (if any)
+            perfect_score_users = []
+            for user_id, data in sorted_participants:
+                if data['correct_answers'] == total_questions and data['score'] == total_questions * 300:
+                    perfect_score_users.append(data['name'])
+            
             if perfect_score_users:
-                highlights_embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/1065149931136663624.png")
-            elif fastest_users:
-                highlights_embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/852424893657710623.png")
+                if len(perfect_score_users) == 1:
+                    highlights.append(f"🎯 **Perfect Score**: {perfect_score_users[0]} got ALL questions correct with maximum points!")
+                else:
+                    highlights.append(f"🎯 **Perfect Scores**: {', '.join(perfect_score_users)} achieved perfect scores!")
             
-            await self.quiz_channel.send(embed=highlights_embed)
+            # 2. Fastest Average Answer
+            fastest_users = []
+            fastest_avg = float('inf')
+            for user_id, data in sorted_participants:
+                if data['correct_answers'] > 0:
+                    avg_time = self.calculate_average_time(data)
+                    if avg_time < fastest_avg:
+                        fastest_avg = avg_time
+                        fastest_users = [data['name']]
+                    elif avg_time == fastest_avg:
+                        fastest_users.append(data['name'])
+            
+            if fastest_users and fastest_avg < float('inf'):
+                highlights.append(f"⚡ **Speed Demon**: {', '.join(fastest_users)} with average answer time of {fastest_avg:.1f}s!")
+            
+            # 3. Most Improved (compare first vs last half accuracy)
+            if len(sorted_participants) >= 5:
+                mid_point = total_questions // 2
+                most_improved_users = []
+                highest_improvement = 0
+                
+                for user_id, data in sorted_participants:
+                    # Calculate first half vs second half accuracy
+                    first_half_correct = sum(1 for a in data['answers'] 
+                                           if a['question'] < mid_point and a['correct'])
+                    second_half_correct = sum(1 for a in data['answers'] 
+                                            if a['question'] >= mid_point and a['correct'])
+                    
+                    if first_half_correct > 0 and second_half_correct > first_half_correct:
+                        improvement = (second_half_correct - first_half_correct) / first_half_correct * 100
+                        if improvement > highest_improvement:
+                            highest_improvement = improvement
+                            most_improved_users = [data['name']]
+                        elif improvement == highest_improvement:
+                            most_improved_users.append(data['name'])
+                
+                if most_improved_users and highest_improvement > 0:
+                    highlights.append(f"📈 **Most Improved**: {', '.join(most_improved_users)} improved by {highest_improvement:.0f}%!")
+            
+            # 4. Persistence Award (most attempts)
+            most_attempts_users = []
+            max_attempts = 0
+            for user_id, data in sorted_participants:
+                attempts = len(data['answers'])
+                if attempts > max_attempts:
+                    max_attempts = attempts
+                    most_attempts_users = [data['name']]
+                elif attempts == max_attempts:
+                    most_attempts_users.append(data['name'])
+            
+            if most_attempts_users and max_attempts > total_questions:
+                highlights.append(f"💪 **Most Persistent**: {', '.join(most_attempts_users)} with {max_attempts} attempts!")
+            
+            # Add highlights to embed
+            if highlights:
+                highlights_text = "\n".join(highlights)
+                highlights_embed.description = highlights_text
+                
+                # Add a fun image or GIF based on achievements
+                if perfect_score_users:
+                    highlights_embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/1065149931136663624.png")
+                elif fastest_users:
+                    highlights_embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/852424893657710623.png")
+                
+                await self.quiz_channel.send(embed=highlights_embed)
+        
+        # Final message
+        final_embed = discord.Embed(
+            description="🎉 **Thank you for participating!** 🎉\n\nUse `!!quiz start` to play again!",
+            color=discord.Color.green()
+        )
+        final_embed.set_footer(text="Quiz System • Powered by 558 Discord Server")
+        
+        await self.quiz_channel.send(embed=final_embed)
+        
+        # Reset for next quiz
+        self.quiz_channel = None
+        self.quiz_logs_channel = None
+        self.current_question = 0
+        self.participants = {}
     
-    # Final message
-    final_embed = discord.Embed(
-        description="🎉 **Thank you for participating!** 🎉\n\nUse `!!quiz start` to play again!",
+    def calculate_average_time(self, user_data):
+        """Calculate average time for correct answers"""
+        correct_times = [a['time'] for a in user_data['answers'] if a['correct']]
+        if not correct_times:
+            return 0
+        return sum(correct_times) / len(correct_times)
+    
+    def get_rank_emoji(self, rank):
+        """Get appropriate emoji for rank position"""
+        rank_emojis = {
+            1: "🥇",
+            2: "🥈", 
+            3: "🥉",
+            4: "4️⃣",
+            5: "5️⃣",
+            6: "6️⃣",
+            7: "7️⃣",
+            8: "8️⃣",
+            9: "9️⃣",
+            10: "🔟"
+        }
+        return rank_emojis.get(rank, f"{rank}.")
+
+# Create quiz system instance
+quiz_system = QuizSystem(bot)
+
+# --- QUIZ COMMANDS ---
+@bot.group(name="quiz", invoke_without_command=True)
+@commands.has_permissions(manage_messages=True)
+async def quiz_group(ctx):
+    """Quiz system commands"""
+    embed = discord.Embed(
+        title="🎯 **Quiz System**",
+        description="**Commands:**\n"
+                   "• `!!quiz start` - Start quiz in THIS channel\n"
+                   "• `!!quiz start #channel` - Start quiz in specific channel\n"
+                   "• `!!quiz stop` - Stop current quiz\n"
+                   "• `!!quiz leaderboard` - Show current scores\n"
+                   "• `!!quiz addq` - Add a new question",
+        color=0x5865F2
+    )
+    await ctx.send(embed=embed)
+
+@quiz_group.command(name="start")
+@commands.has_permissions(manage_messages=True)
+async def quiz_start(ctx, channel: discord.TextChannel = None):
+    """
+    Start a quiz in specific channel
+    Usage: !!quiz start #channel  (starts in mentioned channel)
+           !!quiz start           (starts in current channel)
+    """
+    if quiz_system.quiz_running:
+        await ctx.send("❌ Quiz is already running!", delete_after=5)
+        return
+    
+    # Determine which channel to use
+    quiz_channel = channel or ctx.channel
+    
+    # Check permissions
+    if not quiz_channel.permissions_for(ctx.guild.me).send_messages:
+        await ctx.send(f"❌ I don't have permission to send messages in {quiz_channel.mention}!")
+        return
+    
+    # Find or create quiz-logs channel
+    logs_channel = discord.utils.get(ctx.guild.channels, name="quiz-logs")
+    if not logs_channel:
+        try:
+            logs_channel = await ctx.guild.create_text_channel(
+                "quiz-logs",
+                reason="Auto-created quiz logs channel"
+            )
+        except:
+            logs_channel = ctx.channel
+    
+    # Confirm
+    embed = discord.Embed(
+        description=f"✅ **Quiz starting in {quiz_channel.mention}!**\n"
+                   f"Logs will go to {logs_channel.mention}",
         color=discord.Color.green()
     )
-    final_embed.set_footer(text="Quiz System • Powered by 558 Discord Server")
+    await ctx.send(embed=embed, delete_after=10)
     
-    await self.quiz_channel.send(embed=final_embed)
+    # Start quiz
+    await quiz_system.start_quiz(quiz_channel, logs_channel)
+
+@quiz_group.command(name="stop")
+@commands.has_permissions(manage_messages=True)
+async def quiz_stop(ctx):
+    """Stop current quiz"""
+    if not quiz_system.quiz_running:
+        await ctx.send("❌ No quiz is running!", delete_after=5)
+        return
     
-    # Reset for next quiz
-    self.quiz_channel = None
-    self.quiz_logs_channel = None
-    self.current_question = 0
-    self.participants = {}
+    quiz_system.quiz_running = False
+    if quiz_system.question_timer:
+        quiz_system.question_timer.cancel()
+    
+    await ctx.send("✅ Quiz stopped!")
 
-def calculate_average_time(self, user_data):
-    """Calculate average time for correct answers"""
-    correct_times = [a['time'] for a in user_data['answers'] if a['correct']]
-    if not correct_times:
-        return 0
-    return sum(correct_times) / len(correct_times)
+@quiz_group.command(name="leaderboard")
+async def quiz_leaderboard(ctx):
+    """Show current quiz leaderboard"""
+    if not quiz_system.participants:
+        await ctx.send("❌ No quiz data available!", delete_after=5)
+        return
+    
+    # Create leaderboard embed
+    embed = await quiz_system.create_live_leaderboard()
+    await ctx.send(embed=embed)
 
-def get_rank_emoji(self, rank):
-    """Get appropriate emoji for rank position"""
-    rank_emojis = {
-        1: "🥇",
-        2: "🥈", 
-        3: "🥉",
-        4: "4️⃣",
-        5: "5️⃣",
-        6: "6️⃣",
-        7: "7️⃣",
-        8: "8️⃣",
-        9: "9️⃣",
-        10: "🔟"
-    }
-    return rank_emojis.get(rank, f"{rank}.")
+@quiz_group.command(name="addq")
+@commands.has_permissions(administrator=True)
+async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
+    """
+    Add a new quiz question
+    Format: !!quiz addq 300 60 Question? | correct answer 1 | correct answer 2
+    Example: !!quiz addq 300 60 Capital of France? | paris
+    """
+    try:
+        parts = question_data.split(" | ")
+        if len(parts) < 2:
+            await ctx.send("❌ Format: `Question? | correct answer 1 | correct answer 2`")
+            return
+        
+        new_question = {
+            "question": parts[0],
+            "correct_answers": [ans.lower().strip() for ans in parts[1:]],
+            "points": points,
+            "time_limit": time_limit
+        }
+        
+        quiz_system.quiz_questions.append(new_question)
+        
+        embed = discord.Embed(
+            title="✅ **Question Added!**",
+            description=new_question["question"],
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(name="✅ Correct Answers", 
+                       value=", ".join(new_question["correct_answers"]))
+        embed.add_field(name="⭐ Points", value=str(points))
+        embed.add_field(name="⏱️ Time Limit", value=f"{time_limit}s")
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
 
+@quiz_group.command(name="stats")
+@commands.has_permissions(manage_messages=True)
+async def quiz_stats(ctx):
+    """Show quiz statistics"""
+    embed = discord.Embed(
+        title="📊 **Quiz Statistics**",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="Questions Available",
+        value=str(len(quiz_system.quiz_questions)),
+        inline=True
+    )
+    
+    embed.add_field(
+        name="Quiz Status",
+        value="Running" if quiz_system.quiz_running else "Stopped",
+        inline=True
+    )
+    
+    if quiz_system.quiz_running:
+        embed.add_field(
+            name="Current Question",
+            value=f"{quiz_system.current_question + 1}/{len(quiz_system.quiz_questions)}",
+            inline=True
+        )
+    
+    await ctx.send(embed=embed)
+
+# --- ANSWER DETECTION ---
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    
+    # Check for quiz answers (any text answer)
+    if (quiz_system.quiz_running and 
+        message.channel == quiz_system.quiz_channel):
+        
+        # Process the answer silently (NO REACTIONS)
+        await quiz_system.process_answer(message.author, message.content)
+    
+    await bot.process_commands(message)
+
+# --- HELP COMMAND ---
+@bot.command(name="help")
+async def custom_help(ctx, command: str = None):
+    """Show help for commands"""
+    if command:
+        # Show specific command help
+        cmd = bot.get_command(command)
+        if cmd:
+            embed = discord.Embed(
+                title=f"Help: {cmd.name}",
+                description=cmd.help or "No description available",
+                color=0x5865F2
+            )
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ Command not found!")
+    else:
+        # Show all commands
+        embed = discord.Embed(
+            title="📚 Bot Commands",
+            description="**Announcement System**\n"
+                       "• `!!announce` - Announcement management\n"
+                       "• `!!a <message>` - Quick announcement\n\n"
+                       "**Message System**\n"
+                       "• `!!say` - Send messages\n"
+                       "• `!!embed` - Send embed message\n"
+                       "• `!!dm` - DM a user\n"
+                       "• `!!smartreply` - Reply to message\n\n"
+                       "**Quiz System**\n"
+                       "• `!!quiz` - Quiz management\n\n"
+                       "**Utility**\n"
+                       "• `!!ping` - Check bot latency\n"
+                       "• `!!help <command>` - Get command help",
+            color=0x5865F2
+        )
+        await ctx.send(embed=embed)
 
 # --- 8. EVENTS ---
 @bot.event
 async def on_ready():
     print(f"✅ {bot.user} is online!")
-    
-    # Make your view persistent
     
     await bot.change_presence(
         activity=discord.Activity(
@@ -1272,7 +1468,14 @@ async def on_ready():
             name=""
         )
     )
-    print("✅ Bot ready with announcements!")
+    print("✅ Bot ready with announcements and quiz system!")
+
+@bot.event
+async def on_disconnect():
+    print("Bot disconnected - cleaning up...")
+    if quiz_system.question_timer:
+        quiz_system.question_timer.cancel()
+    quiz_system.quiz_running = False
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -1280,12 +1483,23 @@ async def on_command_error(ctx, error):
         await ctx.send("❌ You don't have permission!")
     elif isinstance(error, commands.CommandNotFound):
         pass
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("❌ Invalid argument! Check command usage with `!!help <command>`")
     else:
         await ctx.send(f"❌ Error: {str(error)[:100]}")
+
+# --- ERROR HANDLERS ---
+@quiz_start.error
+async def quiz_start_error(ctx, error):
+    if isinstance(error, commands.BadArgument):
+        await ctx.send("❌ Invalid channel! Usage: `!!quiz start #channel`")
+    elif isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You need manage messages permission!")
 
 # --- 9. RUN BOT ---
 if __name__ == "__main__":
     if TOKEN:
         bot.run(TOKEN)
     else:
-        print("❌ ERROR: No TOKEN")
+        print("❌ ERROR: No TOKEN found in environment variables!")
+        print("Please set the TOKEN environment variable.")
