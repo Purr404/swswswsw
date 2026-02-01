@@ -4,7 +4,7 @@ from discord.ui import View, Button
 import os
 import datetime
 from typing import Optional
-from currency_system import CurrencySystem
+from .currency_system import CurrencySystem
 
 TOKEN = os.getenv('TOKEN')
 
