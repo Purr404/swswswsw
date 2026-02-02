@@ -22,6 +22,49 @@ def utc_now():
 
 TOKEN = os.getenv('TOKEN')
 
+
+#FIX INDENTATION ------
+# fix_indentation.py
+import re
+
+def fix_python_indentation(filename):
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    
+    # Step 1: Replace tabs with 4 spaces
+    lines = [line.replace('\t', '    ') for line in lines]
+    
+    # Step 2: Fix common indentation patterns
+    fixed_lines = []
+    for line in lines:
+        # Remove trailing whitespace
+        line = line.rstrip()
+        
+        # Check if line has content
+        if line.strip():
+            # Count leading spaces
+            leading_spaces = len(line) - len(line.lstrip())
+            
+            # Ensure indentation is multiple of 4
+            if leading_spaces % 4 != 0:
+                # Round to nearest multiple of 4
+                new_spaces = (leading_spaces // 4) * 4
+                line = ' ' * new_spaces + line.lstrip()
+        
+        # Add newline back
+        fixed_lines.append(line + '\n')
+    
+    # Write back
+    with open(filename, 'w') as f:
+        f.writelines(fixed_lines)
+    
+    print(f"Fixed indentation in {filename}")
+
+# Run it on your bot.py
+fix_python_indentation('/app/bot.py')
+
+# END FIX INDENTATION
+
 # --- 1. FIRST: Create the bot instance ---
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
