@@ -924,7 +924,7 @@ class QuizSystem:
             return False
         
         question = self.quiz_questions[self.current_question]
-        answer_time = (datetime.utcnow() - self.question_start_time).seconds
+        answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds  # FIXED
         
         # Check if time's up
         if answer_time > question["time_limit"]:
@@ -988,7 +988,7 @@ class QuizSystem:
         embed = discord.Embed(
             title="✅ **Correct Answer Logged**",
             color=discord.Color.green(),
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)  # FIXED
         )
         
         embed.add_field(name="👤 User", value=user.mention, inline=True)
@@ -1180,7 +1180,7 @@ class QuizSystem:
             title="🏆 **QUIZ FINISHED!** 🏆",
             description="Congratulations to all participants!\nHere are the final results:",
             color=discord.Color.gold(),
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)  # FIXED
         )
         
         # Add quiz statistics
@@ -1269,7 +1269,7 @@ class QuizSystem:
                 title="📋 **FINAL LEADERBOARD**",
                 description="All participants ranked by score:",
                 color=discord.Color.blue(),
-                timestamp=datetime.utcnow()
+                timestamp=datetime.now(timezone.utc)  # FIXED
             )
             
             # Split participants into chunks of 15 for readability
@@ -1529,7 +1529,7 @@ async def log_reward(self, user_id, username, gems, rank):
     embed = discord.Embed(
         title="💰 **Gems Distributed**",
         color=discord.Color.gold(),
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(timezone.utc)  # FIXED
     )
     
     embed.add_field(name="👤 User", value=username, inline=True)
