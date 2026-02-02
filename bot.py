@@ -155,7 +155,7 @@ class CurrencySystem:
             return True
         
         last_claim = datetime.fromisoformat(user["last_daily"])
-        now = datetime.now(datetime.UTC)
+        now = datetime.now(timezone.utc)
         
         # Check if 24 hours have passed
         hours_passed = (now - last_claim).total_seconds() / 3600
@@ -164,7 +164,7 @@ class CurrencySystem:
     def claim_daily(self, user_id: str):
         """Claim daily reward with streak bonus"""
         user = self.get_user(user_id)
-        now = datetime.now(datetime.UTC)
+        now = datetime.now(timezone.utc)
         
         # Check streak
         if user["last_daily"]:
@@ -213,7 +213,7 @@ class AnnouncementSystem:
             title=f"📢 **{title}**",
             description=message,
             color=color,
-            timestamp=datetime.datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         
         embed.set_author(
@@ -519,7 +519,7 @@ async def send_embed(ctx, channel: discord.TextChannel = None, *, content: str):
             title=title,
             description=description,
             color=0x5865F2,
-            timestamp=datetime.datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         
         embed.set_author(
@@ -551,7 +551,7 @@ async def send_dm(ctx, user: discord.Member, *, message: str):
             title=f"Message from {ctx.guild.name} Staff",
             description=message,
             color=0x5865F2,
-            timestamp=datetime.datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         
         embed.set_author(
@@ -866,7 +866,7 @@ class QuizSystem:
             return
         
         try:
-            elapsed = (datetime.utcnow() - self.question_start_time).seconds
+            elapsed = (datetime.now(timezone.utc) - self.question_start_time).seconds
             time_left = total_time - elapsed
             
             if time_left <= 0:
@@ -1881,9 +1881,9 @@ async def daily_reward(ctx):
     )
     
     # Show next claim info
-    next_claim = datetime.fromisoformat(user["last_daily"]).replace(
-        hour=datetime.fromisoformat(user["last_daily"]).hour,
-        minute=datetime.fromisoformat(user["last_daily"]).minute
+    next_claim = datetime.now(timezone.utc)(user["last_daily"]).replace(
+        hour=datetime.now(timezone.utc)(user["last_daily"]).hour,
+        minute=datetime.now(timezone.utc)(user["last_daily"]).minute
     )
     next_claim = next_claim.replace(day=next_claim.day + 1)
     
