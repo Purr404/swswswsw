@@ -622,6 +622,8 @@ class QuizSystem:
         self.quiz_logs_channel = None
         self.quiz_running = False
         self.question_start_time = None
+
+        self.currency = CurrencySystem()
         
         # Load 20 questions
         self.load_questions()
