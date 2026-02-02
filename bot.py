@@ -1229,7 +1229,9 @@ print(f"🔔 [DEBUG] Participants: {len(sorted_participants)}")
 
 
         # DISTRIBUTE REWARDS
-        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+async def some_function(self):
+    # 4 spaces
+    rewards_distributed = await self.distribute_quiz_rewards(sorted_participants) 
 print(f"🔔 [DEBUG] Rewards distributed: {len(rewards_distributed)} users")
 
 # Check if rewards were actually given
