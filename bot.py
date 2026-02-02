@@ -405,8 +405,84 @@ async def say_group(ctx):
     )
     await ctx.send(embed=embed)
 
+# --- FIXED SAY COMMAND ---
+@say_group.command(name="send")
+@commands.has_permissions(manage_messages=True)
+async def say_send(ctx, target: Optional[discord.TextChannel] = None, *, message: str = None):
+    """
+    Send a message to any channel
+    Usage: !!say #channel Hello everyone!
+           !!say Hello (sends in current channel)
+    """
+    # If no channel provided, send in current channel
+    if target is None:
+        # The entire content is the message
+        message = ctx.message.content[len(ctx.prefix + ctx.command.name) + 1:]
+        target_channel = ctx.channel
+    else:
+        # Channel was provided, message is already set
+        target_channel = target
 
-# SEND MESSAGES COMMAND --------
+    if not message or message.strip() == "":
+        await ctx.send("❌ Please provide a message!")
+        return
+
+    try:
+        # Send the message
+        sent_message = await target_channel.send(message)
+
+        # Send confirmation
+        if target_channel != ctx.channel:
+            confirm_embed = discord.Embed(
+                description=f"✅ **Message sent to {target_channel.mention}**\n[Jump to message]({sent_message.jump_url})",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=confirm_embed, delete_after=10)
+        else:
+            # If sending in same channel, just delete command
+            await ctx.message.delete(delay=2)
+
+        # Log
+        print(f"[SAY] {ctx.author} sent message to #{target_channel.name}: {message[:50]}...")
+
+    except Exception as e:
+        await ctx.send(f"❌ Failed to send message: {str(e)[:100]}")
+
+# Alternative simpler version:
+@bot.command(name="sendto")
+@commands.has_permissions(manage_messages=True)
+async def send_to(ctx, channel: discord.TextChannel, *, message: str):
+    """
+    Send message to specific channel
+    Usage: !!sendto #channel Your message here
+    """
+    try:
+        sent_message = await channel.send(message)
+
+        confirm_embed = discord.Embed(
+            description=f"✅ **Message sent to {channel.mention}**\n[Jump to message]({sent_message.jump_url})",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=confirm_embed, delete_after=10)
+        await ctx.message.delete(delay=2)
+
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
+
+@bot.command(name="sendhere")
+@commands.has_permissions(manage_messages=True)
+async def send_here(ctx, *, message: str):
+    """
+    Send message in current channel
+    Usage: !!sendhere Your message here
+    """
+    try:
+        await ctx.send(message)
+        await ctx.message.delete(delay=2)
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
+
+# END SEND MESSAGES COMMAND --------
 
 # --- SIMPLE CURRENCY SYSTEM FOR FALLBACK ---
 class SimpleCurrencySystem:
