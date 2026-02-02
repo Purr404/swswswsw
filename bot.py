@@ -15,7 +15,6 @@ import random
 from discord.ui import View, Button
 from datetime import datetime, timezone
 from typing import Optional
-from currency_db import CurrencyDatabase
 
 def utc_now():
     """Get current UTC datetime"""
