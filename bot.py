@@ -1248,7 +1248,7 @@ if not rewards_distributed:
         
         # Send rewards summary
     print(f"🔔 [DEBUG] Creating rewards embed...")
-        rewards_embed = discord.Embed(
+    rewards_embed = discord.Embed(
             title="💰 **Quiz Rewards Distributed!**",
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc)
@@ -1257,7 +1257,7 @@ if not rewards_distributed:
         # Show top 3 with rewards
         top_3 = []
         for i, (user_id, data) in enumerate(sorted_participants[:3]):
-            reward = rewards_distributed.get(user_id, {})
+    reward = rewards_distributed.get(user_id, {})
             gems = reward.get("gems", 0)
             
     print(f"🔔 [DEBUG] User {data['name']}: {gems} gems")
