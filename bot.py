@@ -1247,7 +1247,7 @@ if not rewards_distributed:
 
         
         # Send rewards summary
-        print(f"🔔 [DEBUG] Creating rewards embed...")
+    print(f"🔔 [DEBUG] Creating rewards embed...")
         rewards_embed = discord.Embed(
             title="💰 **Quiz Rewards Distributed!**",
             color=discord.Color.green(),
@@ -1260,8 +1260,7 @@ if not rewards_distributed:
             reward = rewards_distributed.get(user_id, {})
             gems = reward.get("gems", 0)
             
-
-            print(f"🔔 [DEBUG] User {data['name']}: {gems} gems")
+    print(f"🔔 [DEBUG] User {data['name']}: {gems} gems")
 
 
             medal = ["🥇", "🥈", "🥉"][i]
@@ -1278,8 +1277,7 @@ if not rewards_distributed:
             )
         
 
-
-        print(f"🔔 [DEBUG] Added top 3 to embed")
+    print(f"🔔 [DEBUG] Added top 3 to embed")
 
 
         # Show participation rewards
@@ -1292,7 +1290,7 @@ if not rewards_distributed:
                       f"• Speed bonuses for fast answers!",
                 inline=False
             )
-        print(f"🔔 [DEBUG] Added participation rewards to embed")
+    print(f"🔔 [DEBUG] Added participation rewards to embed")
 
      try:
         print(f"🔔 [DEBUG] Attempting to send rewards embed...")
