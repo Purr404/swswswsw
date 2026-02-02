@@ -1,0 +1,23 @@
+class CurrencySystem:
+    def __init__(self, filename="user_gems.json"):
+        print(f"Loading currency data from: {os.path.abspath(filename)}")
+        self.filename = filename
+        self.data = self.load_data()
+        print(f"Loaded {len(self.data)} users")
+    
+    def load_data(self):
+        """Load gems data from JSON file"""
+        print(f"Checking if file exists: {self.filename}")
+        print(f"File exists: {os.path.exists(self.filename)}")
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    print(f"Successfully loaded {len(data)} users")
+                    return data
+            except Exception as e:
+                print(f"Error loading file: {e}")
+                return {}
+        else:
+            print("File doesn't exist, creating empty data")
+            return {}
