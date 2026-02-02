@@ -17,7 +17,6 @@ from typing import Optional
 def utc_now():
     """Get current UTC datetime"""
     return datetime.now(timezone.utc)
-```
 
 
 
