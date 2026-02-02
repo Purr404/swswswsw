@@ -100,11 +100,11 @@ class CurrencySystem:
         
         # Deduct gems
         user["gems"] -= gems
-        user["last_updated"] = datetime.utcnow().isoformat()
+        user["last_updated"] = datetime.now(datetime.UTC).isoformat()
         
         # Record transaction
         transaction = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(datetime.UTC).isoformat(),
             "type": "purchase",
             "gems": -gems,
             "reason": reason,
@@ -151,7 +151,7 @@ class CurrencySystem:
             return True
         
         last_claim = datetime.fromisoformat(user["last_daily"])
-        now = datetime.utcnow()
+        now = datetime.now(datetime.UTC)
         
         # Check if 24 hours have passed
         hours_passed = (now - last_claim).total_seconds() / 3600
@@ -160,7 +160,7 @@ class CurrencySystem:
     def claim_daily(self, user_id: str):
         """Claim daily reward with streak bonus"""
         user = self.get_user(user_id)
-        now = datetime.utcnow()
+        now = datetime.now(datetime.UTC)
         
         # Check streak
         if user["last_daily"]:
