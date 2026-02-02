@@ -63,7 +63,7 @@ class CurrencySystem:
             self.data[user_id] = {
                 "gems": 0,
                 "total_earned": 0,
-                "last_updated": datetime.utcnow().isoformat(),
+                "last_updated": datetime.now(timezone.utc).isoformat(),  # FIXED
                 "daily_streak": 0,
                 "last_daily": None,
                 "transactions": []
@@ -77,11 +77,11 @@ class CurrencySystem:
         # Add gems
         user["gems"] += gems
         user["total_earned"] += gems
-        user["last_updated"] = datetime.utcnow().isoformat()
+        user["last_updated"] = datetime.now(timezone.utc).isoformat()  # FIXED
         
         # Record transaction
         transaction = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),  # FIXED
             "type": "reward",
             "gems": gems,
             "reason": reason,
@@ -105,11 +105,11 @@ class CurrencySystem:
         
         # Deduct gems
         user["gems"] -= gems
-        user["last_updated"] = datetime.now(datetime.UTC).isoformat()
+        user["last_updated"] = datetime.now(timezone.utc).isoformat()  # FIXED
         
         # Record transaction
         transaction = {
-            "timestamp": datetime.now(datetime.UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),  # FIXED
             "type": "purchase",
             "gems": -gems,
             "reason": reason,
