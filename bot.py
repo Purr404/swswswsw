@@ -1258,8 +1258,8 @@ if not rewards_distributed:
         # Show top 3 with rewards
     top_3 = []
     for i, (user_id, data) in enumerate(sorted_participants[:3]):
-    reward = rewards_distributed.get(user_id, {})
-            gems = reward.get("gems", 0)
+        reward = rewards_distributed.get(user_id, {})
+        gems = reward.get("gems", 0)
             
     print(f"🔔 [DEBUG] User {data['name']}: {gems} gems")
 
