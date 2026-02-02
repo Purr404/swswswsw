@@ -9,6 +9,7 @@ print("==================")
 
 import discord
 from discord.ext import commands, tasks
+import random
 from discord.ui import View, Button
 import os
 from datetime import datetime, timezone
