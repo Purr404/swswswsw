@@ -11,8 +11,13 @@ import discord
 from discord.ext import commands, tasks
 from discord.ui import View, Button
 import os
-from datetime import datetime, timezone, UTC
+from datetime import datetime, timezone
 from typing import Optional
+
+def utc_now():
+    """Get current UTC datetime"""
+    return datetime.now(timezone.utc)
+```
 
 
 
