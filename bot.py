@@ -1,5 +1,7 @@
 import os
 import sys
+import json  # ADD THIS
+import asyncio  # ADD THIS
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
@@ -11,15 +13,12 @@ import discord
 from discord.ext import commands, tasks
 import random
 from discord.ui import View, Button
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
 def utc_now():
     """Get current UTC datetime"""
     return datetime.now(timezone.utc)
-
-
 
 TOKEN = os.getenv('TOKEN')
 
@@ -63,7 +62,7 @@ class CurrencySystem:
             self.data[user_id] = {
                 "gems": 0,
                 "total_earned": 0,
-                "last_updated": datetime.now(timezone.utc).isoformat(),  # FIXED
+                "last_updated": datetime.now(timezone.utc).isoformat(),
                 "daily_streak": 0,
                 "last_daily": None,
                 "transactions": []
@@ -77,11 +76,11 @@ class CurrencySystem:
         # Add gems
         user["gems"] += gems
         user["total_earned"] += gems
-        user["last_updated"] = datetime.now(timezone.utc).isoformat()  # FIXED
+        user["last_updated"] = datetime.now(timezone.utc).isoformat()
         
         # Record transaction
         transaction = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),  # FIXED
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "reward",
             "gems": gems,
             "reason": reason,
@@ -105,11 +104,11 @@ class CurrencySystem:
         
         # Deduct gems
         user["gems"] -= gems
-        user["last_updated"] = datetime.now(timezone.utc).isoformat()  # FIXED
+        user["last_updated"] = datetime.now(timezone.utc).isoformat()
         
         # Record transaction
         transaction = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),  # FIXED
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "type": "purchase",
             "gems": -gems,
             "reason": reason,
@@ -201,7 +200,6 @@ class CurrencySystem:
 
 # CURRENCY CLASS END ----------
 
-
 # --- 3. ANNOUNCEMENT SYSTEM CLASS ---
 class AnnouncementSystem:
     def __init__(self):
@@ -259,364 +257,40 @@ class AnnouncementSystem:
 # --- 4. Create announcement system AFTER bot is defined ---
 announcements = AnnouncementSystem()
 
-# --- 5. ANNOUNCEMENT COMMANDS ---
-@bot.group(name="announce", invoke_without_command=True)
-@commands.has_permissions(manage_messages=True)
-async def announce_group(ctx):
-    """Announcement management system"""
-    embed = discord.Embed(
-        title="📢 **Announcement System**",
-        description=(
-            "**Commands:**\n"
-            "• `!!announce send <message>` - Send announcement\n"
-            "• `!!announce channel #channel` - Set announcement channel\n"
-            "• `!!announce preview <message>` - Preview announcement\n"
-            "• `!!announce image <url>` - Add image to announcement\n"
-            "• `!!announce urgent <message>` - Red urgent announcement\n"
-        ),
-        color=0x5865F2
-    )
-    await ctx.send(embed=embed)
+# --- SIMPLE CURRENCY SYSTEM FOR FALLBACK ---
+class SimpleCurrencySystem:
+    def __init__(self):
+        self.data = {}
+        print("Using SimpleCurrencySystem fallback")
+    
+    def get_balance(self, user_id):
+        if user_id not in self.data:
+            self.data[user_id] = {"gems": 0, "total_earned": 0}
+        return self.data[user_id]
+    
+    def add_gems(self, user_id, gems, reason=""):
+        balance = self.get_balance(user_id)
+        self.data[user_id]["gems"] += gems
+        self.data[user_id]["total_earned"] += gems
+        return {"gems": gems}
+    
+    def get_leaderboard(self, limit=10):
+        return []
+    
+    def get_user(self, user_id):
+        return self.get_balance(user_id)
+    
+    def can_claim_daily(self, user_id):
+        return True
+    
+    def claim_daily(self, user_id):
+        gems = random.randint(1, 100)
+        return self.add_gems(user_id, gems, "🎁 Daily Reward")
 
-@announce_group.command(name="send")
-@commands.has_permissions(manage_messages=True)
-async def announce_send(ctx, *, message: str):
-    """Send an announcement"""
-    channel = await announcements.get_announcement_channel(ctx.guild)
-    if not channel:
-        await ctx.send("❌ No announcement channel found! Use `!!announce channel #channel`")
-        return
-    
-    server_id = str(ctx.guild.id)
-    image_url = announcements.announcement_images.get(server_id)
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        image_url=image_url
-    )
-    
-    try:
-        sent_message = await channel.send("@here", embed=embed)
-        
-        await sent_message.add_reaction("📢")
-        await sent_message.add_reaction("✅")
-        
-        if server_id in announcements.announcement_images:
-            del announcements.announcement_images[server_id]
-        
-        confirm_embed = discord.Embed(
-            description=f"✅ **Announcement Sent!**\n**Channel:** {channel.mention}\n**Link:** [Jump to Message]({sent_message.jump_url})",
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=confirm_embed, delete_after=10)
-        await ctx.message.delete(delay=5)
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-@announce_group.command(name="channel")
-@commands.has_permissions(administrator=True)
-async def announce_channel(ctx, channel: discord.TextChannel):
-    """Set the announcement channel"""
-    server_id = str(ctx.guild.id)
-    announcements.announcement_channels[server_id] = channel.id
-    
-    embed = discord.Embed(
-        description=f"✅ **Announcement channel set to {channel.mention}**",
-        color=discord.Color.green()
-    )
-    await ctx.send(embed=embed)
-
-@announce_group.command(name="preview")
-@commands.has_permissions(manage_messages=True)
-async def announce_preview(ctx, *, message: str):
-    """Preview announcement"""
-    server_id = str(ctx.guild.id)
-    image_url = announcements.announcement_images.get(server_id)
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        title="ANNOUNCEMENT PREVIEW",
-        color=0x5865F2,
-        image_url=image_url
-    )
-    
-    await ctx.send("**📝 Preview:**", embed=embed)
-    await ctx.send("*Use `!!announce send` to post.*")
-
-@announce_group.command(name="image")
-@commands.has_permissions(manage_messages=True)
-async def announce_image(ctx, image_url: str):
-    """Set image for next announcement"""
-    if not (image_url.startswith("http://") or image_url.startswith("https://")):
-        await ctx.send("❌ Please provide a valid image URL")
-        return
-    
-    server_id = str(ctx.guild.id)
-    announcements.announcement_images[server_id] = image_url
-    
-    embed = discord.Embed(
-        title="✅ Image Set for Next Announcement",
-        color=discord.Color.green()
-    )
-    embed.set_image(url=image_url)
-    await ctx.send(embed=embed)
-
-@announce_group.command(name="urgent")
-@commands.has_permissions(manage_messages=True)
-async def announce_urgent(ctx, *, message: str):
-    """Send urgent announcement (red)"""
-    channel = await announcements.get_announcement_channel(ctx.guild)
-    if not channel:
-        await ctx.send("❌ No announcement channel set!")
-        return
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        title="🚨 URGENT ANNOUNCEMENT",
-        color=0xFF0000,
-        image_url=announcements.announcement_images.get(str(ctx.guild.id))
-    )
-    
-    sent_message = await channel.send("@everyone", embed=embed)
-    await sent_message.add_reaction("🚨")
-    await sent_message.add_reaction("⚠️")
-    
-    await ctx.send(f"✅ Urgent announcement sent!", delete_after=5)
-    await ctx.message.delete(delay=3)
-
-# Quick alias
-@bot.command(name="a")
-@commands.has_permissions(manage_messages=True)
-async def quick_announce(ctx, *, message: str):
-    """Quick announcement"""
-    await announce_send.invoke(ctx, message=message)
-
-@bot.command(name="ping")
-async def ping(ctx):
-    await ctx.send("🏓 Pong!")
-
-# --- MESSAGE SENDING SYSTEM ---
-@bot.group(name="say", invoke_without_command=True)
-@commands.has_permissions(manage_messages=True)
-async def say_group(ctx):
-    """Send messages through the bot"""
-    embed = discord.Embed(
-        title="💬 Message Sending System",
-        description=(
-            "**Commands:**\n"
-            "• `!!say <message>` - Send message in current channel\n"
-            "• `!!say #channel <message>` - Send to specific channel\n"
-            "• `!!say embed #channel <title> | <description>` - Send embed\n"
-            "• `!!say reply <message_id> <message>` - Reply to a message\n"
-            "• `!!say dm @user <message>` - Send DM to user\n"
-        ),
-        color=0x5865F2
-    )
-    await ctx.send(embed=embed)
-
-# --- FIXED SAY COMMAND ---
-@say_group.command(name="send")
-@commands.has_permissions(manage_messages=True)
-async def say_send(ctx, target: Optional[discord.TextChannel] = None, *, message: str = None):
-    """
-    Send a message to any channel
-    Usage: !!say #channel Hello everyone!
-           !!say Hello (sends in current channel)
-    """
-    # If no channel provided, send in current channel
-    if target is None:
-        # The entire content is the message
-        message = ctx.message.content[len(ctx.prefix + ctx.command.name) + 1:]
-        target_channel = ctx.channel
-    else:
-        # Channel was provided, message is already set
-        target_channel = target
-    
-    if not message or message.strip() == "":
-        await ctx.send("❌ Please provide a message!")
-        return
-    
-    try:
-        # Send the message
-        sent_message = await target_channel.send(message)
-        
-        # Send confirmation
-        if target_channel != ctx.channel:
-            confirm_embed = discord.Embed(
-                description=f"✅ **Message sent to {target_channel.mention}**\n[Jump to message]({sent_message.jump_url})",
-                color=discord.Color.green()
-            )
-            await ctx.send(embed=confirm_embed, delete_after=10)
-        else:
-            # If sending in same channel, just delete command
-            await ctx.message.delete(delay=2)
-        
-        # Log
-        print(f"[SAY] {ctx.author} sent message to #{target_channel.name}: {message[:50]}...")
-        
-    except Exception as e:
-        await ctx.send(f"❌ Failed to send message: {str(e)[:100]}")
-
-# Alternative simpler version:
-@bot.command(name="sendto")
-@commands.has_permissions(manage_messages=True)
-async def send_to(ctx, channel: discord.TextChannel, *, message: str):
-    """
-    Send message to specific channel
-    Usage: !!sendto #channel Your message here
-    """
-    try:
-        sent_message = await channel.send(message)
-        
-        confirm_embed = discord.Embed(
-            description=f"✅ **Message sent to {channel.mention}**\n[Jump to message]({sent_message.jump_url})",
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=confirm_embed, delete_after=10)
-        await ctx.message.delete(delay=2)
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-@bot.command(name="sendhere")
-@commands.has_permissions(manage_messages=True)
-async def send_here(ctx, *, message: str):
-    """
-    Send message in current channel
-    Usage: !!sendhere Your message here
-    """
-    try:
-        await ctx.send(message)
-        await ctx.message.delete(delay=2)
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-# --- SIMPLER EMBED COMMAND ---
-@bot.command(name="embed")
-@commands.has_permissions(manage_messages=True)
-async def send_embed(ctx, channel: discord.TextChannel = None, *, content: str):
-    """
-    Send embed message
-    Usage: !!embed #channel Title | Description
-           !!embed Title | Description (sends in current channel)
-    """
-    target_channel = channel or ctx.channel
-    
-    # Parse title and description
-    if "|" in content:
-        title, description = content.split("|", 1)
-        title = title.strip()
-        description = description.strip()
-    else:
-        title = "Announcement"
-        description = content
-    
-    try:
-        embed = discord.Embed(
-            title=title,
-            description=description,
-            color=0x5865F2,
-            timestamp=datetime.now(timezone.utc)
-        )
-        
-        embed.set_author(
-            name=f"From {ctx.author.display_name}",
-            icon_url=ctx.author.display_avatar.url
-        )
-        embed.set_footer(text="©️ 558 Discord Server")
-        
-        sent_message = await target_channel.send(embed=embed)
-        
-        if target_channel != ctx.channel:
-            await ctx.send(f"✅ Embed sent to {target_channel.mention}", delete_after=5)
-        
-        await ctx.message.delete(delay=2)
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-# --- DM COMMAND ---
-@bot.command(name="dm")
-@commands.has_permissions(manage_messages=True)
-async def send_dm(ctx, user: discord.Member, *, message: str):
-    """
-    Send DM to a user
-    Usage: !!dm @user Your message here
-    """
-    try:
-        embed = discord.Embed(
-            title=f"Message from {ctx.guild.name} Staff",
-            description=message,
-            color=0x5865F2,
-            timestamp=datetime.now(timezone.utc)
-        )
-        
-        embed.set_author(
-            name=f"From {ctx.author.display_name}",
-            icon_url=ctx.author.display_avatar.url
-        )
-        embed.set_footer(text="©️ 558 Discord Server")
-        
-        await user.send(embed=embed)
-        
-        await ctx.send(f"✅ DM sent to {user.mention}", delete_after=5)
-        await ctx.message.delete(delay=2)
-        
-    except discord.Forbidden:
-        await ctx.send(f"❌ Cannot DM {user.mention} (DMs disabled)", delete_after=5)
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-# --- REPLY COMMAND ---
-@bot.command(name="smartreply")
-@commands.has_permissions(manage_messages=True)
-async def smart_reply(ctx, message_id: int, *, reply_message: str):
-    """
-    Try to find and reply to message in any channel
-    Usage: !!smartreply 123456789012345678 Your reply
-    """
-    message_found = False
-    
-    # Search through all text channels
-    for channel in ctx.guild.text_channels:
-        try:
-            # Check if bot has permission to read this channel
-            if channel.permissions_for(ctx.guild.me).read_messages:
-                try:
-                    # Try to fetch the message
-                    message_to_reply = await channel.fetch_message(message_id)
-                    
-                    # Found it! Reply and stop searching
-                    await message_to_reply.reply(reply_message)
-                    await ctx.send(f"✅ Replied in {channel.mention}", delete_after=5)
-                    await ctx.message.delete()
-                    message_found = True
-                    break
-                    
-                except discord.NotFound:
-                    continue  # Message not in this channel, try next
-        except:
-            continue
-    
-    if not message_found:
-        await ctx.send(
-            "❌ **Could not find message!**\n"
-            "The message might be:\n"
-            "• In a channel I can't access\n"
-            "• Deleted\n"
-            "• Wrong ID\n\n"
-            "Try: `!!replyto #channel message_id your_message`",
-            delete_after=10
-        )
-
-# --- QUIZ SYSTEM CLASS (Complete with improvements) ---
+# --- QUIZ SYSTEM CLASS ---
 class QuizSystem:
     def __init__(self, bot):
-        print("=== QuizSystem.__init__ called ===")  # ← Now indented!
+        print("=== QuizSystem.__init__ called ===")
         print(f"CurrencySystem class exists: {'CurrencySystem' in globals()}")
 
         self.bot = bot
@@ -629,9 +303,7 @@ class QuizSystem:
         self.quiz_running = False
         self.question_start_time = None
 
-        self.currency = CurrencySystem()
-
- # Initialize CurrencySystem with debug
+        # Initialize CurrencySystem with debug
         try:
             print("Attempting to create CurrencySystem instance...")
             self.currency = CurrencySystem()
@@ -643,8 +315,6 @@ class QuizSystem:
             traceback.print_exc()
             # Fallback to a simple version
             self.currency = SimpleCurrencySystem()
-
-# end debug -----
         
         # Load 20 questions
         self.load_questions()
@@ -828,7 +498,7 @@ class QuizSystem:
             return
         
         question = self.quiz_questions[self.current_question]
-        self.question_start_time = datetime.utcnow()
+        self.question_start_time = datetime.now(timezone.utc)  # FIXED
         
         # Initial progress bar (full)
         progress_bar = "🟩" * 20
@@ -924,7 +594,7 @@ class QuizSystem:
             return False
         
         question = self.quiz_questions[self.current_question]
-        answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds  # FIXED
+        answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
         
         # Check if time's up
         if answer_time > question["time_limit"]:
@@ -939,12 +609,11 @@ class QuizSystem:
                 "answers": [],
                 "total_time": 0,
                 "correct_answers": 0,
-                "answered_current": False  # Track if they got current question right
+                "answered_current": False
             }
         
         # Check if user already got this question right
         if self.participants[user_id]["answered_current"]:
-            # User already got points for this question, ignore further attempts
             return False
         
         # Check if answer is correct (case-insensitive, trim spaces)
@@ -967,7 +636,7 @@ class QuizSystem:
         # Record ALL attempts (both correct and incorrect)
         self.participants[user_id]["answers"].append({
             "question": self.current_question,
-            "question_text": question["question"][:100],  # Store truncated question
+            "question_text": question["question"][:100],
             "answer": answer_text,
             "correct": is_correct,
             "points": points,
@@ -988,7 +657,7 @@ class QuizSystem:
         embed = discord.Embed(
             title="✅ **Correct Answer Logged**",
             color=discord.Color.green(),
-            timestamp=datetime.now(timezone.utc)  # FIXED
+            timestamp=datetime.now(timezone.utc)
         )
         
         embed.add_field(name="👤 User", value=user.mention, inline=True)
@@ -1180,7 +849,7 @@ class QuizSystem:
             title="🏆 **QUIZ FINISHED!** 🏆",
             description="Congratulations to all participants!\nHere are the final results:",
             color=discord.Color.gold(),
-            timestamp=datetime.now(timezone.utc)  # FIXED
+            timestamp=datetime.now(timezone.utc)
         )
         
         # Add quiz statistics
@@ -1269,7 +938,7 @@ class QuizSystem:
                 title="📋 **FINAL LEADERBOARD**",
                 description="All participants ranked by score:",
                 color=discord.Color.blue(),
-                timestamp=datetime.now(timezone.utc)  # FIXED
+                timestamp=datetime.now(timezone.utc)
             )
             
             # Split participants into chunks of 15 for readability
@@ -1324,95 +993,83 @@ class QuizSystem:
             
             await self.quiz_channel.send(embed=leaderboard_embed)
         
+        # DISTRIBUTE REWARDS
+        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+        
+        # Send rewards summary
+        rewards_embed = discord.Embed(
+            title="💰 **Quiz Rewards Distributed!**",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        # Show top 3 with rewards
+        top_3 = []
+        for i, (user_id, data) in enumerate(sorted_participants[:3]):
+            reward = rewards_distributed.get(user_id, {})
+            gems = reward.get("gems", 0)
+            
+            medal = ["🥇", "🥈", "🥉"][i]
+            top_3.append(
+                f"{medal} **{data['name']}** - {data['score']} pts\n"
+                f"   Reward: 💎 {gems} gems"
+            )
+        
+        if top_3:
+            rewards_embed.add_field(
+                name="🏆 **TOP 3 WINNERS**",
+                value="\n".join(top_3),
+                inline=False
+            )
+        
+        # Show participation rewards
+        if len(sorted_participants) > 3:
+            rewards_embed.add_field(
+                name="🎁 **Participation Rewards**",
+                value=f"All {len(sorted_participants)} participants received:\n"
+                      f"• 💎 50 gems for joining\n"
+                      f"• +10 gems per 100 points scored\n"
+                      f"• Speed bonuses for fast answers!",
+                inline=False
+            )
+        
+        await self.quiz_channel.send(embed=rewards_embed)
+        
+        # Send individual DMs with rewards
+        for user_id, data in self.participants.items():
+            reward = rewards_distributed.get(user_id, {})
+            if reward:
+                user_obj = self.bot.get_user(int(user_id))
+                if user_obj:
+                    try:
+                        dm_embed = discord.Embed(
+                            title="🎁 **Quiz Rewards Claimed!**",
+                            description=f"**Quiz Results:**\n"
+                                      f"Final Score: **{data['score']}** points\n"
+                                      f"Rank: **#{list(self.participants.keys()).index(user_id) + 1}**",
+                            color=discord.Color.gold()
+                        )
+                        
+                        dm_embed.add_field(
+                            name="💰 **Rewards Earned**",
+                            value=f"💎 **{reward['gems']} Gems**",
+                            inline=False
+                        )
+                        
+                        balance = self.currency.get_balance(user_id)
+                        dm_embed.add_field(
+                            name="📊 **New Balance**",
+                            value=f"💎 Total Gems: **{balance['gems']}**",
+                            inline=False
+                        )
+                        
+                        dm_embed.set_footer(text="Use !!currency to check your gems!")
+                        await user_obj.send(embed=dm_embed)
+                    except:
+                        pass  # User has DMs disabled
+        
         # Wait 2 seconds
         await asyncio.sleep(2)
-        
-        # Send INDIVIDUAL HIGHLIGHTS for special achievements
-        if sorted_participants:
-            highlights_embed = discord.Embed(
-                title="🌟 **SPECIAL ACHIEVEMENTS** 🌟",
-                color=discord.Color.purple()
-            )
-            
-            highlights = []
-            
-            # 1. Perfect Score (if any)
-            perfect_score_users = []
-            for user_id, data in sorted_participants:
-                if data['correct_answers'] == total_questions and data['score'] == total_questions * 300:
-                    perfect_score_users.append(data['name'])
-            
-            if perfect_score_users:
-                if len(perfect_score_users) == 1:
-                    highlights.append(f"🎯 **Perfect Score**: {perfect_score_users[0]} got ALL questions correct with maximum points!")
-                else:
-                    highlights.append(f"🎯 **Perfect Scores**: {', '.join(perfect_score_users)} achieved perfect scores!")
-            
-            # 2. Fastest Average Answer
-            fastest_users = []
-            fastest_avg = float('inf')
-            for user_id, data in sorted_participants:
-                if data['correct_answers'] > 0:
-                    avg_time = self.calculate_average_time(data)
-                    if avg_time < fastest_avg:
-                        fastest_avg = avg_time
-                        fastest_users = [data['name']]
-                    elif avg_time == fastest_avg:
-                        fastest_users.append(data['name'])
-            
-            if fastest_users and fastest_avg < float('inf'):
-                highlights.append(f"⚡ **Speed Demon**: {', '.join(fastest_users)} with average answer time of {fastest_avg:.1f}s!")
-            
-            # 3. Most Improved (compare first vs last half accuracy)
-            if len(sorted_participants) >= 5:
-                mid_point = total_questions // 2
-                most_improved_users = []
-                highest_improvement = 0
-                
-                for user_id, data in sorted_participants:
-                    # Calculate first half vs second half accuracy
-                    first_half_correct = sum(1 for a in data['answers'] 
-                                           if a['question'] < mid_point and a['correct'])
-                    second_half_correct = sum(1 for a in data['answers'] 
-                                            if a['question'] >= mid_point and a['correct'])
-                    
-                    if first_half_correct > 0 and second_half_correct > first_half_correct:
-                        improvement = (second_half_correct - first_half_correct) / first_half_correct * 100
-                        if improvement > highest_improvement:
-                            highest_improvement = improvement
-                            most_improved_users = [data['name']]
-                        elif improvement == highest_improvement:
-                            most_improved_users.append(data['name'])
-                
-                if most_improved_users and highest_improvement > 0:
-                    highlights.append(f"📈 **Most Improved**: {', '.join(most_improved_users)} improved by {highest_improvement:.0f}%!")
-            
-            # 4. Persistence Award (most attempts)
-            most_attempts_users = []
-            max_attempts = 0
-            for user_id, data in sorted_participants:
-                attempts = len(data['answers'])
-                if attempts > max_attempts:
-                    max_attempts = attempts
-                    most_attempts_users = [data['name']]
-                elif attempts == max_attempts:
-                    most_attempts_users.append(data['name'])
-            
-            if most_attempts_users and max_attempts > total_questions:
-                highlights.append(f"💪 **Most Persistent**: {', '.join(most_attempts_users)} with {max_attempts} attempts!")
-            
-            # Add highlights to embed
-            if highlights:
-                highlights_text = "\n".join(highlights)
-                highlights_embed.description = highlights_text
-                
-                # Add a fun image or GIF based on achievements
-                if perfect_score_users:
-                    highlights_embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/1065149931136663624.png")
-                elif fastest_users:
-                    highlights_embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/852424893657710623.png")
-                
-                await self.quiz_channel.send(embed=highlights_embed)
         
         # Final message
         final_embed = discord.Embed(
@@ -1451,95 +1108,90 @@ class QuizSystem:
             10: "🔟"
         }
         return rank_emojis.get(rank, f"{rank}.")
-
-# QUIZ REWARDS SYSTEM  ----
-# In your QuizSystem class:
-
-async def distribute_quiz_rewards(self, sorted_participants):
-    """Distribute gems based on quiz performance"""
-    rewards = {}
-    total_participants = len(sorted_participants)
     
-    for rank, (user_id, data) in enumerate(sorted_participants, 1):
-        base_gems = 50  # Participation reward (reduced from 100)
+    async def distribute_quiz_rewards(self, sorted_participants):
+        """Distribute gems based on quiz performance"""
+        rewards = {}
+        total_participants = len(sorted_participants)
         
-        # Rank-based bonuses (reduced)
-        if rank == 1:  # 1st place
-            base_gems += 500  # reduced from 1000
-        elif rank == 2:  # 2nd place
-            base_gems += 250  # reduced from 500
-        elif rank == 3:  # 3rd place
-            base_gems += 125  # reduced from 250
-        elif rank <= 10:  # Top 10
-            base_gems += 75   # reduced from 150
+        for rank, (user_id, data) in enumerate(sorted_participants, 1):
+            base_gems = 50  # Participation reward
+            
+            # Rank-based bonuses
+            if rank == 1:  # 1st place
+                base_gems += 500
+            elif rank == 2:  # 2nd place
+                base_gems += 250
+            elif rank == 3:  # 3rd place
+                base_gems += 125
+            elif rank <= 10:  # Top 10
+                base_gems += 75
+            
+            # Score-based bonus: 10 gems per 100 points
+            score_bonus = (data["score"] // 100) * 10
+            base_gems += score_bonus
+            
+            # Perfect score bonus
+            max_score = len(self.quiz_questions) * 300
+            if data["score"] == max_score:
+                base_gems += 250
+                reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+            else:
+                reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+            
+            # Speed bonus for fast answers
+            speed_bonus = self.calculate_speed_bonus(user_id)
+            if speed_bonus:
+                base_gems += speed_bonus
+                reason += f" + ⚡{speed_bonus} speed bonus"
+            
+            # Add gems to user
+            transaction = self.currency.add_gems(
+                user_id=user_id,
+                gems=base_gems,
+                reason=reason
+            )
+            
+            rewards[user_id] = {
+                "gems": base_gems,
+                "rank": rank
+            }
+            
+            # Log reward distribution
+            await self.log_reward(user_id, data["name"], base_gems, rank)
         
-        # Score-based bonus: 10 gems per 100 points (reduced from 50)
-        score_bonus = (data["score"] // 100) * 10
-        base_gems += score_bonus
+        return rewards
+    
+    def calculate_speed_bonus(self, user_id):
+        """Calculate speed bonus for fast answers"""
+        if user_id not in self.participants:
+            return 0
         
-        # Perfect score bonus (reduced)
-        max_score = len(self.quiz_questions) * 300
-        if data["score"] == max_score:
-            base_gems += 250  # reduced from 500
-            reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
-        else:
-            reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+        speed_bonus = 0
+        for answer in self.participants[user_id]["answers"]:
+            if answer["correct"] and answer["time"] < 10:
+                # Bonus gems for answering under 10 seconds
+                speed_bonus += max(1, 10 - answer["time"])
         
-        # Speed bonus for fast answers
-        speed_bonus = self.calculate_speed_bonus(user_id)
-        if speed_bonus:
-            base_gems += speed_bonus
-            reason += f" + ⚡{speed_bonus} speed bonus"
+        return min(speed_bonus, 50)  # Cap at 50 gems
+    
+    async def log_reward(self, user_id, username, gems, rank):
+        """Log reward distribution"""
+        if not self.quiz_logs_channel:
+            return
         
-        # Add gems to user
-        transaction = self.currency.add_gems(
-            user_id=user_id,
-            gems=base_gems,
-            reason=reason
+        embed = discord.Embed(
+            title="💰 **Gems Distributed**",
+            color=discord.Color.gold(),
+            timestamp=datetime.now(timezone.utc)
         )
         
-        rewards[user_id] = {
-            "gems": base_gems,
-            "rank": rank
-        }
+        embed.add_field(name="👤 User", value=username, inline=True)
+        embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
+        embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
+        embed.add_field(name="📊 Total", value=f"{gems} gems", inline=True)
         
-        # Log reward distribution
-        await self.log_reward(user_id, data["name"], base_gems, rank)
-    
-    return rewards
-
-def calculate_speed_bonus(self, user_id):
-    """Calculate speed bonus for fast answers"""
-    if user_id not in self.participants:
-        return 0
-    
-    speed_bonus = 0
-    for answer in self.participants[user_id]["answers"]:
-        if answer["correct"] and answer["time"] < 10:
-            # Bonus gems for answering under 10 seconds
-            speed_bonus += max(1, 10 - answer["time"])
-    
-    return min(speed_bonus, 50)  # Cap at 50 gems
-
-async def log_reward(self, user_id, username, gems, rank):
-    """Log reward distribution"""
-    if not self.quiz_logs_channel:
-        return
-    
-    embed = discord.Embed(
-        title="💰 **Gems Distributed**",
-        color=discord.Color.gold(),
-        timestamp=datetime.now(timezone.utc)  # FIXED
-    )
-    
-    embed.add_field(name="👤 User", value=username, inline=True)
-    embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
-    embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
-    embed.add_field(name="📊 Total", value=f"{gems} gems", inline=True)
-    
-    await self.quiz_logs_channel.send(embed=embed)
-
-# END REWARD CLASS -----
+        await self.quiz_logs_channel.send(embed=embed)
 
 # Create quiz system instance
 quiz_system = QuizSystem(bot)
@@ -1667,38 +1319,7 @@ async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
     except Exception as e:
         await ctx.send(f"❌ Error: {str(e)[:100]}")
 
-@quiz_group.command(name="stats")
-@commands.has_permissions(manage_messages=True)
-async def quiz_stats(ctx):
-    """Show quiz statistics"""
-    embed = discord.Embed(
-        title="📊 **Quiz Statistics**",
-        color=discord.Color.blue()
-    )
-    
-    embed.add_field(
-        name="Questions Available",
-        value=str(len(quiz_system.quiz_questions)),
-        inline=True
-    )
-    
-    embed.add_field(
-        name="Quiz Status",
-        value="Running" if quiz_system.quiz_running else "Stopped",
-        inline=True
-    )
-    
-    if quiz_system.quiz_running:
-        embed.add_field(
-            name="Current Question",
-            value=f"{quiz_system.current_question + 1}/{len(quiz_system.quiz_questions)}",
-            inline=True
-        )
-    
-    await ctx.send(embed=embed)
-
 # CURRENCY COMMANDS -----
-
 @bot.group(name="currency", invoke_without_command=True)
 async def currency_group(ctx):
     """Currency and rewards commands"""
@@ -1843,11 +1464,9 @@ async def daily_reward(ctx):
         # Calculate time until next daily
         user = quiz_system.currency.get_user(user_id)
         last_claim = datetime.fromisoformat(user["last_daily"])
-        next_claim = last_claim.replace(hour=last_claim.hour, minute=last_claim.minute)
-        next_claim = next_claim.replace(day=last_claim.day + 1)
-        
-        hours_left = (next_claim - datetime.utcnow()).seconds // 3600
-        minutes_left = ((next_claim - datetime.utcnow()).seconds % 3600) // 60
+        now = datetime.now(timezone.utc)
+        hours_left = 24 - ((now - last_claim).seconds // 3600)
+        minutes_left = 60 - ((now - last_claim).seconds % 3600) // 60
         
         await ctx.send(
             f"⏰ You can claim your daily reward in {hours_left}h {minutes_left}m!\n"
@@ -1880,13 +1499,6 @@ async def daily_reward(ctx):
         value=f"**{user['daily_streak']} days**",
         inline=True
     )
-    
-    # Show next claim info
-    next_claim = datetime.now(timezone.utc)(user["last_daily"]).replace(
-        hour=datetime.now(timezone.utc)(user["last_daily"]).hour,
-        minute=datetime.now(timezone.utc)(user["last_daily"]).minute
-    )
-    next_claim = next_claim.replace(day=next_claim.day + 1)
     
     embed.set_footer(text="Come back tomorrow for more gems!")
     await ctx.send(embed=embed)
@@ -1947,66 +1559,6 @@ async def currency_stats(ctx, member: discord.Member = None):
     
     await ctx.send(embed=embed)
 
-# Update help command:
-"""
-**💰 Gems System**
-• `!!currency` - Check your gems balance
-• `!!currency leaderboard` - Show top gem earners
-• `!!currency transfer @user amount` - Send gems (5% tax)
-• `!!currency daily` - Claim daily reward (1-100 gems + streak bonus)
-• `!!currency stats [@user]` - View detailed stats
-
-**🎯 Quiz Rewards**
-• 1st Place: 💎 500 gems + participation
-• 2nd Place: 💎 250 gems + participation  
-• 3rd Place: 💎 125 gems + participation
-• Top 10: 💎 75 gems + participation
-• All Participants: 💎 50 gems
-• Score Bonus: +10 gems per 100 points
-• Perfect Score: 💎 250 gems bonus
-• Speed Bonus: +1-10 gems per fast answer
-"""
-# END CURRENCY COMMAND ----
-
-# QUIZ END DISPLAY ------
-
-async def end_quiz(self):
-    """End the entire quiz and distribute rewards"""
-    # ... existing code ...
-    
-    # Show top 3 with rewards
-    top_3 = []
-    for i, (user_id, data) in enumerate(sorted_participants[:3]):
-        reward = rewards_distributed.get(user_id, {})
-        gems = reward.get("gems", 0)
-        
-        medal = ["🥇", "🥈", "🥉"][i]
-        top_3.append(
-            f"{medal} **{data['name']}** - {data['score']} pts\n"
-            f"   Reward: 💎 {gems} gems"
-        )
-    
-    if top_3:
-        embed.add_field(
-            name="🏆 **TOP 3 WINNERS**",
-            value="\n".join(top_3),
-            inline=False
-        )
-    
-    # Show participation rewards
-    if len(sorted_participants) > 3:
-        embed.add_field(
-            name="🎁 **Participation Rewards**",
-            value=f"All {len(sorted_participants)} participants received:\n"
-                  f"• 💎 50 gems for joining\n"
-                  f"• +10 gems per 100 points scored\n"
-                  f"• Speed bonuses for fast answers!",
-            inline=False
-        )
-
-# END END DISPLAY -----
-
-
 # --- ANSWER DETECTION ---
 @bot.event
 async def on_message(message):
@@ -2052,6 +1604,10 @@ async def custom_help(ctx, command: str = None):
                        "• `!!smartreply` - Reply to message\n\n"
                        "**Quiz System**\n"
                        "• `!!quiz` - Quiz management\n\n"
+                       "**Currency System**\n"
+                       "• `!!currency` - Check your gems\n"
+                       "• `!!currency daily` - Claim daily reward\n"
+                       "• `!!currency leaderboard` - Top earners\n\n"
                        "**Utility**\n"
                        "• `!!ping` - Check bot latency\n"
                        "• `!!help <command>` - Get command help",
