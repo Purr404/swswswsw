@@ -613,6 +613,11 @@ async def smart_reply(ctx, message_id: int, *, reply_message: str):
 # --- QUIZ SYSTEM CLASS (Complete with improvements) ---
 class QuizSystem:
     def __init__(self, bot):
+print("=== QuizSystem.__init__ called ===")
+        print(f"CurrencySystem class exists: {'CurrencySystem' in globals()}")
+
+
+
         self.bot = bot
         self.quiz_questions = []
         self.current_question = 0
@@ -624,6 +629,21 @@ class QuizSystem:
         self.question_start_time = None
 
         self.currency = CurrencySystem()
+
+ # Initialize CurrencySystem with debug
+        try:
+            print("Attempting to create CurrencySystem instance...")
+            self.currency = CurrencySystem()
+            print(f"✓ CurrencySystem created successfully!")
+            print(f"  currency attribute: {hasattr(self, 'currency')}")
+        except Exception as e:
+            print(f"✗ Error creating CurrencySystem: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fallback to a simple version
+            self.currency = SimpleCurrencySystem()
+
+# end debug -----
         
         # Load 20 questions
         self.load_questions()
