@@ -613,8 +613,8 @@ async def smart_reply(ctx, message_id: int, *, reply_message: str):
 # --- QUIZ SYSTEM CLASS (Complete with improvements) ---
 class QuizSystem:
     def __init__(self, bot):
-    print("=== QuizSystem.__init__ called ===")  # ← Now indented!
-    print(f"CurrencySystem class exists: {'CurrencySystem' in   globals()}")
+        print("=== QuizSystem.__init__ called ===")  # ← Now indented!
+        print(f"CurrencySystem class exists: {'CurrencySystem' in globals()}")
 
         self.bot = bot
         self.quiz_questions = []
