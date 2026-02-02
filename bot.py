@@ -386,7 +386,27 @@ async def announce_urgent(ctx, *, message: str):
     await ctx.send(f"✅ Urgent announcement sent!", delete_after=5)
     await ctx.message.delete(delay=3)
 
+# --- MESSAGE SENDING SYSTEM ---
+@bot.group(name="say", invoke_without_command=True)
+@commands.has_permissions(manage_messages=True)
+async def say_group(ctx):
+    """Send messages through the bot"""
+    embed = discord.Embed(
+        title="💬 Message Sending System",
+        description=(
+            "**Commands:**\n"
+            "• `!!say <message>` - Send message in current channel\n"
+            "• `!!say #channel <message>` - Send to specific channel\n"
+            "• `!!say embed #channel <title> | <description>` - Send embed\n"
+            "• `!!say reply <message_id> <message>` - Reply to a message\n"
+            "• `!!say dm @user <message>` - Send DM to user\n"
+        ),
+        color=0x5865F2
+    )
+    await ctx.send(embed=embed)
 
+
+# SEND MESSAGES COMMAND --------
 
 # --- SIMPLE CURRENCY SYSTEM FOR FALLBACK ---
 class SimpleCurrencySystem:
