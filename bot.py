@@ -1220,49 +1220,41 @@ class QuizSystem:
             )
             
             await self.quiz_channel.send(embed=leaderboard_embed)
-        
 
-
-# DEBUG PRINT ---------
-
-print(f"🔔 [DEBUG] Starting reward distribution process...")
-print(f"🔔 [DEBUG] Participants: {len(sorted_participants)}")
-
+        # DEBUG PRINT ---------
+        print(f"🔔 [DEBUG] Starting reward distribution process...")
+        print(f"🔔 [DEBUG] Participants: {len(sorted_participants)}")
 
         # DISTRIBUTE REWARDS
-async def some_function(self):
-    # 4 spaces
-    rewards_distributed = await self.distribute_quiz_rewards(sorted_participants) 
-print(f"🔔 [DEBUG] Rewards distributed: {len(rewards_distributed)} users")
+        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+        print(f"🔔 [DEBUG] Rewards distributed: {len(rewards_distributed)} users")
 
-# Check if rewards were actually given
-if not rewards_distributed:
-    print(f"⚠️ [DEBUG] No rewards were distributed!")
-    error_embed = discord.Embed(
-        title="⚠️ **Reward Distribution Issue**",
-        description="No rewards could be distributed. Check the logs.",
-        color=discord.Color.red()
-    )
-    await self.quiz_channel.send(embed=error_embed)
-    return
+        # Check if rewards were actually given
+        if not rewards_distributed:
+            print(f"⚠️ [DEBUG] No rewards were distributed!")
+            error_embed = discord.Embed(
+                title="⚠️ **Reward Distribution Issue**",
+                description="No rewards could be distributed. Check the logs.",
+                color=discord.Color.red()
+            )
+            await self.quiz_channel.send(embed=error_embed)
+            return
 
-        
         # Send rewards summary
-    print(f"🔔 [DEBUG] Creating rewards embed...")
-    rewards_embed = discord.Embed(
+        print(f"🔔 [DEBUG] Creating rewards embed...")
+        rewards_embed = discord.Embed(
             title="💰 **Quiz Rewards Distributed!**",
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc)
         )
         
         # Show top 3 with rewards
-    top_3 = []
-    for i, (user_id, data) in enumerate(sorted_participants[:3]):
-        reward = rewards_distributed.get(user_id, {})
-        gems = reward.get("gems", 0)
+        top_3 = []
+        for i, (user_id, data) in enumerate(sorted_participants[:3]):
+            reward = rewards_distributed.get(user_id, {})
+            gems = reward.get("gems", 0)
             
-    print(f"🔔 [DEBUG] User {data['name']}: {gems} gems")
-
+            print(f"🔔 [DEBUG] User {data['name']}: {gems} gems")
 
             medal = ["🥇", "🥈", "🥉"][i]
             top_3.append(
@@ -1277,9 +1269,7 @@ if not rewards_distributed:
                 inline=False
             )
         
-
-    print(f"🔔 [DEBUG] Added top 3 to embed")
-
+        print(f"🔔 [DEBUG] Added top 3 to embed")
 
         # Show participation rewards
         if len(sorted_participants) > 3:
@@ -1291,21 +1281,17 @@ if not rewards_distributed:
                       f"• Speed bonuses for fast answers!",
                 inline=False
             )
-    print(f"🔔 [DEBUG] Added participation rewards to embed")
+        print(f"🔔 [DEBUG] Added participation rewards to embed")
 
-     try:
-        print(f"🔔 [DEBUG] Attempting to send rewards embed...")
-        await self.quiz_channel.send(embed=rewards_embed)
-        print(f"✅ [DEBUG] Rewards embed sent successfully!")
-   except Exception as e:
-    print(f"❌ [DEBUG] Error sending rewards embed: {e}")
-    # Send simple message as fallback
-
-#END REWARDS DISTRIBUTION -----
-
-
-
-    await self.quiz_channel.send("💰 **Quiz rewards have been distributed!** Check your DMs!")
+        try:
+            print(f"🔔 [DEBUG] Attempting to send rewards embed...")
+            await self.quiz_channel.send(embed=rewards_embed)
+            print(f"✅ [DEBUG] Rewards embed sent successfully!")
+        except Exception as e:
+            print(f"❌ [DEBUG] Error sending rewards embed: {e}")
+            # Send simple message as fallback
+            await self.quiz_channel.send("💰 **Quiz rewards have been distributed!** Check your DMs!")
+        
         # Send individual DMs with rewards
         for user_id, data in self.participants.items():
             reward = rewards_distributed.get(user_id, {})
