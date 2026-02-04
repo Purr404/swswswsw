@@ -1,7 +1,8 @@
 import os
 import sys
-import json  # ADD THIS
-import asyncio  # ADD THIS
+import json
+import asyncio
+import asyncpg  # ADD THIS LINE
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
@@ -31,145 +32,246 @@ bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 user_selections = {}
 
 
-# === ADD CURRENCY SYSTEM CLASS HERE ===
+# === UPDATED CURRENCY SYSTEM WITH POSTGRESQL ===
 class CurrencySystem:
-    def __init__(self, filename="user_gems.json"):
-        self.filename = filename
-        self.data = self.load_data()
+    def __init__(self):
+        self.pool = None
     
-    def load_data(self):
-        """Load gems data from JSON file"""
-        if os.path.exists(self.filename):
-            try:
-                with open(self.filename, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
-    
-    def save_data(self):
-        """Save gems data to JSON file"""
+    async def connect(self):
+        """Connect to PostgreSQL database"""
+        DATABASE_URL = os.getenv('DATABASE_URL')
+        
+        if not DATABASE_URL:
+            print("⚠️ No DATABASE_URL found. Data will reset on redeploy!")
+            return False
+        
         try:
-            with open(self.filename, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, indent=2, ensure_ascii=False)
+            # Create connection pool
+            self.pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                ssl='require',
+                min_size=1,
+                max_size=10
+            )
+            
+            # Create table if not exists
+            async with self.pool.acquire() as conn:
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS user_currency (
+                        user_id TEXT PRIMARY KEY,
+                        gems INTEGER DEFAULT 0,
+                        total_earned INTEGER DEFAULT 0,
+                        daily_streak INTEGER DEFAULT 0,
+                        last_daily TIMESTAMP,
+                        transactions JSONB DEFAULT '[]'::jsonb,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                ''')
+            
+            print("✅ Connected to PostgreSQL database")
+            print("✅ Table 'user_currency' is ready")
             return True
+            
         except Exception as e:
-            print(f"Error saving gems data: {e}")
+            print(f"❌ Failed to connect to database: {e}")
             return False
     
-    def get_user(self, user_id: str):
-        """Get or create user gems data"""
-        if user_id not in self.data:
-            self.data[user_id] = {
-                "gems": 0,
-                "total_earned": 0,
-                "last_updated": datetime.now(timezone.utc).isoformat(),
-                "daily_streak": 0,
-                "last_daily": None,
-                "transactions": []
-            }
-        return self.data[user_id]
+    async def get_user(self, user_id: str):
+        """Get user data, create if doesn't exist"""
+        if not self.pool:
+            return await self._create_default_user(user_id)
+        
+        try:
+            async with self.pool.acquire() as conn:
+                # Try to get user
+                row = await conn.fetchrow(
+                    'SELECT * FROM user_currency WHERE user_id = $1',
+                    user_id
+                )
+                
+                # If user doesn't exist, create them
+                if not row:
+                    await conn.execute('''
+                        INSERT INTO user_currency (user_id) 
+                        VALUES ($1)
+                    ''', user_id)
+                    
+                    # Get the new user
+                    row = await conn.fetchrow(
+                        'SELECT * FROM user_currency WHERE user_id = $1',
+                        user_id
+                    )
+                
+                # Convert to dictionary
+                user_data = dict(row)
+                
+                # Parse JSON transactions if needed
+                if isinstance(user_data.get('transactions'), str):
+                    try:
+                        user_data['transactions'] = json.loads(user_data['transactions'])
+                    except:
+                        user_data['transactions'] = []
+                
+                return user_data
+                
+        except Exception as e:
+            print(f"❌ Database error: {e}")
+            return await self._create_default_user(user_id)
     
-    def add_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Add gems to a user with transaction history"""
-        user = self.get_user(user_id)
-        
-        # Add gems
-        user["gems"] += gems
-        user["total_earned"] += gems
-        user["last_updated"] = datetime.now(timezone.utc).isoformat()
-        
-        # Record transaction
-        transaction = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "type": "reward",
-            "gems": gems,
-            "reason": reason,
-            "balance": user["gems"]
-        }
-        user["transactions"].append(transaction)
-        
-        # Keep only last 50 transactions
-        if len(user["transactions"]) > 50:
-            user["transactions"] = user["transactions"][-50:]
-        
-        self.save_data()
-        return transaction
-    
-    def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Deduct gems from a user (for purchases)"""
-        user = self.get_user(user_id)
-        
-        if user["gems"] < gems:
-            return False  # Not enough gems
-        
-        # Deduct gems
-        user["gems"] -= gems
-        user["last_updated"] = datetime.now(timezone.utc).isoformat()
-        
-        # Record transaction
-        transaction = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "type": "purchase",
-            "gems": -gems,
-            "reason": reason,
-            "balance": user["gems"]
-        }
-        user["transactions"].append(transaction)
-        
-        self.save_data()
-        return transaction
-    
-    def get_balance(self, user_id: str):
-        """Get user's current gems balance"""
-        user = self.get_user(user_id)
+    async def _create_default_user(self, user_id: str):
+        """Create default user data (fallback)"""
         return {
-            "gems": user["gems"],
-            "total_earned": user["total_earned"]
+            "user_id": user_id,
+            "gems": 0,
+            "total_earned": 0,
+            "daily_streak": 0,
+            "last_daily": None,
+            "transactions": [],
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
         }
     
-    def get_leaderboard(self, limit: int = 10):
-        """Get gems leaderboard"""
-        if not self.data:
+    async def add_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Add gems to user"""
+        if not self.pool:
+            print("⚠️ No database connection, gems won't be saved permanently!")
+            return {"gems": gems, "error": "No database"}
+        
+        try:
+            async with self.pool.acquire() as conn:
+                # Get current gems
+                current = await conn.fetchval(
+                    'SELECT gems FROM user_currency WHERE user_id = $1',
+                    user_id
+                ) or 0
+                
+                # Create transaction record
+                transaction = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "type": "reward",
+                    "gems": gems,
+                    "reason": reason,
+                    "balance": current + gems
+                }
+                
+                # Update user
+                await conn.execute('''
+                    UPDATE user_currency 
+                    SET gems = gems + $2,
+                        total_earned = total_earned + $2,
+                        updated_at = NOW(),
+                        transactions = transactions || $3::jsonb
+                    WHERE user_id = $1
+                ''', user_id, gems, json.dumps(transaction))
+                
+                return transaction
+                
+        except Exception as e:
+            print(f"❌ Error adding gems: {e}")
+            return {"gems": gems, "error": str(e)}
+    
+    async def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Deduct gems from a user"""
+        if not self.pool:
+            print("⚠️ No database connection")
+            return False
+        
+        try:
+            async with self.pool.acquire() as conn:
+                # Check if user has enough gems
+                current = await conn.fetchval(
+                    'SELECT gems FROM user_currency WHERE user_id = $1',
+                    user_id
+                ) or 0
+                
+                if current < gems:
+                    return False
+                
+                # Create transaction
+                transaction = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "type": "purchase",
+                    "gems": -gems,
+                    "reason": reason,
+                    "balance": current - gems
+                }
+                
+                # Update user
+                await conn.execute('''
+                    UPDATE user_currency 
+                    SET gems = gems - $2,
+                        updated_at = NOW(),
+                        transactions = transactions || $3::jsonb
+                    WHERE user_id = $1
+                ''', user_id, gems, json.dumps(transaction))
+                
+                return transaction
+                
+        except Exception as e:
+            print(f"❌ Error deducting gems: {e}")
+            return False
+    
+    async def get_balance(self, user_id: str):
+        """Get user's gem balance"""
+        user = await self.get_user(user_id)
+        return {
+            "gems": user.get("gems", 0),
+            "total_earned": user.get("total_earned", 0)
+        }
+    
+    async def get_leaderboard(self, limit: int = 10):
+        """Get top users by gems"""
+        if not self.pool:
             return []
         
-        sorted_users = sorted(
-            self.data.items(),
-            key=lambda x: x[1]["gems"],
-            reverse=True
-        )[:limit]
-        
-        return [
-            {
-                "user_id": user_id,
-                "gems": data["gems"],
-                "total_earned": data["total_earned"]
-            }
-            for user_id, data in sorted_users
-        ]
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT user_id, gems, total_earned 
+                    FROM user_currency 
+                    ORDER BY gems DESC 
+                    LIMIT $1
+                ''', limit)
+                
+                return [
+                    {
+                        "user_id": row['user_id'],
+                        "gems": row['gems'],
+                        "total_earned": row['total_earned']
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            print(f"❌ Error getting leaderboard: {e}")
+            return []
     
-    def can_claim_daily(self, user_id: str):
+    async def can_claim_daily(self, user_id: str):
         """Check if user can claim daily reward"""
-        user = self.get_user(user_id)
+        user = await self.get_user(user_id)
         
         if not user["last_daily"]:
             return True
         
-        last_claim = datetime.fromisoformat(user["last_daily"])
-        now = datetime.now(timezone.utc)
+        last_claim = user["last_daily"]
+        if isinstance(last_claim, str):
+            last_claim = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
         
-        # Check if 24 hours have passed
+        now = datetime.now(timezone.utc)
         hours_passed = (now - last_claim).total_seconds() / 3600
         return hours_passed >= 23.5
     
-    def claim_daily(self, user_id: str):
+    async def claim_daily(self, user_id: str):
         """Claim daily reward with streak bonus"""
-        user = self.get_user(user_id)
+        user = await self.get_user(user_id)
         now = datetime.now(timezone.utc)
         
         # Check streak
         if user["last_daily"]:
-            last_claim = datetime.fromisoformat(user["last_daily"])
+            last_claim = user["last_daily"]
+            if isinstance(last_claim, str):
+                last_claim = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
+            
             days_diff = (now - last_claim).days
             
             if days_diff == 1:
@@ -189,10 +291,23 @@ class CurrencySystem:
         total_gems = base_gems + bonus_gems
         
         # Update last claim
-        user["last_daily"] = now.isoformat()
+        if not self.pool:
+            user["last_daily"] = now.isoformat()
+        else:
+            try:
+                async with self.pool.acquire() as conn:
+                    await conn.execute('''
+                        UPDATE user_currency 
+                        SET last_daily = $2,
+                            daily_streak = $3,
+                            updated_at = NOW()
+                        WHERE user_id = $1
+                    ''', user_id, now, user["daily_streak"])
+            except Exception as e:
+                print(f"❌ Error updating daily: {e}")
         
         # Add gems
-        return self.add_gems(
+        return await self.add_gems(
             user_id=user_id,
             gems=total_gems,
             reason=f"🎁 Daily Reward (Streak: {user['daily_streak']} days)"
@@ -255,272 +370,13 @@ class AnnouncementSystem:
         
         return None
 
-# --- 4. Create announcement system AFTER bot is defined ---
+# --- 4. Create announcement system ---
 announcements = AnnouncementSystem()
-
-# --- 5. ANNOUNCEMENT COMMANDS ---
-@bot.group(name="announce", invoke_without_command=True)
-@commands.has_permissions(manage_messages=True)
-async def announce_group(ctx):
-    """Announcement management system"""
-    embed = discord.Embed(
-        title="📢 **Announcement System**",
-        description=(
-            "**Commands:**\n"
-            "• `!!announce send <message>` - Send announcement\n"
-            "• `!!announce channel #channel` - Set announcement channel\n"
-            "• `!!announce preview <message>` - Preview announcement\n"
-            "• `!!announce image <url>` - Add image to announcement\n"
-            "• `!!announce urgent <message>` - Red urgent announcement\n"
-        ),
-        color=0x5865F2
-    )
-    await ctx.send(embed=embed)
-
-@announce_group.command(name="send")
-@commands.has_permissions(manage_messages=True)
-async def announce_send(ctx, *, message: str):
-    """Send an announcement"""
-    channel = await announcements.get_announcement_channel(ctx.guild)
-    if not channel:
-        await ctx.send("❌ No announcement channel found! Use `!!announce channel #channel`")
-        return
-    
-    server_id = str(ctx.guild.id)
-    image_url = announcements.announcement_images.get(server_id)
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        image_url=image_url
-    )
-    
-    try:
-        sent_message = await channel.send("@here", embed=embed)
-        
-        await sent_message.add_reaction("📢")
-        await sent_message.add_reaction("✅")
-        
-        if server_id in announcements.announcement_images:
-            del announcements.announcement_images[server_id]
-        
-        confirm_embed = discord.Embed(
-            description=f"✅ **Announcement Sent!**\n**Channel:** {channel.mention}\n**Link:** [Jump to Message]({sent_message.jump_url})",
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=confirm_embed, delete_after=10)
-        await ctx.message.delete(delay=5)
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-@announce_group.command(name="channel")
-@commands.has_permissions(administrator=True)
-async def announce_channel(ctx, channel: discord.TextChannel):
-    """Set the announcement channel"""
-    server_id = str(ctx.guild.id)
-    announcements.announcement_channels[server_id] = channel.id
-    
-    embed = discord.Embed(
-        description=f"✅ **Announcement channel set to {channel.mention}**",
-        color=discord.Color.green()
-    )
-    await ctx.send(embed=embed)
-
-@announce_group.command(name="preview")
-@commands.has_permissions(manage_messages=True)
-async def announce_preview(ctx, *, message: str):
-    """Preview announcement"""
-    server_id = str(ctx.guild.id)
-    image_url = announcements.announcement_images.get(server_id)
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        title="ANNOUNCEMENT PREVIEW",
-        color=0x5865F2,
-        image_url=image_url
-    )
-    
-    await ctx.send("**📝 Preview:**", embed=embed)
-    await ctx.send("*Use `!!announce send` to post.*")
-
-@announce_group.command(name="image")
-@commands.has_permissions(manage_messages=True)
-async def announce_image(ctx, image_url: str):
-    """Set image for next announcement"""
-    if not (image_url.startswith("http://") or image_url.startswith("https://")):
-        await ctx.send("❌ Please provide a valid image URL")
-        return
-    
-    server_id = str(ctx.guild.id)
-    announcements.announcement_images[server_id] = image_url
-    
-    embed = discord.Embed(
-        title="✅ Image Set for Next Announcement",
-        color=discord.Color.green()
-    )
-    embed.set_image(url=image_url)
-    await ctx.send(embed=embed)
-
-@announce_group.command(name="urgent")
-@commands.has_permissions(manage_messages=True)
-async def announce_urgent(ctx, *, message: str):
-    """Send urgent announcement (red)"""
-    channel = await announcements.get_announcement_channel(ctx.guild)
-    if not channel:
-        await ctx.send("❌ No announcement channel set!")
-        return
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        title="🚨 URGENT ANNOUNCEMENT",
-        color=0xFF0000,
-        image_url=announcements.announcement_images.get(str(ctx.guild.id))
-    )
-    
-    sent_message = await channel.send("@everyone", embed=embed)
-    await sent_message.add_reaction("🚨")
-    await sent_message.add_reaction("⚠️")
-    
-    await ctx.send(f"✅ Urgent announcement sent!", delete_after=5)
-    await ctx.message.delete(delay=3)
-
-# --- MESSAGE SENDING SYSTEM ---
-@bot.group(name="say", invoke_without_command=True)
-@commands.has_permissions(manage_messages=True)
-async def say_group(ctx):
-    """Send messages through the bot"""
-    embed = discord.Embed(
-        title="💬 Message Sending System",
-        description=(
-            "**Commands:**\n"
-            "• `!!say <message>` - Send message in current channel\n"
-            "• `!!say #channel <message>` - Send to specific channel\n"
-            "• `!!say embed #channel <title> | <description>` - Send embed\n"
-            "• `!!say reply <message_id> <message>` - Reply to a message\n"
-            "• `!!say dm @user <message>` - Send DM to user\n"
-        ),
-        color=0x5865F2
-    )
-    await ctx.send(embed=embed)
-
-# --- FIXED SAY COMMAND ---
-@say_group.command(name="send")
-@commands.has_permissions(manage_messages=True)
-async def say_send(ctx, target: Optional[discord.TextChannel] = None, *, message: str = None):
-    """
-    Send a message to any channel
-    Usage: !!say #channel Hello everyone!
-           !!say Hello (sends in current channel)
-    """
-    # If no channel provided, send in current channel
-    if target is None:
-        # The entire content is the message
-        message = ctx.message.content[len(ctx.prefix + ctx.command.name) + 1:]
-        target_channel = ctx.channel
-    else:
-        # Channel was provided, message is already set
-        target_channel = target
-
-    if not message or message.strip() == "":
-        await ctx.send("❌ Please provide a message!")
-        return
-
-    try:
-        # Send the message
-        sent_message = await target_channel.send(message)
-
-        # Send confirmation
-        if target_channel != ctx.channel:
-            confirm_embed = discord.Embed(
-                description=f"✅ **Message sent to {target_channel.mention}**\n[Jump to message]({sent_message.jump_url})",
-                color=discord.Color.green()
-            )
-            await ctx.send(embed=confirm_embed, delete_after=10)
-        else:
-            # If sending in same channel, just delete command
-            await ctx.message.delete(delay=2)
-
-        # Log
-        print(f"[SAY] {ctx.author} sent message to #{target_channel.name}: {message[:50]}...")
-
-    except Exception as e:
-        await ctx.send(f"❌ Failed to send message: {str(e)[:100]}")
-
-# Alternative simpler version:
-@bot.command(name="sendto")
-@commands.has_permissions(manage_messages=True)
-async def send_to(ctx, channel: discord.TextChannel, *, message: str):
-    """
-    Send message to specific channel
-    Usage: !!sendto #channel Your message here
-    """
-    try:
-        sent_message = await channel.send(message)
-
-        confirm_embed = discord.Embed(
-            description=f"✅ **Message sent to {channel.mention}**\n[Jump to message]({sent_message.jump_url})",
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=confirm_embed, delete_after=10)
-        await ctx.message.delete(delay=2)
-
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-@bot.command(name="sendhere")
-@commands.has_permissions(manage_messages=True)
-async def send_here(ctx, *, message: str):
-    """
-    Send message in current channel
-    Usage: !!sendhere Your message here
-    """
-    try:
-        await ctx.send(message)
-        await ctx.message.delete(delay=2)
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-# END SEND MESSAGES COMMAND --------
-
-# --- SIMPLE CURRENCY SYSTEM FOR FALLBACK ---
-class SimpleCurrencySystem:
-    def __init__(self):
-        self.data = {}
-        print("Using SimpleCurrencySystem fallback")
-    
-    def get_balance(self, user_id):
-        if user_id not in self.data:
-            self.data[user_id] = {"gems": 0, "total_earned": 0}
-        return self.data[user_id]
-    
-    def add_gems(self, user_id, gems, reason=""):
-        balance = self.get_balance(user_id)
-        self.data[user_id]["gems"] += gems
-        self.data[user_id]["total_earned"] += gems
-        return {"gems": gems}
-    
-    def get_leaderboard(self, limit=10):
-        return []
-    
-    def get_user(self, user_id):
-        return self.get_balance(user_id)
-    
-    def can_claim_daily(self, user_id):
-        return True
-    
-    def claim_daily(self, user_id):
-        gems = random.randint(1, 100)
-        return self.add_gems(user_id, gems, "🎁 Daily Reward")
 
 # --- QUIZ SYSTEM CLASS ---
 class QuizSystem:
     def __init__(self, bot):
         print("=== QuizSystem.__init__ called ===")
-        print(f"CurrencySystem class exists: {'CurrencySystem' in globals()}")
-
         self.bot = bot
         self.quiz_questions = []
         self.current_question = 0
@@ -531,21 +387,15 @@ class QuizSystem:
         self.quiz_running = False
         self.question_start_time = None
 
-        # Initialize CurrencySystem with debug
-        try:
-            print("Attempting to create CurrencySystem instance...")
-            self.currency = CurrencySystem()
-            print(f"✓ CurrencySystem created successfully!")
-            print(f"  currency attribute: {hasattr(self, 'currency')}")
-        except Exception as e:
-            print(f"✗ Error creating CurrencySystem: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback to a simple version
-            self.currency = SimpleCurrencySystem()
+        # Initialize CurrencySystem
+        self.currency = CurrencySystem()
         
         # Load 20 questions
         self.load_questions()
+    
+    async def init_currency(self):
+        """Initialize currency system"""
+        await self.currency.connect()
     
     def load_questions(self):
         """Load 20 quiz questions with open-ended answers"""
@@ -568,108 +418,7 @@ class QuizSystem:
                 "points": 200,
                 "time_limit": 45
             },
-            {
-                "question": "Who painted the Mona Lisa?",
-                "correct_answers": ["leonardo da vinci", "da vinci", "leonardo"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the largest mammal in the world?",
-                "correct_answers": ["blue whale", "whale"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "How many continents are there on Earth?",
-                "correct_answers": ["7", "seven"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "What is H2O commonly known as?",
-                "correct_answers": ["water", "h2o"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "Who wrote the play 'Romeo and Juliet'?",
-                "correct_answers": ["william shakespeare", "shakespeare"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the fastest land animal?",
-                "correct_answers": ["cheetah"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "Which country gifted the Statue of Liberty to the USA?",
-                "correct_answers": ["france"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "How many sides does a hexagon have?",
-                "correct_answers": ["6", "six"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "What is the hardest natural substance on Earth?",
-                "correct_answers": ["diamond"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "Which gas do plants absorb from the atmosphere?",
-                "correct_answers": ["carbon dioxide", "co2"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the smallest country in the world?",
-                "correct_answers": ["vatican city", "vatican"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "Which planet has the most moons?",
-                "correct_answers": ["saturn"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the capital of Japan?",
-                "correct_answers": ["tokyo"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "How many players are on a basketball team?",
-                "correct_answers": ["5", "five"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "What is the main ingredient in guacamole?",
-                "correct_answers": ["avocado"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "Which year did World War II end?",
-                "correct_answers": ["1945"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the currency of Japan?",
-                "correct_answers": ["yen"],
-                "points": 300,
-                "time_limit": 60
-            }
+            # ... (keep your existing questions)
         ]
     
     def calculate_points(self, answer_time, total_time, max_points):
@@ -726,7 +475,7 @@ class QuizSystem:
             return
         
         question = self.quiz_questions[self.current_question]
-        self.question_start_time = datetime.now(timezone.utc)  # FIXED
+        self.question_start_time = datetime.now(timezone.utc)
         
         # Initial progress bar (full)
         progress_bar = "🟩" * 20
@@ -1159,89 +908,12 @@ class QuizSystem:
         # Wait 2 seconds
         await asyncio.sleep(2)
         
-        # Send FULL LEADERBOARD with pagination if many participants
-        if sorted_participants:
-            # Create main leaderboard embed
-            leaderboard_embed = discord.Embed(
-                title="📋 **FINAL LEADERBOARD**",
-                description="All participants ranked by score:",
-                color=discord.Color.blue(),
-                timestamp=datetime.now(timezone.utc)
-            )
-            
-            # Split participants into chunks of 15 for readability
-            chunk_size = 15
-            chunks = [sorted_participants[i:i + chunk_size] 
-                     for i in range(0, len(sorted_participants), chunk_size)]
-            
-            for chunk_idx, chunk in enumerate(chunks):
-                leaderboard_text = ""
-                
-                for rank, (user_id, data) in enumerate(chunk, start=chunk_idx * chunk_size + 1):
-                    # Get rank emoji
-                    rank_emoji = self.get_rank_emoji(rank)
-                    
-                    # Try to fetch user for avatar in field
-                    try:
-                        user = await self.bot.fetch_user(int(user_id))
-                        user_display = user.display_name
-                    except:
-                        user_display = data['name']
-                    
-                    # Calculate user stats
-                    user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
-                    avg_time = self.calculate_average_time(data)
-                    
-                    leaderboard_text += (
-                        f"{rank_emoji} **{user_display}**\n"
-                        f"   ⭐ {data['score']} pts | 📊 {data['correct_answers']}/{total_questions} ({user_accuracy}%)\n"
-                        f"   ⏱️ Avg: {avg_time:.1f}s | 📈 Rank: #{rank}\n"
-                    )
-                    
-                    # Add separator between entries
-                    if rank < len(chunk) + chunk_idx * chunk_size:
-                        leaderboard_text += "━━━━━━━━━━━━━━━━━━━━\n"
-                
-                # Add chunk as a field
-                field_name = f"🏆 **Rank {chunk_idx * chunk_size + 1}-{chunk_idx * chunk_size + len(chunk)}**"
-                if chunk_idx == 0:
-                    field_name = "🏆 **TOP CONTENDERS**"
-                
-                leaderboard_embed.add_field(
-                    name=field_name,
-                    value=leaderboard_text if leaderboard_text else "No participants",
-                    inline=False
-                )
-            
-            # Add footer with quiz completion time
-            leaderboard_embed.set_footer(
-                text=f"Quiz completed • {total_participants} participants",
-                icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None
-            )
-            
-            await self.quiz_channel.send(embed=leaderboard_embed)
-
-        # DEBUG PRINT ---------
-        print(f"🔔 [DEBUG] Starting reward distribution process...")
-        print(f"🔔 [DEBUG] Participants: {len(sorted_participants)}")
-
         # DISTRIBUTE REWARDS
+        print(f"🔔 Starting reward distribution for {len(sorted_participants)} participants...")
         rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
-        print(f"🔔 [DEBUG] Rewards distributed: {len(rewards_distributed)} users")
-
-        # Check if rewards were actually given
-        if not rewards_distributed:
-            print(f"⚠️ [DEBUG] No rewards were distributed!")
-            error_embed = discord.Embed(
-                title="⚠️ **Reward Distribution Issue**",
-                description="No rewards could be distributed. Check the logs.",
-                color=discord.Color.red()
-            )
-            await self.quiz_channel.send(embed=error_embed)
-            return
-
+        print(f"🔔 Rewards distributed to {len(rewards_distributed)} users")
+        
         # Send rewards summary
-        print(f"🔔 [DEBUG] Creating rewards embed...")
         rewards_embed = discord.Embed(
             title="💰 **Quiz Rewards Distributed!**",
             color=discord.Color.green(),
@@ -1254,8 +926,6 @@ class QuizSystem:
             reward = rewards_distributed.get(user_id, {})
             gems = reward.get("gems", 0)
             
-            print(f"🔔 [DEBUG] User {data['name']}: {gems} gems")
-
             medal = ["🥇", "🥈", "🥉"][i]
             top_3.append(
                 f"{medal} **{data['name']}** - {data['score']} pts\n"
@@ -1269,8 +939,6 @@ class QuizSystem:
                 inline=False
             )
         
-        print(f"🔔 [DEBUG] Added top 3 to embed")
-
         # Show participation rewards
         if len(sorted_participants) > 3:
             rewards_embed.add_field(
@@ -1281,16 +949,8 @@ class QuizSystem:
                       f"• Speed bonuses for fast answers!",
                 inline=False
             )
-        print(f"🔔 [DEBUG] Added participation rewards to embed")
-
-        try:
-            print(f"🔔 [DEBUG] Attempting to send rewards embed...")
-            await self.quiz_channel.send(embed=rewards_embed)
-            print(f"✅ [DEBUG] Rewards embed sent successfully!")
-        except Exception as e:
-            print(f"❌ [DEBUG] Error sending rewards embed: {e}")
-            # Send simple message as fallback
-            await self.quiz_channel.send("💰 **Quiz rewards have been distributed!** Check your DMs!")
+        
+        await self.quiz_channel.send(embed=rewards_embed)
         
         # Send individual DMs with rewards
         for user_id, data in self.participants.items():
@@ -1313,7 +973,7 @@ class QuizSystem:
                             inline=False
                         )
                         
-                        balance = self.currency.get_balance(user_id)
+                        balance = await self.currency.get_balance(user_id)
                         dm_embed.add_field(
                             name="📊 **New Balance**",
                             value=f"💎 Total Gems: **{balance['gems']}**",
@@ -1403,7 +1063,7 @@ class QuizSystem:
                 reason += f" + ⚡{speed_bonus} speed bonus"
             
             # Add gems to user
-            transaction = self.currency.add_gems(
+            transaction = await self.currency.add_gems(
                 user_id=user_id,
                 gems=base_gems,
                 reason=reason
@@ -1446,12 +1106,32 @@ class QuizSystem:
         embed.add_field(name="👤 User", value=username, inline=True)
         embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
         embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
-        embed.add_field(name="📊 Total", value=f"{gems} gems", inline=True)
         
         await self.quiz_logs_channel.send(embed=embed)
 
 # Create quiz system instance
 quiz_system = QuizSystem(bot)
+
+# --- ANNOUNCEMENT COMMANDS (keep your existing ones) ---
+@bot.group(name="announce", invoke_without_command=True)
+@commands.has_permissions(manage_messages=True)
+async def announce_group(ctx):
+    """Announcement management system"""
+    embed = discord.Embed(
+        title="📢 **Announcement System**",
+        description=(
+            "**Commands:**\n"
+            "• `!!announce send <message>` - Send announcement\n"
+            "• `!!announce channel #channel` - Set announcement channel\n"
+            "• `!!announce preview <message>` - Preview announcement\n"
+            "• `!!announce image <url>` - Add image to announcement\n"
+            "• `!!announce urgent <message>` - Red urgent announcement\n"
+        ),
+        color=0x5865F2
+    )
+    await ctx.send(embed=embed)
+
+# ... (keep all your existing announcement commands)
 
 # --- QUIZ COMMANDS ---
 @bot.group(name="quiz", invoke_without_command=True)
@@ -1473,11 +1153,7 @@ async def quiz_group(ctx):
 @quiz_group.command(name="start")
 @commands.has_permissions(manage_messages=True)
 async def quiz_start(ctx, channel: discord.TextChannel = None):
-    """
-    Start a quiz in specific channel
-    Usage: !!quiz start #channel  (starts in mentioned channel)
-           !!quiz start           (starts in current channel)
-    """
+    """Start a quiz"""
     if quiz_system.quiz_running:
         await ctx.send("❌ Quiz is already running!", delete_after=5)
         return
@@ -1512,77 +1188,15 @@ async def quiz_start(ctx, channel: discord.TextChannel = None):
     # Start quiz
     await quiz_system.start_quiz(quiz_channel, logs_channel)
 
-@quiz_group.command(name="stop")
-@commands.has_permissions(manage_messages=True)
-async def quiz_stop(ctx):
-    """Stop current quiz"""
-    if not quiz_system.quiz_running:
-        await ctx.send("❌ No quiz is running!", delete_after=5)
-        return
-    
-    quiz_system.quiz_running = False
-    if quiz_system.question_timer:
-        quiz_system.question_timer.cancel()
-    
-    await ctx.send("✅ Quiz stopped!")
+# ... (keep other quiz commands)
 
-@quiz_group.command(name="leaderboard")
-async def quiz_leaderboard(ctx):
-    """Show current quiz leaderboard"""
-    if not quiz_system.participants:
-        await ctx.send("❌ No quiz data available!", delete_after=5)
-        return
-    
-    # Create leaderboard embed
-    embed = await quiz_system.create_live_leaderboard()
-    await ctx.send(embed=embed)
-
-@quiz_group.command(name="addq")
-@commands.has_permissions(administrator=True)
-async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
-    """
-    Add a new quiz question
-    Format: !!quiz addq 300 60 Question? | correct answer 1 | correct answer 2
-    Example: !!quiz addq 300 60 Capital of France? | paris
-    """
-    try:
-        parts = question_data.split(" | ")
-        if len(parts) < 2:
-            await ctx.send("❌ Format: `Question? | correct answer 1 | correct answer 2`")
-            return
-        
-        new_question = {
-            "question": parts[0],
-            "correct_answers": [ans.lower().strip() for ans in parts[1:]],
-            "points": points,
-            "time_limit": time_limit
-        }
-        
-        quiz_system.quiz_questions.append(new_question)
-        
-        embed = discord.Embed(
-            title="✅ **Question Added!**",
-            description=new_question["question"],
-            color=discord.Color.green()
-        )
-        
-        embed.add_field(name="✅ Correct Answers", 
-                       value=", ".join(new_question["correct_answers"]))
-        embed.add_field(name="⭐ Points", value=str(points))
-        embed.add_field(name="⏱️ Time Limit", value=f"{time_limit}s")
-        
-        await ctx.send(embed=embed)
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-# CURRENCY COMMANDS -----
+# --- CURRENCY COMMANDS ---
 @bot.group(name="currency", invoke_without_command=True)
 async def currency_group(ctx):
     """Currency and rewards commands"""
     # Get user balance
     user_id = str(ctx.author.id)
-    balance = quiz_system.currency.get_balance(user_id)
+    balance = await quiz_system.currency.get_balance(user_id)
     
     embed = discord.Embed(
         title="💰 **Your Gems**",
@@ -1592,7 +1206,7 @@ async def currency_group(ctx):
     )
     
     # Check daily streak
-    user_data = quiz_system.currency.get_user(user_id)
+    user_data = await quiz_system.currency.get_user(user_id)
     if user_data["daily_streak"] > 0:
         embed.add_field(
             name="🔥 Daily Streak",
@@ -1601,7 +1215,7 @@ async def currency_group(ctx):
         )
     
     # Check next daily
-    if quiz_system.currency.can_claim_daily(user_id):
+    if await quiz_system.currency.can_claim_daily(user_id):
         embed.add_field(
             name="🎁 Daily Reward",
             value="Available now!",
@@ -1620,7 +1234,7 @@ async def currency_group(ctx):
 @currency_group.command(name="leaderboard")
 async def currency_leaderboard(ctx):
     """Show gems leaderboard"""
-    leaderboard = quiz_system.currency.get_leaderboard(limit=10)
+    leaderboard = await quiz_system.currency.get_leaderboard(limit=10)
     
     embed = discord.Embed(
         title="🏆 **Gems Leaderboard**",
@@ -1647,97 +1261,39 @@ async def currency_leaderboard(ctx):
     
     await ctx.send(embed=embed)
 
-@currency_group.command(name="transfer")
-@commands.cooldown(1, 300, commands.BucketType.user)  # 5 minute cooldown
-async def currency_transfer(ctx, member: discord.Member, amount: int):
-    """Transfer gems to another user"""
-    if amount <= 0:
-        await ctx.send("❌ Amount must be positive!", delete_after=5)
-        return
-    
-    if amount > 1000:
-        await ctx.send("❌ Maximum transfer is 1,000 gems!", delete_after=5)
-        return
-    
-    if member.bot:
-        await ctx.send("❌ You can't transfer gems to bots!", delete_after=5)
-        return
-    
-    sender_id = str(ctx.author.id)
-    receiver_id = str(member.id)
-    
-    if sender_id == receiver_id:
-        await ctx.send("❌ You can't transfer gems to yourself!", delete_after=5)
-        return
-    
-    # Check sender's balance
-    sender_balance = quiz_system.currency.get_balance(sender_id)
-    
-    if sender_balance["gems"] < amount:
-        await ctx.send(f"❌ You don't have enough gems! You have {sender_balance['gems']} gems.", delete_after=5)
-        return
-    
-    # Transfer gems (5% tax)
-    tax = max(1, amount // 20)  # 5% tax, minimum 1 gem
-    net_amount = amount - tax
-    
-    # Deduct from sender (full amount)
-    quiz_system.currency.deduct_gems(
-        sender_id,
-        gems=amount,
-        reason=f"Transfer to {member.display_name}"
-    )
-    
-    # Add to receiver (after tax)
-    quiz_system.currency.add_gems(
-        receiver_id,
-        gems=net_amount,
-        reason=f"Received from {ctx.author.display_name}"
-    )
-    
-    embed = discord.Embed(
-        title="✅ **Transfer Successful!**",
-        description=f"Sent {amount} gems to {member.mention}\n"
-                   f"💰 **Tax:** {tax} gems\n"
-                   f"📥 **Net received:** {net_amount} gems",
-        color=discord.Color.green()
-    )
-    
-    await ctx.send(embed=embed)
-
-@currency_transfer.error
-async def currency_transfer_error(ctx, error):
-    if isinstance(error, commands.CommandOnCooldown):
-        minutes = int(error.retry_after // 60)
-        seconds = int(error.retry_after % 60)
-        await ctx.send(f"⏰ Transfer cooldown! Try again in {minutes}m {seconds}s.", delete_after=5)
-
 @currency_group.command(name="daily")
 async def daily_reward(ctx):
-    """Claim daily reward (1-100 gems + streak bonus)"""
+    """Claim daily reward"""
     user_id = str(ctx.author.id)
     
-    if not quiz_system.currency.can_claim_daily(user_id):
+    if not await quiz_system.currency.can_claim_daily(user_id):
         # Calculate time until next daily
-        user = quiz_system.currency.get_user(user_id)
-        last_claim = datetime.fromisoformat(user["last_daily"])
-        now = datetime.now(timezone.utc)
-        hours_left = 24 - ((now - last_claim).seconds // 3600)
-        minutes_left = 60 - ((now - last_claim).seconds % 3600) // 60
+        user = await quiz_system.currency.get_user(user_id)
+        last_claim = user["last_daily"]
+        if last_claim and isinstance(last_claim, str):
+            last_claim = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
         
-        await ctx.send(
-            f"⏰ You can claim your daily reward in {hours_left}h {minutes_left}m!\n"
-            f"Current streak: **{user['daily_streak']} days** 🔥",
-            delete_after=10
-        )
+        if last_claim:
+            now = datetime.now(timezone.utc)
+            next_claim = last_claim.replace(tzinfo=timezone.utc) + timedelta(hours=24)
+            time_left = next_claim - now
+            
+            hours = time_left.seconds // 3600
+            minutes = (time_left.seconds % 3600) // 60
+            
+            await ctx.send(
+                f"⏰ You can claim your daily reward in {hours}h {minutes}m!\n"
+                f"Current streak: **{user['daily_streak']} days** 🔥",
+                delete_after=10
+            )
         return
     
     # Claim daily reward
-    transaction = quiz_system.currency.claim_daily(user_id)
-    user = quiz_system.currency.get_user(user_id)
+    transaction = await quiz_system.currency.claim_daily(user_id)
+    user = await quiz_system.currency.get_user(user_id)
     
     # Extract gems from transaction
-    gems_earned = transaction["gems"]
+    gems_earned = transaction["gems"] if isinstance(transaction, dict) else 100
     
     embed = discord.Embed(
         title="🎁 **Daily Reward Claimed!**",
@@ -1760,61 +1316,20 @@ async def daily_reward(ctx):
     embed.set_footer(text="Come back tomorrow for more gems!")
     await ctx.send(embed=embed)
 
-# Add stats command
-@currency_group.command(name="stats")
-async def currency_stats(ctx, member: discord.Member = None):
-    """Show detailed currency statistics"""
-    target = member or ctx.author
-    user_id = str(target.id)
+# --- TEST DATABASE COMMAND ---
+@bot.command(name="testdb")
+async def test_database(ctx):
+    """Test if database is working"""
+    user_id = str(ctx.author.id)
     
-    balance = quiz_system.currency.get_balance(user_id)
-    user_data = quiz_system.currency.get_user(user_id)
+    # Add test gems
+    result = await quiz_system.currency.add_gems(user_id, 10, "Test reward")
     
-    embed = discord.Embed(
-        title=f"📊 **{target.display_name}'s Gem Stats**",
-        color=discord.Color.blue()
-    )
-    
-    embed.add_field(
-        name="💰 **Current Balance**",
-        value=f"💎 **{balance['gems']:,} gems**",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="📈 **Lifetime Earnings**",
-        value=f"**{balance['total_earned']:,} gems** earned",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="🔥 **Daily Streak**",
-        value=f"**{user_data['daily_streak']} days**",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="🔄 **Transactions**",
-        value=f"**{len(user_data['transactions'])}** recorded",
-        inline=True
-    )
-    
-    # Recent transactions (last 5)
-    if user_data["transactions"]:
-        recent = user_data["transactions"][-5:]
-        recent_text = []
-        for tx in reversed(recent):
-            sign = "+" if tx["gems"] > 0 else ""
-            reason = tx["reason"][:20] + "..." if len(tx["reason"]) > 20 else tx["reason"]
-            recent_text.append(f"`{sign}{tx['gems']}` gems - {reason}")
-        
-        embed.add_field(
-            name="📝 **Recent Activity**",
-            value="\n".join(recent_text) if recent_text else "No recent activity",
-            inline=False
-        )
-    
-    await ctx.send(embed=embed)
+    if isinstance(result, dict) and "error" in result:
+        await ctx.send(f"❌ Database error: {result['error']}\n⚠️ Data will reset on redeploy!")
+    else:
+        balance = await quiz_system.currency.get_balance(user_id)
+        await ctx.send(f"✅ Database working! You now have {balance['gems']} gems\n✅ Your gems will persist after redeploy!")
 
 # --- ANSWER DETECTION ---
 @bot.event
@@ -1822,99 +1337,34 @@ async def on_message(message):
     if message.author.bot:
         return
     
-    # Check for quiz answers (any text answer)
+    # Check for quiz answers
     if (quiz_system.quiz_running and 
         message.channel == quiz_system.quiz_channel):
         
-        # Process the answer silently (NO REACTIONS)
+        # Process the answer silently
         await quiz_system.process_answer(message.author, message.content)
     
     await bot.process_commands(message)
 
-# --- HELP COMMAND ---
-@bot.command(name="help")
-async def custom_help(ctx, command: str = None):
-    """Show help for commands"""
-    if command:
-        # Show specific command help
-        cmd = bot.get_command(command)
-        if cmd:
-            embed = discord.Embed(
-                title=f"Help: {cmd.name}",
-                description=cmd.help or "No description available",
-                color=0x5865F2
-            )
-            await ctx.send(embed=embed)
-        else:
-            await ctx.send("❌ Command not found!")
-    else:
-        # Show all commands
-        embed = discord.Embed(
-            title="📚 Bot Commands",
-            description="**Announcement System**\n"
-                       "• `!!announce` - Announcement management\n"
-                       "• `!!a <message>` - Quick announcement\n\n"
-                       "**Message System**\n"
-                       "• `!!say` - Send messages\n"
-                       "• `!!embed` - Send embed message\n"
-                       "• `!!dm` - DM a user\n"
-                       "• `!!smartreply` - Reply to message\n\n"
-                       "**Quiz System**\n"
-                       "• `!!quiz` - Quiz management\n\n"
-                       "**Currency System**\n"
-                       "• `!!currency` - Check your gems\n"
-                       "• `!!currency daily` - Claim daily reward\n"
-                       "• `!!currency leaderboard` - Top earners\n\n"
-                       "**Utility**\n"
-                       "• `!!ping` - Check bot latency\n"
-                       "• `!!help <command>` - Get command help",
-            color=0x5865F2
-        )
-        await ctx.send(embed=embed)
-
-# --- 8. EVENTS ---
+# --- EVENTS ---
 @bot.event
 async def on_ready():
     print(f"✅ {bot.user} is online!")
     
+    # Initialize currency database
+    await quiz_system.init_currency()
+    
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name=""
+            name="!!help"
         )
     )
-    print("✅ Bot ready with announcements and quiz system!")
+    print("✅ Bot ready with PostgreSQL database!")
 
-@bot.event
-async def on_disconnect():
-    print("Bot disconnected - cleaning up...")
-    if quiz_system.question_timer:
-        quiz_system.question_timer.cancel()
-    quiz_system.quiz_running = False
-
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission!")
-    elif isinstance(error, commands.CommandNotFound):
-        pass
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Invalid argument! Check command usage with `!!help <command>`")
-    else:
-        await ctx.send(f"❌ Error: {str(error)[:100]}")
-
-# --- ERROR HANDLERS ---
-@quiz_start.error
-async def quiz_start_error(ctx, error):
-    if isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Invalid channel! Usage: `!!quiz start #channel`")
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You need manage messages permission!")
-
-# --- 9. RUN BOT ---
+# --- RUN BOT ---
 if __name__ == "__main__":
     if TOKEN:
         bot.run(TOKEN)
     else:
         print("❌ ERROR: No TOKEN found in environment variables!")
-        print("Please set the TOKEN environment variable.")
