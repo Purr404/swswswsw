@@ -4,10 +4,9 @@ import json
 import asyncio
 import random
 from datetime import datetime, timezone, timedelta
+
 # ULTIMATE ASYNCPG INSTALLER
 import subprocess
-import sys
-import os
 
 print("=== ULTIMATE ASYNCPG INSTALLER ===")
 
@@ -72,212 +71,7 @@ for key, value in os.environ.items():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 
-# === SIMPLE BUT EFFECTIVE DATABASE SYSTEM ===
-class SmartDatabaseSystem:
-    def __init__(self):
-        self.pool = None
-        self.using_database = False
-        self.json_file = "user_gems.json"
-        self.json_data = {}
-        self.load_json_data()
-        print(f"\n📊 Database System Status:")
-        print(f"  - DATABASE_URL exists: {'YES' if DATABASE_URL else 'NO'}")
-        print(f"  - asyncpg available: {'YES' if ASYNCPG_AVAILABLE else 'NO'}")
-        
-    def load_json_data(self):
-        """Load data from JSON file"""
-        try:
-            if os.path.exists(self.json_file):
-                with open(self.json_file, 'r', encoding='utf-8') as f:
-                    self.json_data = json.load(f)
-                print(f"  - JSON users loaded: {len(self.json_data)}")
-            else:
-                self.json_data = {}
-                print(f"  - JSON file: Not found (will create)")
-        except Exception as e:
-            print(f"  - JSON load error: {e}")
-            self.json_data = {}
-    
-    def save_json_data(self):
-        """Save data to JSON file"""
-        try:
-            with open(self.json_file, 'w', encoding='utf-8') as f:
-                json.dump(self.json_data, f, indent=2, ensure_ascii=False)
-            return True
-        except Exception as e:
-            print(f"❌ Error saving JSON: {e}")
-            return False
-    
-    async def smart_connect(self):
-        """Smart database connection that tries multiple approaches"""
-        if not DATABASE_URL:
-            print("❌ No DATABASE_URL - using JSON only")
-            return False
-        
-        if not ASYNCPG_AVAILABLE:
-            print("❌ asyncpg not available - using JSON only")
-            return False
-        
-        print("\n🔌 Attempting database connection...")
-        
-        # Try different connection strategies
-        connection_strategies = [
-            ("Standard with SSL", {'ssl': 'require'}),
-            ("Standard without SSL", {'ssl': None}),
-            ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
-        ]
-        
-        for strategy_name, strategy_args in connection_strategies:
-            print(f"  Trying: {strategy_name}...")
-            try:
-                self.pool = await asyncpg.create_pool(
-                    DATABASE_URL,
-                    min_size=1,
-                    max_size=3,
-                    **strategy_args
-                )
-                
-                # Test connection
-                async with self.pool.acquire() as conn:
-                    result = await conn.fetchval('SELECT 1')
-                    print(f"    ✅ Connection test: {result}")
-                    
-                    # Create table
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS user_gems (
-                            user_id TEXT PRIMARY KEY,
-                            gems INTEGER DEFAULT 0,
-                            total_earned INTEGER DEFAULT 0,
-                            daily_streak INTEGER DEFAULT 0,
-                            last_daily TIMESTAMP,
-                            created_at TIMESTAMP DEFAULT NOW(),
-                            updated_at TIMESTAMP DEFAULT NOW()
-                        )
-                    ''')
-                
-                self.using_database = True
-                print(f"🎉 Success with: {strategy_name}")
-                print("✅ Database connected and ready!")
-                return True
-                
-            except Exception as e:
-                print(f"    ❌ Failed: {type(e).__name__}: {str(e)[:100]}")
-                continue
-        
-        print("❌ All connection strategies failed")
-        print("💡 Possible solutions:")
-        print("  1. Wait 2 minutes for Railway PostgreSQL to be ready")
-        print("  2. Restart both bot and PostgreSQL services")
-        print("  3. Check DATABASE_URL format in Railway Variables")
-        return False
-    
-    async def add_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Add gems to a user"""
-        if self.using_database:
-            return await self._db_add_gems(user_id, gems, reason)
-        else:
-            return await self._json_add_gems(user_id, gems, reason)
-    
-    async def _db_add_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Database version"""
-        try:
-            async with self.pool.acquire() as conn:
-                # Try to update existing user
-                result = await conn.execute('''
-                    UPDATE user_gems 
-                    SET gems = gems + $2,
-                        total_earned = total_earned + $2,
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                    RETURNING gems
-                ''', user_id, gems)
-                
-                if result == 'UPDATE 0':
-                    # User doesn't exist, create them
-                    await conn.execute('''
-                        INSERT INTO user_gems (user_id, gems, total_earned)
-                        VALUES ($1, $2, $2)
-                    ''', user_id, gems)
-                    new_balance = gems
-                else:
-                    # Parse the new balance from result
-                    # Result format: "UPDATE 1"
-                    new_balance = gems  # We'll fetch it properly
-                    
-                    # Fetch actual balance
-                    balance = await conn.fetchval(
-                        'SELECT gems FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
-                    new_balance = balance
-                
-                print(f"✅ [DB] Added {gems} gems to {user_id} (Balance: {new_balance})")
-                return {"gems": gems, "balance": new_balance}
-                
-        except Exception as e:
-            print(f"❌ Database error in add_gems: {e}")
-            print("🔄 Falling back to JSON...")
-            return await self._json_add_gems(user_id, gems, reason)
-    
-    async def _json_add_gems(self, user_id: str, gems: int, reason: str = ""):
-        """JSON version"""
-        if user_id not in self.json_data:
-            self.json_data[user_id] = {
-                "gems": gems,
-                "total_earned": gems,
-                "daily_streak": 0,
-                "last_daily": None
-            }
-        else:
-            self.json_data[user_id]["gems"] += gems
-            self.json_data[user_id]["total_earned"] += gems
-        
-        self.save_json_data()
-        balance = self.json_data[user_id]["gems"]
-        print(f"✅ [JSON] Added {gems} gems to {user_id} (Balance: {balance})")
-        return {"gems": gems, "balance": balance}
-    
-    async def get_balance(self, user_id: str):
-        """Get user balance"""
-        if self.using_database:
-            try:
-                async with self.pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        'SELECT gems, total_earned FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
-                    
-                    if row:
-                        return {"gems": row['gems'], "total_earned": row['total_earned']}
-                    else:
-                        return {"gems": 0, "total_earned": 0}
-                        
-            except Exception as e:
-                print(f"❌ Database error in get_balance: {e}")
-                return await self._json_get_balance(user_id)
-        else:
-            return await self._json_get_balance(user_id)
-    
-    async def _json_get_balance(self, user_id: str):
-        """JSON version"""
-        if user_id in self.json_data:
-            return {
-                "gems": self.json_data[user_id].get("gems", 0),
-                "total_earned": self.json_data[user_id].get("total_earned", 0)
-            }
-        return {"gems": 0, "total_earned": 0}
-
-# Create database system
-currency_system = CurrencySystem()
-
-# --- Create quiz system with the shared currency system ---
-quiz_system = QuizSystem(bot, currency_system)
-
-# --- 2. Store user selections ---
-user_selections = {}
-
-
-# === ADD CURRENCY SYSTEM CLASS HERE ===
+# === CURRENCY SYSTEM CLASS ===
 class CurrencySystem:
     def __init__(self, filename="user_gems.json"):
         self.filename = filename
@@ -401,12 +195,15 @@ class CurrencySystem:
         if not user["last_daily"]:
             return True
         
-        last_claim = datetime.fromisoformat(user["last_daily"])
-        now = datetime.now(timezone.utc)
-        
-        # Check if 24 hours have passed
-        hours_passed = (now - last_claim).total_seconds() / 3600
-        return hours_passed >= 23.5
+        try:
+            last_claim = datetime.fromisoformat(user["last_daily"])
+            now = datetime.now(timezone.utc)
+            
+            # Check if 24 hours have passed
+            hours_passed = (now - last_claim).total_seconds() / 3600
+            return hours_passed >= 23.5
+        except:
+            return True
     
     def claim_daily(self, user_id: str):
         """Claim daily reward with streak bonus"""
@@ -415,12 +212,15 @@ class CurrencySystem:
         
         # Check streak
         if user["last_daily"]:
-            last_claim = datetime.fromisoformat(user["last_daily"])
-            days_diff = (now - last_claim).days
-            
-            if days_diff == 1:
-                user["daily_streak"] += 1
-            elif days_diff > 1:
+            try:
+                last_claim = datetime.fromisoformat(user["last_daily"])
+                days_diff = (now - last_claim).days
+                
+                if days_diff == 1:
+                    user["daily_streak"] += 1
+                elif days_diff > 1:
+                    user["daily_streak"] = 1
+            except:
                 user["daily_streak"] = 1
         else:
             user["daily_streak"] = 1
@@ -444,8 +244,126 @@ class CurrencySystem:
             reason=f"🎁 Daily Reward (Streak: {user['daily_streak']} days)"
         )
 
+# === CREATE SHARED CURRENCY SYSTEM INSTANCE ===
+currency_system = CurrencySystem()
 
-# CURRENCY CLASS END ----------
+# === SIMPLE BUT EFFECTIVE DATABASE SYSTEM ===
+class SmartDatabaseSystem:
+    def __init__(self):
+        self.pool = None
+        self.using_database = False
+        self.json_file = "user_gems.json"
+        self.json_data = {}
+        self.load_json_data()
+        print(f"\n📊 Database System Status:")
+        print(f"  - DATABASE_URL exists: {'YES' if DATABASE_URL else 'NO'}")
+        print(f"  - asyncpg available: {'YES' if ASYNCPG_AVAILABLE else 'NO'}")
+        
+    def load_json_data(self):
+        """Load data from JSON file"""
+        try:
+            if os.path.exists(self.json_file):
+                with open(self.json_file, 'r', encoding='utf-8') as f:
+                    self.json_data = json.load(f)
+                print(f"  - JSON users loaded: {len(self.json_data)}")
+            else:
+                self.json_data = {}
+                print(f"  - JSON file: Not found (will create)")
+        except Exception as e:
+            print(f"  - JSON load error: {e}")
+            self.json_data = {}
+    
+    def save_json_data(self):
+        """Save data to JSON file"""
+        try:
+            with open(self.json_file, 'w', encoding='utf-8') as f:
+                json.dump(self.json_data, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"❌ Error saving JSON: {e}")
+            return False
+    
+    async def smart_connect(self):
+        """Smart database connection that tries multiple approaches"""
+        if not DATABASE_URL:
+            print("❌ No DATABASE_URL - using JSON only")
+            return False
+        
+        if not ASYNCPG_AVAILABLE:
+            print("❌ asyncpg not available - using JSON only")
+            return False
+        
+        print("\n🔌 Attempting database connection...")
+        
+        # Try different connection strategies
+        connection_strategies = [
+            ("Standard with SSL", {'ssl': 'require'}),
+            ("Standard without SSL", {'ssl': None}),
+            ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
+        ]
+        
+        for strategy_name, strategy_args in connection_strategies:
+            print(f"  Trying: {strategy_name}...")
+            try:
+                self.pool = await asyncpg.create_pool(
+                    DATABASE_URL,
+                    min_size=1,
+                    max_size=3,
+                    **strategy_args
+                )
+                
+                # Test connection
+                async with self.pool.acquire() as conn:
+                    result = await conn.fetchval('SELECT 1')
+                    print(f"    ✅ Connection test: {result}")
+                    
+                    # Create table
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_gems (
+                            user_id TEXT PRIMARY KEY,
+                            gems INTEGER DEFAULT 0,
+                            total_earned INTEGER DEFAULT 0,
+                            daily_streak INTEGER DEFAULT 0,
+                            last_daily TIMESTAMP,
+                            created_at TIMESTAMP DEFAULT NOW(),
+                            updated_at TIMESTAMP DEFAULT NOW()
+                        )
+                    ''')
+                
+                self.using_database = True
+                print(f"🎉 Success with: {strategy_name}")
+                print("✅ Database connected and ready!")
+                return True
+                
+            except Exception as e:
+                print(f"    ❌ Failed: {type(e).__name__}: {str(e)[:100]}")
+                continue
+        
+        print("❌ All connection strategies failed")
+        print("💡 Possible solutions:")
+        print("  1. Wait 2 minutes for Railway PostgreSQL to be ready")
+        print("  2. Restart both bot and PostgreSQL services")
+        print("  3. Check DATABASE_URL format in Railway Variables")
+        return False
+    
+    async def add_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Add gems to a user"""
+        # Instead of implementing our own, use the shared currency system
+        transaction = currency_system.add_gems(user_id, gems, reason)
+        balance = currency_system.get_balance(user_id)
+        return {"gems": gems, "balance": balance["gems"]}
+    
+    async def get_balance(self, user_id: str):
+        """Get user balance"""
+        # Use the shared currency system
+        balance = currency_system.get_balance(user_id)
+        return balance
+
+# Create database system
+db = SmartDatabaseSystem()
+
+# --- 2. Store user selections ---
+user_selections = {}
 
 # --- 3. ANNOUNCEMENT SYSTEM CLASS ---
 class AnnouncementSystem:
@@ -503,135 +421,6 @@ class AnnouncementSystem:
 
 # --- 4. Create announcement system AFTER bot is defined ---
 announcements = AnnouncementSystem()
-
-# --- 5. ANNOUNCEMENT COMMANDS ---
-@bot.group(name="announce", invoke_without_command=True)
-@commands.has_permissions(manage_messages=True)
-async def announce_group(ctx):
-    """Announcement management system"""
-    embed = discord.Embed(
-        title="📢 **Announcement System**",
-        description=(
-            "**Commands:**\n"
-            "• `!!announce send <message>` - Send announcement\n"
-            "• `!!announce channel #channel` - Set announcement channel\n"
-            "• `!!announce preview <message>` - Preview announcement\n"
-            "• `!!announce image <url>` - Add image to announcement\n"
-            "• `!!announce urgent <message>` - Red urgent announcement\n"
-        ),
-        color=0x5865F2
-    )
-    await ctx.send(embed=embed)
-
-@announce_group.command(name="send")
-@commands.has_permissions(manage_messages=True)
-async def announce_send(ctx, *, message: str):
-    """Send an announcement"""
-    channel = await announcements.get_announcement_channel(ctx.guild)
-    if not channel:
-        await ctx.send("❌ No announcement channel found! Use `!!announce channel #channel`")
-        return
-    
-    server_id = str(ctx.guild.id)
-    image_url = announcements.announcement_images.get(server_id)
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        image_url=image_url
-    )
-    
-    try:
-        sent_message = await channel.send("@here", embed=embed)
-        
-        await sent_message.add_reaction("📢")
-        await sent_message.add_reaction("✅")
-        
-        if server_id in announcements.announcement_images:
-            del announcements.announcement_images[server_id]
-        
-        confirm_embed = discord.Embed(
-            description=f"✅ **Announcement Sent!**\n**Channel:** {channel.mention}\n**Link:** [Jump to Message]({sent_message.jump_url})",
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=confirm_embed, delete_after=10)
-        await ctx.message.delete(delay=5)
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
-
-@announce_group.command(name="channel")
-@commands.has_permissions(administrator=True)
-async def announce_channel(ctx, channel: discord.TextChannel):
-    """Set the announcement channel"""
-    server_id = str(ctx.guild.id)
-    announcements.announcement_channels[server_id] = channel.id
-    
-    embed = discord.Embed(
-        description=f"✅ **Announcement channel set to {channel.mention}**",
-        color=discord.Color.green()
-    )
-    await ctx.send(embed=embed)
-
-@announce_group.command(name="preview")
-@commands.has_permissions(manage_messages=True)
-async def announce_preview(ctx, *, message: str):
-    """Preview announcement"""
-    server_id = str(ctx.guild.id)
-    image_url = announcements.announcement_images.get(server_id)
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        title="ANNOUNCEMENT PREVIEW",
-        color=0x5865F2,
-        image_url=image_url
-    )
-    
-    await ctx.send("**📝 Preview:**", embed=embed)
-    await ctx.send("*Use `!!announce send` to post.*")
-
-@announce_group.command(name="image")
-@commands.has_permissions(manage_messages=True)
-async def announce_image(ctx, image_url: str):
-    """Set image for next announcement"""
-    if not (image_url.startswith("http://") or image_url.startswith("https://")):
-        await ctx.send("❌ Please provide a valid image URL")
-        return
-    
-    server_id = str(ctx.guild.id)
-    announcements.announcement_images[server_id] = image_url
-    
-    embed = discord.Embed(
-        title="✅ Image Set for Next Announcement",
-        color=discord.Color.green()
-    )
-    embed.set_image(url=image_url)
-    await ctx.send(embed=embed)
-
-@announce_group.command(name="urgent")
-@commands.has_permissions(manage_messages=True)
-async def announce_urgent(ctx, *, message: str):
-    """Send urgent announcement (red)"""
-    channel = await announcements.get_announcement_channel(ctx.guild)
-    if not channel:
-        await ctx.send("❌ No announcement channel set!")
-        return
-    
-    embed = announcements.create_announcement_embed(
-        message=message,
-        author=ctx.author,
-        title="🚨 URGENT ANNOUNCEMENT",
-        color=0xFF0000,
-        image_url=announcements.announcement_images.get(str(ctx.guild.id))
-    )
-    
-    sent_message = await channel.send("@everyone", embed=embed)
-    await sent_message.add_reaction("🚨")
-    await sent_message.add_reaction("⚠️")
-    
-    await ctx.send(f"✅ Urgent announcement sent!", delete_after=5)
-    await ctx.message.delete(delay=3)
 
 # --- MESSAGE SENDING SYSTEM ---
 @bot.group(name="say", invoke_without_command=True)
@@ -733,12 +522,11 @@ async def send_here(ctx, *, message: str):
 
 # --- QUIZ SYSTEM CLASS ---
 class QuizSystem:
-    def __init__(self, bot, currency_system=None):  # Add currency_system parameter
+    def __init__(self, bot):
         print("=== QuizSystem.__init__ called ===")
         
-         
         self.bot = bot
-        self.currency = currency_system or CurrencySystem()
+        self.currency = currency_system  # Use the SHARED currency system
         self.quiz_questions = []
         self.current_question = 0
         self.participants = {}
@@ -747,19 +535,9 @@ class QuizSystem:
         self.quiz_logs_channel = None
         self.quiz_running = False
         self.question_start_time = None
-
-        # Initialize CurrencySystem with debug
-        try:
-            print("Attempting to create CurrencySystem instance...")
-            self.currency = CurrencySystem()
-            print(f"✓ CurrencySystem created successfully!")
-            print(f"  currency attribute: {hasattr(self, 'currency')}")
-        except Exception as e:
-            print(f"✗ Error creating CurrencySystem: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback to a simple version
-            self.currency = SimpleCurrencySystem()
+        
+        print(f"✓ Using shared CurrencySystem instance")
+        print(f"  currency attribute: {hasattr(self, 'currency')}")
         
         # Load 20 questions
         self.load_questions()
@@ -1438,27 +1216,10 @@ class QuizSystem:
             
             await self.quiz_channel.send(embed=leaderboard_embed)
 
-        # DEBUG PRINT ---------
-        print(f"🔔 [DEBUG] Starting reward distribution process...")
-        print(f"🔔 [DEBUG] Participants: {len(sorted_participants)}")
-
         # DISTRIBUTE REWARDS
         rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
-        print(f"🔔 [DEBUG] Rewards distributed: {len(rewards_distributed)} users")
-
-        # Check if rewards were actually given
-        if not rewards_distributed:
-            print(f"⚠️ [DEBUG] No rewards were distributed!")
-            error_embed = discord.Embed(
-                title="⚠️ **Reward Distribution Issue**",
-                description="No rewards could be distributed. Check the logs.",
-                color=discord.Color.red()
-            )
-            await self.quiz_channel.send(embed=error_embed)
-            return
 
         # Send rewards summary
-        print(f"🔔 [DEBUG] Creating rewards embed...")
         rewards_embed = discord.Embed(
             title="💰 **Quiz Rewards Distributed!**",
             color=discord.Color.green(),
@@ -1470,8 +1231,6 @@ class QuizSystem:
         for i, (user_id, data) in enumerate(sorted_participants[:3]):
             reward = rewards_distributed.get(user_id, {})
             gems = reward.get("gems", 0)
-            
-            print(f"🔔 [DEBUG] User {data['name']}: {gems} gems")
 
             medal = ["🥇", "🥈", "🥉"][i]
             top_3.append(
@@ -1486,8 +1245,6 @@ class QuizSystem:
                 inline=False
             )
         
-        print(f"🔔 [DEBUG] Added top 3 to embed")
-
         # Show participation rewards
         if len(sorted_participants) > 3:
             rewards_embed.add_field(
@@ -1498,16 +1255,8 @@ class QuizSystem:
                       f"• Speed bonuses for fast answers!",
                 inline=False
             )
-        print(f"🔔 [DEBUG] Added participation rewards to embed")
 
-        try:
-            print(f"🔔 [DEBUG] Attempting to send rewards embed...")
-            await self.quiz_channel.send(embed=rewards_embed)
-            print(f"✅ [DEBUG] Rewards embed sent successfully!")
-        except Exception as e:
-            print(f"❌ [DEBUG] Error sending rewards embed: {e}")
-            # Send simple message as fallback
-            await self.quiz_channel.send("💰 **Quiz rewards have been distributed!** Check your DMs!")
+        await self.quiz_channel.send(embed=rewards_embed)
         
         # Send individual DMs with rewards
         for user_id, data in self.participants.items():
@@ -1583,50 +1332,49 @@ class QuizSystem:
         }
         return rank_emojis.get(rank, f"{rank}.")
     
-async def distribute_quiz_rewards(self, sorted_participants):
-    """Distribute gems based on quiz performance"""
-    rewards = {}
-    total_participants = len(sorted_participants)
-    
-    for rank, (user_id, data) in enumerate(sorted_participants, 1):
-        base_gems = 50  # Participation reward
+    async def distribute_quiz_rewards(self, sorted_participants):
+        """Distribute gems based on quiz performance"""
+        rewards = {}
+        total_participants = len(sorted_participants)
         
-        # Rank-based bonuses (same as before)
-        if rank == 1:  # 1st place
-            base_gems += 500
-        elif rank == 2:  # 2nd place
-            base_gems += 250
-        elif rank == 3:  # 3rd place
-            base_gems += 125
-        elif rank <= 10:  # Top 10
-            base_gems += 75
-        
-        # Score-based bonus: 10 gems per 100 points
-        score_bonus = (data["score"] // 100) * 10
-        base_gems += score_bonus
-        
-        # Perfect score bonus
-        max_score = len(self.quiz_questions) * 300
-        if data["score"] == max_score:
-            base_gems += 250
-            reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
-        else:
-            reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
-        
-        # Speed bonus for fast answers
-        speed_bonus = self.calculate_speed_bonus(user_id)
-        if speed_bonus:
-            base_gems += speed_bonus
-            reason += f" + ⚡{speed_bonus} speed bonus"
-        
-        # === FIXED: Use main db system instead of self.currency ===
-        result = await self.db.add_gems(
-            user_id=user_id,
-            gems=base_gems,
-            reason=reason
-        )
-        
-        if result:  # Check if successful
+        for rank, (user_id, data) in enumerate(sorted_participants, 1):
+            base_gems = 50  # Participation reward
+            
+            # Rank-based bonuses
+            if rank == 1:  # 1st place
+                base_gems += 500
+            elif rank == 2:  # 2nd place
+                base_gems += 250
+            elif rank == 3:  # 3rd place
+                base_gems += 125
+            elif rank <= 10:  # Top 10
+                base_gems += 75
+            
+            # Score-based bonus: 10 gems per 100 points
+            score_bonus = (data["score"] // 100) * 10
+            base_gems += score_bonus
+            
+            # Perfect score bonus
+            max_score = len(self.quiz_questions) * 300
+            if data["score"] == max_score:
+                base_gems += 250
+                reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+            else:
+                reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+            
+            # Speed bonus for fast answers
+            speed_bonus = self.calculate_speed_bonus(user_id)
+            if speed_bonus:
+                base_gems += speed_bonus
+                reason += f" + ⚡{speed_bonus} speed bonus"
+            
+            # Add gems using the SHARED currency system
+            transaction = self.currency.add_gems(
+                user_id=user_id,
+                gems=base_gems,
+                reason=reason
+            )
+            
             rewards[user_id] = {
                 "gems": base_gems,
                 "rank": rank
@@ -1634,8 +1382,8 @@ async def distribute_quiz_rewards(self, sorted_participants):
             
             # Log reward distribution
             await self.log_reward(user_id, data["name"], base_gems, rank)
-    
-    return rewards
+        
+        return rewards
     
     def calculate_speed_bonus(self, user_id):
         """Calculate speed bonus for fast answers"""
@@ -1668,8 +1416,137 @@ async def distribute_quiz_rewards(self, sorted_participants):
         
         await self.quiz_logs_channel.send(embed=embed)
 
-# Create quiz system instance
+# === CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
 quiz_system = QuizSystem(bot)
+
+# --- ANNOUNCEMENT COMMANDS ---
+@bot.group(name="announce", invoke_without_command=True)
+@commands.has_permissions(manage_messages=True)
+async def announce_group(ctx):
+    """Announcement management system"""
+    embed = discord.Embed(
+        title="📢 **Announcement System**",
+        description=(
+            "**Commands:**\n"
+            "• `!!announce send <message>` - Send announcement\n"
+            "• `!!announce channel #channel` - Set announcement channel\n"
+            "• `!!announce preview <message>` - Preview announcement\n"
+            "• `!!announce image <url>` - Add image to announcement\n"
+            "• `!!announce urgent <message>` - Red urgent announcement\n"
+        ),
+        color=0x5865F2
+    )
+    await ctx.send(embed=embed)
+
+@announce_group.command(name="send")
+@commands.has_permissions(manage_messages=True)
+async def announce_send(ctx, *, message: str):
+    """Send an announcement"""
+    channel = await announcements.get_announcement_channel(ctx.guild)
+    if not channel:
+        await ctx.send("❌ No announcement channel found! Use `!!announce channel #channel`")
+        return
+    
+    server_id = str(ctx.guild.id)
+    image_url = announcements.announcement_images.get(server_id)
+    
+    embed = announcements.create_announcement_embed(
+        message=message,
+        author=ctx.author,
+        image_url=image_url
+    )
+    
+    try:
+        sent_message = await channel.send("@here", embed=embed)
+        
+        await sent_message.add_reaction("📢")
+        await sent_message.add_reaction("✅")
+        
+        if server_id in announcements.announcement_images:
+            del announcements.announcement_images[server_id]
+        
+        confirm_embed = discord.Embed(
+            description=f"✅ **Announcement Sent!**\n**Channel:** {channel.mention}\n**Link:** [Jump to Message]({sent_message.jump_url})",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=confirm_embed, delete_after=10)
+        await ctx.message.delete(delay=5)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
+
+@announce_group.command(name="channel")
+@commands.has_permissions(administrator=True)
+async def announce_channel(ctx, channel: discord.TextChannel):
+    """Set the announcement channel"""
+    server_id = str(ctx.guild.id)
+    announcements.announcement_channels[server_id] = channel.id
+    
+    embed = discord.Embed(
+        description=f"✅ **Announcement channel set to {channel.mention}**",
+        color=discord.Color.green()
+    )
+    await ctx.send(embed=embed)
+
+@announce_group.command(name="preview")
+@commands.has_permissions(manage_messages=True)
+async def announce_preview(ctx, *, message: str):
+    """Preview announcement"""
+    server_id = str(ctx.guild.id)
+    image_url = announcements.announcement_images.get(server_id)
+    
+    embed = announcements.create_announcement_embed(
+        message=message,
+        author=ctx.author,
+        title="ANNOUNCEMENT PREVIEW",
+        color=0x5865F2,
+        image_url=image_url
+    )
+    
+    await ctx.send("**📝 Preview:**", embed=embed)
+    await ctx.send("*Use `!!announce send` to post.*")
+
+@announce_group.command(name="image")
+@commands.has_permissions(manage_messages=True)
+async def announce_image(ctx, image_url: str):
+    """Set image for next announcement"""
+    if not (image_url.startswith("http://") or image_url.startswith("https://")):
+        await ctx.send("❌ Please provide a valid image URL")
+        return
+    
+    server_id = str(ctx.guild.id)
+    announcements.announcement_images[server_id] = image_url
+    
+    embed = discord.Embed(
+        title="✅ Image Set for Next Announcement",
+        color=discord.Color.green()
+    )
+    embed.set_image(url=image_url)
+    await ctx.send(embed=embed)
+
+@announce_group.command(name="urgent")
+@commands.has_permissions(manage_messages=True)
+async def announce_urgent(ctx, *, message: str):
+    """Send urgent announcement (red)"""
+    channel = await announcements.get_announcement_channel(ctx.guild)
+    if not channel:
+        await ctx.send("❌ No announcement channel set!")
+        return
+    
+    embed = announcements.create_announcement_embed(
+        message=message,
+        author=ctx.author,
+        title="🚨 URGENT ANNOUNCEMENT",
+        color=0xFF0000,
+        image_url=announcements.announcement_images.get(str(ctx.guild.id))
+    )
+    
+    sent_message = await channel.send("@everyone", embed=embed)
+    await sent_message.add_reaction("🚨")
+    await sent_message.add_reaction("⚠️")
+    
+    await ctx.send(f"✅ Urgent announcement sent!", delete_after=5)
+    await ctx.message.delete(delay=3)
 
 # --- QUIZ COMMANDS ---
 @bot.group(name="quiz", invoke_without_command=True)
@@ -1795,13 +1672,12 @@ async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
         await ctx.send(f"❌ Error: {str(e)[:100]}")
 
 # CURRENCY COMMANDS -----
-# In currency_group command:
 @bot.group(name="currency", invoke_without_command=True)
 async def currency_group(ctx):
     """Currency and rewards commands"""
     # Get user balance using SHARED currency system
     user_id = str(ctx.author.id)
-    balance = currency_system.get_balance(user_id)  # Use currency_system, not quiz_system.currency
+    balance = currency_system.get_balance(user_id)
     
     embed = discord.Embed(
         title="💰 **Your Gems**",
@@ -1810,13 +1686,8 @@ async def currency_group(ctx):
         color=discord.Color.gold()
     )
     
-   
-    
-    # ... rest of the command ...
-    
-    
     # Check daily streak
-    user_data = quiz_system.currency.get_user(user_id)
+    user_data = currency_system.get_user(user_id)
     if user_data["daily_streak"] > 0:
         embed.add_field(
             name="🔥 Daily Streak",
@@ -1825,7 +1696,7 @@ async def currency_group(ctx):
         )
     
     # Check next daily
-    if quiz_system.currency.can_claim_daily(user_id):
+    if currency_system.can_claim_daily(user_id):
         embed.add_field(
             name="🎁 Daily Reward",
             value="Available now!",
@@ -1844,9 +1715,7 @@ async def currency_group(ctx):
 @currency_group.command(name="leaderboard")
 async def currency_leaderboard(ctx):
     """Show gems leaderboard"""
-    leaderboard = currency_system.get_leaderboard(limit=10)  # Use currency_system
-    
-   
+    leaderboard = currency_system.get_leaderboard(limit=10)
     
     embed = discord.Embed(
         title="🏆 **Gems Leaderboard**",
@@ -1897,7 +1766,7 @@ async def currency_transfer(ctx, member: discord.Member, amount: int):
         return
     
     # Check sender's balance
-    sender_balance = quiz_system.currency.get_balance(sender_id)
+    sender_balance = currency_system.get_balance(sender_id)
     
     if sender_balance["gems"] < amount:
         await ctx.send(f"❌ You don't have enough gems! You have {sender_balance['gems']} gems.", delete_after=5)
@@ -1908,14 +1777,14 @@ async def currency_transfer(ctx, member: discord.Member, amount: int):
     net_amount = amount - tax
     
     # Deduct from sender (full amount)
-    quiz_system.currency.deduct_gems(
+    currency_system.deduct_gems(
         sender_id,
         gems=amount,
         reason=f"Transfer to {member.display_name}"
     )
     
     # Add to receiver (after tax)
-    quiz_system.currency.add_gems(
+    currency_system.add_gems(
         receiver_id,
         gems=net_amount,
         reason=f"Received from {ctx.author.display_name}"
@@ -1943,9 +1812,9 @@ async def daily_reward(ctx):
     """Claim daily reward (1-100 gems + streak bonus)"""
     user_id = str(ctx.author.id)
     
-    if not currency_system.can_claim_daily(user_id):  # Use currency_system
+    if not currency_system.can_claim_daily(user_id):
         # Calculate time until next daily
-        user = currency_system.get_user(user_id)  # Use currency_system
+        user = currency_system.get_user(user_id)
         last_claim = datetime.fromisoformat(user["last_daily"])
         now = datetime.now(timezone.utc)
         hours_left = 24 - ((now - last_claim).seconds // 3600)
@@ -1959,8 +1828,8 @@ async def daily_reward(ctx):
         return
     
     # Claim daily reward using currency_system
-    transaction = currency_system.claim_daily(user_id)  # Use currency_system
-    user = currency_system.get_user(user_id)  # Use currency_system
+    transaction = currency_system.claim_daily(user_id)
+    user = currency_system.get_user(user_id)
     
     # Extract gems from transaction
     gems_earned = transaction["gems"]
@@ -1993,8 +1862,8 @@ async def currency_stats(ctx, member: discord.Member = None):
     target = member or ctx.author
     user_id = str(target.id)
     
-    balance = quiz_system.currency.get_balance(user_id)
-    user_data = quiz_system.currency.get_user(user_id)
+    balance = currency_system.get_balance(user_id)
+    user_data = currency_system.get_user(user_id)
     
     embed = discord.Embed(
         title=f"📊 **{target.display_name}'s Gem Stats**",
@@ -2098,14 +1967,50 @@ async def custom_help(ctx, command: str = None):
         )
         await ctx.send(embed=embed)
 
-# --- 8. EVENTS ---
+# === SIMPLE BOT COMMANDS ===
+@bot.command(name="ping")
+async def ping(ctx):
+    """Check if bot is alive"""
+    await ctx.send("🏓 Pong!")
+
+@bot.command(name="add")
+async def add_gems(ctx, amount: int = 100):
+    """Add gems to your account"""
+    user_id = str(ctx.author.id)
+    
+    # Use the shared currency system
+    transaction = currency_system.add_gems(
+        user_id=user_id,
+        gems=amount,
+        reason=f"Command by {ctx.author.name}"
+    )
+    
+    if transaction:
+        balance = currency_system.get_balance(user_id)
+        await ctx.send(f"✅ Added **{amount} gems**\nNew balance: **{balance['gems']} gems**")
+    else:
+        await ctx.send("❌ Failed to add gems")
+
+@bot.command(name="balance")
+async def balance_cmd(ctx):
+    """Check your balance"""
+    user_id = str(ctx.author.id)
+    balance = currency_system.get_balance(user_id)
+    
+    embed = discord.Embed(
+        title="💰 Your Balance",
+        description=f"**💎 {balance['gems']} gems**",
+        color=discord.Color.gold()
+    )
+    
+    embed.set_footer(text="Stored in user_gems.json")
+    await ctx.send(embed=embed)
 
 # === EMERGENCY FIX COMMANDS ===
 @bot.command(name="emergencyfix")
 async def emergency_fix(ctx):
     """Emergency database fix"""
     import subprocess
-    import sys
     
     steps = []
     
@@ -2137,17 +2042,6 @@ async def emergency_fix(ctx):
         steps.append(f"   Format: {masked[:80]}...")
     else:
         steps.append("❌ DATABASE_URL not found")
-    
-    # Step 3: Test connection
-    if DATABASE_URL and ASYNCPG_AVAILABLE:
-        try:
-            import asyncpg
-            conn = await asyncpg.connect(DATABASE_URL, timeout=10)
-            steps.append("✅ Direct connection successful!")
-            await conn.close()
-        except Exception as e:
-            steps.append(f"❌ Connection failed: {type(e).__name__}")
-            steps.append(f"   Error: {str(e)[:100]}")
     
     await ctx.send("**Emergency Fix Report:**\n" + "\n".join(steps))
 
@@ -2192,16 +2086,16 @@ async def test_db(ctx):
     """Test database connection"""
     user_id = str(ctx.author.id)
     
-    # Try to add gems
-    result = await db.add_gems(user_id, 10, "Database test")
+    # Add gems using the shared currency system
+    transaction = currency_system.add_gems(
+        user_id=user_id,
+        gems=10,
+        reason="Database test"
+    )
     
-    if isinstance(result, dict):
-        balance = await db.get_balance(user_id)
-        
-        if db.using_database:
-            await ctx.send(f"✅ **DATABASE WORKING!**\nAdded 10 gems\nNew balance: **{balance['gems']} gems**\nStorage: **PostgreSQL**")
-        else:
-            await ctx.send(f"⚠️ **Using JSON Fallback**\nAdded 10 gems\nNew balance: **{balance['gems']} gems**\nStorage: **JSON File**\n*Data may reset on redeploy*")
+    if transaction:
+        balance = currency_system.get_balance(user_id)
+        await ctx.send(f"✅ **CURRENCY SYSTEM WORKING!**\nAdded 10 gems\nNew balance: **{balance['gems']} gems**")
     else:
         await ctx.send("❌ **Test failed completely**")
 
@@ -2223,43 +2117,6 @@ async def check_env(ctx):
         await ctx.send("**Database Environment Variables:**\n" + "\n".join(db_vars[:10]))  # First 10
     else:
         await ctx.send("❌ No database environment variables found!")
-
-# === SIMPLE BOT COMMANDS ===
-@bot.command(name="ping")
-async def ping(ctx):
-    """Check if bot is alive"""
-    await ctx.send("🏓 Pong!")
-
-@bot.command(name="add")
-async def add_gems(ctx, amount: int = 100):
-    """Add gems to your account"""
-    user_id = str(ctx.author.id)
-    result = await db.add_gems(user_id, amount, f"Command by {ctx.author.name}")
-    
-    if isinstance(result, dict):
-        balance = await db.get_balance(user_id)
-        await ctx.send(f"✅ Added **{amount} gems**\nNew balance: **{balance['gems']} gems**")
-    else:
-        await ctx.send("❌ Failed to add gems")
-
-@bot.command(name="balance")
-async def balance_cmd(ctx):
-    """Check your balance"""
-    user_id = str(ctx.author.id)
-    balance = await db.get_balance(user_id)
-    
-    embed = discord.Embed(
-        title="💰 Your Balance",
-        description=f"**💎 {balance['gems']} gems**",
-        color=discord.Color.gold()
-    )
-    
-    if db.using_database:
-        embed.set_footer(text="✅ Stored in PostgreSQL - Persistent")
-    else:
-        embed.set_footer(text="⚠️ Stored in JSON - May reset on redeploy")
-    
-    await ctx.send(embed=embed)
 
 # === BOT STARTUP ===
 @bot.event
