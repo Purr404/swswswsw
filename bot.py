@@ -294,195 +294,195 @@ class DatabaseSystem:
         return self.json_data[user_id]
 
 async def can_claim_daily(self, user_id: str):
-        """Check if user can claim daily reward (24-hour cooldown)"""
-        if self.using_database:
-            return await self._db_can_claim_daily(user_id)
-        else:
-            return self._json_can_claim_daily(user_id)
-    
-    async def _db_can_claim_daily(self, user_id: str):
-        """Database version of can_claim_daily"""
-        try:
-            async with self.pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    'SELECT last_daily FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
-                
-                if not row or not row['last_daily']:
-                    return True  # Never claimed before
-                
-                last_claim = row['last_daily']
-                now = datetime.now(timezone.utc)
-                
-                # Check if 24 hours have passed
-                hours_passed = (now - last_claim).total_seconds() / 3600
-                return hours_passed >= 24
-                
-        except Exception as e:
-            print(f"❌ Database error in can_claim_daily: {e}")
-            return self._json_can_claim_daily(user_id)
-    
-    def _json_can_claim_daily(self, user_id: str):
-        """JSON version of can_claim_daily"""
-        if user_id not in self.json_data or not self.json_data[user_id].get("last_daily"):
-            return True
-        
-        try:
-            last_claim = datetime.fromisoformat(self.json_data[user_id]["last_daily"])
+    """Check if user can claim daily reward (24-hour cooldown)"""
+    if self.using_database:
+        return await self._db_can_claim_daily(user_id)
+    else:
+        return self._json_can_claim_daily(user_id)
+
+async def _db_can_claim_daily(self, user_id: str):
+    """Database version of can_claim_daily"""
+    try:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT last_daily FROM user_gems WHERE user_id = $1',
+                user_id
+            )
+            
+            if not row or not row['last_daily']:
+                return True  # Never claimed before
+            
+            last_claim = row['last_daily']
             now = datetime.now(timezone.utc)
+            
+            # Check if 24 hours have passed
             hours_passed = (now - last_claim).total_seconds() / 3600
             return hours_passed >= 24
-        except:
-            return True
+            
+    except Exception as e:
+        print(f"❌ Database error in can_claim_daily: {e}")
+        return self._json_can_claim_daily(user_id)
+
+def _json_can_claim_daily(self, user_id: str):
+    """JSON version of can_claim_daily"""
+    if user_id not in self.json_data or not self.json_data[user_id].get("last_daily"):
+        return True
     
-    async def get_user(self, user_id: str):
-        """Get user data including daily streak"""
-        if self.using_database:
-            try:
-                async with self.pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
-                    
-                    if row:
-                        return {
-                            "gems": row['gems'],
-                            "total_earned": row['total_earned'],
-                            "daily_streak": row['daily_streak'] or 0,
-                            "last_daily": row['last_daily']
-                        }
-                    else:
-                        return {
-                            "gems": 0,
-                            "total_earned": 0,
-                            "daily_streak": 0,
-                            "last_daily": None
-                        }
-                        
-            except Exception as e:
-                print(f"❌ Database error in get_user: {e}")
-                return self._json_get_user(user_id)
-        else:
-            return self._json_get_user(user_id)
-    
-    def _json_get_user(self, user_id: str):
-        """JSON version of get_user"""
-        if user_id not in self.json_data:
-            return {
-                "gems": 0,
-                "total_earned": 0,
-                "daily_streak": 0,
-                "last_daily": None
-            }
-        return {
-            "gems": self.json_data[user_id].get("gems", 0),
-            "total_earned": self.json_data[user_id].get("total_earned", 0),
-            "daily_streak": self.json_data[user_id].get("daily_streak", 0),
-            "last_daily": self.json_data[user_id].get("last_daily")
-        }
-    
-    async def claim_daily(self, user_id: str):
-        """Claim daily reward with streak bonus"""
-        if self.using_database:
-            return await self._db_claim_daily(user_id)
-        else:
-            return await self._json_claim_daily(user_id)
-    
-    async def _db_claim_daily(self, user_id: str):
-        """Database version of claim_daily"""
+    try:
+        last_claim = datetime.fromisoformat(self.json_data[user_id]["last_daily"])
+        now = datetime.now(timezone.utc)
+        hours_passed = (now - last_claim).total_seconds() / 3600
+        return hours_passed >= 24
+    except:
+        return True
+
+async def get_user(self, user_id: str):
+    """Get user data including daily streak"""
+    if self.using_database:
         try:
             async with self.pool.acquire() as conn:
-                # Get current user data
                 row = await conn.fetchrow(
-                    'SELECT daily_streak, last_daily FROM user_gems WHERE user_id = $1',
+                    'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
                     user_id
                 )
                 
-                now = datetime.now(timezone.utc)
-                
-                # Calculate streak
-                if not row or not row['last_daily']:
-                    new_streak = 1
+                if row:
+                    return {
+                        "gems": row['gems'],
+                        "total_earned": row['total_earned'],
+                        "daily_streak": row['daily_streak'] or 0,
+                        "last_daily": row['last_daily']
+                    }
                 else:
-                    last_claim = row['last_daily']
-                    days_diff = (now - last_claim).days
+                    return {
+                        "gems": 0,
+                        "total_earned": 0,
+                        "daily_streak": 0,
+                        "last_daily": None
+                    }
                     
-                    if days_diff == 1:
-                        new_streak = (row['daily_streak'] or 0) + 1
-                    elif days_diff > 1:
-                        new_streak = 1
-                    else:
-                        new_streak = row['daily_streak'] or 0
-                
-                # Calculate daily reward
-                base_gems = random.randint(1, 100)
-                streak_bonus = min(new_streak * 0.1, 1.0)
-                bonus_gems = int(base_gems * streak_bonus)
-                total_gems = base_gems + bonus_gems
-                
-                # Update user
-                await conn.execute('''
-                    INSERT INTO user_gems (user_id, gems, total_earned, daily_streak, last_daily)
-                    VALUES ($1, $2, $2, $3, $4)
-                    ON CONFLICT (user_id) DO UPDATE 
-                    SET gems = user_gems.gems + $2,
-                        total_earned = user_gems.total_earned + $2,
-                        daily_streak = $3,
-                        last_daily = $4,
-                        updated_at = NOW()
-                ''', user_id, total_gems, new_streak, now)
-                
-                return {"gems": total_gems, "streak": new_streak}
-                
         except Exception as e:
-            print(f"❌ Database error in claim_daily: {e}")
-            return await self._json_claim_daily(user_id)
-    
-    async def _json_claim_daily(self, user_id: str):
-        """JSON version of claim_daily"""
-        user = self._json_get_user(user_id)
-        now = datetime.now(timezone.utc)
-        
-        # Calculate streak
-        if not user["last_daily"]:
-            user["daily_streak"] = 1
-        else:
-            try:
-                last_claim = datetime.fromisoformat(user["last_daily"])
+            print(f"❌ Database error in get_user: {e}")
+            return self._json_get_user(user_id)
+    else:
+        return self._json_get_user(user_id)
+
+def _json_get_user(self, user_id: str):
+    """JSON version of get_user"""
+    if user_id not in self.json_data:
+        return {
+            "gems": 0,
+            "total_earned": 0,
+            "daily_streak": 0,
+            "last_daily": None
+        }
+    return {
+        "gems": self.json_data[user_id].get("gems", 0),
+        "total_earned": self.json_data[user_id].get("total_earned", 0),
+        "daily_streak": self.json_data[user_id].get("daily_streak", 0),
+        "last_daily": self.json_data[user_id].get("last_daily")
+    }
+
+async def claim_daily(self, user_id: str):
+    """Claim daily reward with streak bonus"""
+    if self.using_database:
+        return await self._db_claim_daily(user_id)
+    else:
+        return await self._json_claim_daily(user_id)
+
+async def _db_claim_daily(self, user_id: str):
+    """Database version of claim_daily"""
+    try:
+        async with self.pool.acquire() as conn:
+            # Get current user data
+            row = await conn.fetchrow(
+                'SELECT daily_streak, last_daily FROM user_gems WHERE user_id = $1',
+                user_id
+            )
+            
+            now = datetime.now(timezone.utc)
+            
+            # Calculate streak
+            if not row or not row['last_daily']:
+                new_streak = 1
+            else:
+                last_claim = row['last_daily']
                 days_diff = (now - last_claim).days
                 
                 if days_diff == 1:
-                    user["daily_streak"] += 1
+                    new_streak = (row['daily_streak'] or 0) + 1
                 elif days_diff > 1:
-                    user["daily_streak"] = 1
-            except:
+                    new_streak = 1
+                else:
+                    new_streak = row['daily_streak'] or 0
+            
+            # Calculate daily reward
+            base_gems = random.randint(1, 100)
+            streak_bonus = min(new_streak * 0.1, 1.0)
+            bonus_gems = int(base_gems * streak_bonus)
+            total_gems = base_gems + bonus_gems
+            
+            # Update user
+            await conn.execute('''
+                INSERT INTO user_gems (user_id, gems, total_earned, daily_streak, last_daily)
+                VALUES ($1, $2, $2, $3, $4)
+                ON CONFLICT (user_id) DO UPDATE 
+                SET gems = user_gems.gems + $2,
+                    total_earned = user_gems.total_earned + $2,
+                    daily_streak = $3,
+                    last_daily = $4,
+                    updated_at = NOW()
+            ''', user_id, total_gems, new_streak, now)
+            
+            return {"gems": total_gems, "streak": new_streak}
+            
+    except Exception as e:
+        print(f"❌ Database error in claim_daily: {e}")
+        return await self._json_claim_daily(user_id)
+
+async def _json_claim_daily(self, user_id: str):
+    """JSON version of claim_daily"""
+    user = self._json_get_user(user_id)
+    now = datetime.now(timezone.utc)
+    
+    # Calculate streak
+    if not user["last_daily"]:
+        user["daily_streak"] = 1
+    else:
+        try:
+            last_claim = datetime.fromisoformat(user["last_daily"])
+            days_diff = (now - last_claim).days
+            
+            if days_diff == 1:
+                user["daily_streak"] += 1
+            elif days_diff > 1:
                 user["daily_streak"] = 1
-        
-        # Calculate daily reward
-        base_gems = random.randint(1, 100)
-        streak_bonus = min(user["daily_streak"] * 0.1, 1.0)
-        bonus_gems = int(base_gems * streak_bonus)
-        total_gems = base_gems + bonus_gems
-        
-        # Update last claim
-        user["last_daily"] = now.isoformat()
-        
-        # Save to JSON
-        if user_id not in self.json_data:
-            self.json_data[user_id] = {}
-        
-        self.json_data[user_id].update({
-            "gems": user.get("gems", 0) + total_gems,
-            "total_earned": user.get("total_earned", 0) + total_gems,
-            "daily_streak": user["daily_streak"],
-            "last_daily": user["last_daily"]
-        })
-        
-        self.save_json_data()
-        
-        return {"gems": total_gems, "streak": user["daily_streak"]}
+        except:
+            user["daily_streak"] = 1
+    
+    # Calculate daily reward
+    base_gems = random.randint(1, 100)
+    streak_bonus = min(user["daily_streak"] * 0.1, 1.0)
+    bonus_gems = int(base_gems * streak_bonus)
+    total_gems = base_gems + bonus_gems
+    
+    # Update last claim
+    user["last_daily"] = now.isoformat()
+    
+    # Save to JSON
+    if user_id not in self.json_data:
+        self.json_data[user_id] = {}
+    
+    self.json_data[user_id].update({
+        "gems": user.get("gems", 0) + total_gems,
+        "total_earned": user.get("total_earned", 0) + total_gems,
+        "daily_streak": user["daily_streak"],
+        "last_daily": user["last_daily"]
+    })
+    
+    self.save_json_data()
+    
+    return {"gems": total_gems, "streak": user["daily_streak"]}
   
     async def get_leaderboard(self, limit: int = 10):
         """Get gems leaderboard"""
