@@ -2188,9 +2188,9 @@ async def test_db(ctx):
 async def on_ready():
     print(f"\n✅ {bot.user} is online!")
     
-    # Connect to database
+    # Connect to database - FIXED: use smart_connect() not connect()
     print("\n🔌 Connecting to database...")
-    connected = await db.connect()
+    connected = await db.smart_connect()  # CHANGED FROM connect() TO smart_connect()
     
     if connected:
         print("🎉 POSTGRESQL DATABASE CONNECTED SUCCESSFULLY!")
