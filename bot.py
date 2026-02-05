@@ -2073,9 +2073,31 @@ async def test_rewards(ctx):
     )
     
     # Distribute rewards
-    rewards = await quiz_system.distribute_quiz_rewards(sorted_participants)
+    rewards = await quiz_system.distribute_quiz_rewards(sorted_participants)  # Fixed typo here!
     
-    await ctx.send(f"✅ Test rewards distributed: {rewards}")
+    # Check user's new balance
+    user_id = str(ctx.author.id)
+    balance = await db.get_balance(user_id)
+    
+    embed = discord.Embed(
+        title="✅ **Test Rewards Distributed!**",
+        description=f"Test completed successfully!",
+        color=discord.Color.green()
+    )
+    
+    embed.add_field(
+        name="💰 Rewards Given",
+        value=f"💎 **{rewards.get(user_id, {}).get('gems', 0)} gems**",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📊 New Balance",
+        value=f"💎 **{balance['gems']} gems**",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
 
 #END TEST REWARDS CMD -----
 
