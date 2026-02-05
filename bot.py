@@ -988,15 +988,23 @@ class QuizSystem:
         # Start first question
         await self.send_question()
     
-    async def send_question(self):
-        """Send current question with countdown bar"""
-        if self.current_question >= len(self.quiz_questions):
-            await self.end_quiz()
-            return
-        
-        question = self.quiz_questions[self.current_question]
-        self.question_start_time = datetime.now(timezone.utc)
-        
+async def send_question(self):
+    """Send current question with countdown bar"""
+    if self.current_question >= len(self.quiz_questions):
+        await self.end_quiz()
+        return
+    
+    # Double-check we have a valid question
+    if self.current_question < 0 or self.current_question >= len(self.quiz_questions):
+        print(f"❌ Invalid current_question: {self.current_question}")
+        await self.end_quiz()
+        return
+    
+    question = self.quiz_questions[self.current_question]
+    self.question_start_time = datetime.now(timezone.utc)
+    
+    # ... rest of the code ...
+
         # Initial progress bar (full) - GREEN for full time
         progress_bar = "🟩" * 20
         
@@ -1026,12 +1034,20 @@ class QuizSystem:
         # Start question timer (for auto-ending)
         self.start_question_timer(question["time_limit"])
     
-    @tasks.loop(seconds=1)
-    async def countdown_task(self, total_time):
-        """Update live countdown bar every second"""
-        if not self.quiz_running:
-            self.countdown_task.stop()
-            return
+@tasks.loop(seconds=1)
+async def countdown_task(self, total_time):
+    """Update live countdown bar every second"""
+    if not self.quiz_running:
+        self.countdown_task.stop()
+        return
+    
+    # Check if we have a valid current question
+    if self.current_question < 0 or self.current_question >= len(self.quiz_questions):
+        print(f"❌ Invalid current_question in countdown: {self.current_question}")
+        self.countdown_task.stop()
+        return
+    
+    # ... rest of the code ...
         
         try:
             elapsed = (datetime.now(timezone.utc) - self.question_start_time).seconds
@@ -1097,66 +1113,86 @@ class QuizSystem:
         
         self.question_timer = asyncio.create_task(timer())
     
-    async def process_answer(self, user, answer_text):
-        """Process user's answer - allow multiple attempts"""
-        if not self.quiz_running:
-            return False
-        
-        question = self.quiz_questions[self.current_question]
-        answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
-        
-        # Check if time's up
-        if answer_time > question["time_limit"]:
-            return False
-        
-        # Initialize user in participants if not exists
-        user_id = str(user.id)
-        if user_id not in self.participants:
-            self.participants[user_id] = {
-                "name": user.display_name,
-                "score": 0,
-                "answers": [],
-                "total_time": 0,
-                "correct_answers": 0,
-                "answered_current": False
-            }
-        
-        # Check if user already got this question right
-        if self.participants[user_id]["answered_current"]:
-            return False
-        
-        # Check if answer is correct (case-insensitive, trim spaces)
-        user_answer = answer_text.lower().strip()
-        is_correct = any(correct_answer == user_answer 
-                        for correct_answer in question["correct_answers"])
-        
-        # Calculate points (only if correct)
-        points = 0
-        if is_correct:
-            points = self.calculate_points(
-                answer_time,
-                question["time_limit"],
-                question["points"]
-            )
-            self.participants[user_id]["score"] += points
-            self.participants[user_id]["correct_answers"] += 1
-            self.participants[user_id]["answered_current"] = True
-        
-        # Record ALL attempts (both correct and incorrect)
-        self.participants[user_id]["answers"].append({
-            "question": self.current_question,
-            "question_text": question["question"][:100],
-            "answer": answer_text,
-            "correct": is_correct,
-            "points": points,
-            "time": answer_time
-        })
-        
-        # Log to quiz logs ONLY if correct
-        if is_correct:
-            await self.log_answer(user, question["question"], answer_text, points, answer_time)
-        
-        return True
+async def process_answer(self, user, answer_text):
+    """Process user's answer - allow multiple attempts"""
+    if not self.quiz_running:
+        print(f"❌ Quiz not running, ignoring answer from {user.name}")
+        return False
+    
+    # Check if we're between questions or quiz has ended
+    if self.current_question >= len(self.quiz_questions):
+        print(f"❌ Quiz has ended, ignoring answer from {user.name}")
+        return False
+    
+    question = self.quiz_questions[self.current_question]
+    answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
+    
+    # Check if time's up
+    if answer_time > question["time_limit"]:
+        print(f"❌ Time's up for {user.name}, answer ignored")
+        return False
+    
+    # Initialize user in participants if not exists
+    user_id = str(user.id)
+    if user_id not in self.participants:
+        self.participants[user_id] = {
+            "name": user.display_name,
+            "score": 0,
+            "answers": [],
+            "total_time": 0,
+            "correct_answers": 0,
+            "answered_current": False
+        }
+        print(f"✅ New participant added: {user.display_name}")
+    
+    # Check if user already got this question right
+    if self.participants[user_id]["answered_current"]:
+        print(f"⚠️ {user.display_name} already answered this question correctly")
+        return False
+    
+    # Check if answer is correct (case-insensitive, trim spaces)
+    user_answer = answer_text.lower().strip()
+    is_correct = any(correct_answer == user_answer 
+                    for correct_answer in question["correct_answers"])
+    
+    print(f"\n=== ANSWER PROCESSING ===")
+    print(f"User: {user.display_name}")
+    print(f"Answer: {user_answer}")
+    print(f"Correct answers: {question['correct_answers']}")
+    print(f"Is correct: {is_correct}")
+    print(f"Answer time: {answer_time}s")
+    
+    # Calculate points (only if correct)
+    points = 0
+    if is_correct:
+        points = self.calculate_points(
+            answer_time,
+            question["time_limit"],
+            question["points"]
+        )
+        self.participants[user_id]["score"] += points
+        self.participants[user_id]["correct_answers"] += 1
+        self.participants[user_id]["answered_current"] = True
+        print(f"✅ Correct! Points awarded: {points}")
+        print(f"Total score: {self.participants[user_id]['score']}")
+    else:
+        print(f"❌ Incorrect answer")
+    
+    # Record ALL attempts (both correct and incorrect)
+    self.participants[user_id]["answers"].append({
+        "question": self.current_question,
+        "question_text": question["question"][:100],
+        "answer": answer_text,
+        "correct": is_correct,
+        "points": points,
+        "time": answer_time
+    })
+    
+    # Log to quiz logs ONLY if correct
+    if is_correct:
+        await self.log_answer(user, question["question"], answer_text, points, answer_time)
+    
+    return True
     
     async def log_answer(self, user, question, answer, points, time):
         """Log ONLY correct answers to quiz logs channel"""
@@ -2119,6 +2155,7 @@ async def currency_stats(ctx, member: discord.Member = None):
     
     await ctx.send(embed=embed)
 
+
 # --- ANSWER DETECTION ---
 @bot.event
 async def on_message(message):
@@ -2127,7 +2164,8 @@ async def on_message(message):
     
     # Check for quiz answers (any text answer)
     if (quiz_system.quiz_running and 
-        message.channel == quiz_system.quiz_channel):
+        message.channel == quiz_system.quiz_channel and
+        quiz_system.current_question < len(quiz_system.quiz_questions)):  # ADD THIS CHECK
         
         # Process the answer silently (NO REACTIONS)
         await quiz_system.process_answer(message.author, message.content)
