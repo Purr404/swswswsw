@@ -1105,7 +1105,7 @@ class QuizSystem:
         
         self.question_timer = asyncio.create_task(timer())
     
-    async def process_answer(self, user, answer_text):
+async def process_answer(self, user, answer_text):
     """Process user's answer - allow multiple attempts"""
     if not self.quiz_running:
         print(f"❌ Quiz not running, ignoring answer from {user.name}")
@@ -1179,8 +1179,8 @@ class QuizSystem:
     if is_correct:
         await self.log_answer(user, question["question"], answer_text, points, answer_time)
     
-    return True
-    
+    return True 
+   
     async def log_answer(self, user, question, answer, points, time):
         """Log ONLY correct answers to quiz logs channel"""
         if not self.quiz_logs_channel:
