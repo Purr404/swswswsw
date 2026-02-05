@@ -2,8 +2,8 @@ import os
 import sys
 import json
 import asyncio
-import random
-from datetime import datetime, timezone, timedelta
+
+
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
@@ -15,7 +15,7 @@ import discord
 from discord.ext import commands, tasks
 import random
 from discord.ui import View, Button
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 def utc_now():
