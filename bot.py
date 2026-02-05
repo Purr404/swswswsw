@@ -4,6 +4,32 @@ import json
 import asyncio
 import random
 from datetime import datetime, timezone, timedelta
+# ULTIMATE ASYNCPG INSTALLER
+import subprocess
+import sys
+import os
+
+print("=== ULTIMATE ASYNCPG INSTALLER ===")
+
+# Check if asyncpg is installed
+try:
+    import asyncpg
+    print("✅ asyncpg is already installed")
+except ImportError:
+    print("❌ asyncpg not found. Installing...")
+    try:
+        # Install asyncpg
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "asyncpg>=0.29.0"])
+        print("✅ asyncpg installed successfully!")
+        
+        # Try to import again
+        import asyncpg
+        print("✅ asyncpg imported successfully!")
+    except Exception as e:
+        print(f"❌ Failed to install asyncpg: {e}")
+        print("⚠️ Bot will run with JSON fallback only")
+
+# Now continue with the rest of your imports...
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
