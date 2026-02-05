@@ -2,6 +2,8 @@ import os
 import sys
 import json
 import asyncio
+import random
+from datetime import datetime, timezone, timedelta
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
