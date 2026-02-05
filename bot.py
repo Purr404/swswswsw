@@ -1961,20 +1961,38 @@ async def daily_reward(ctx):
         user = await db.get_user(user_id)
         if user["last_daily"]:
             try:
-                last_claim = datetime.fromisoformat(user["last_daily"]) if isinstance(user["last_daily"], str) else user["last_daily"]
+                # Parse last claim time
+                if isinstance(user["last_daily"], str):
+                    if 'T' in user["last_daily"]:
+                        last_claim = datetime.fromisoformat(user["last_daily"].replace('Z', '+00:00'))
+                    else:
+                        last_claim = datetime.strptime(user["last_daily"], "%Y-%m-%d %H:%M:%S.%f")
+                else:
+                    last_claim = user["last_daily"]
+                
+                # Make timezone-aware
+                if last_claim.tzinfo is None:
+                    last_claim = last_claim.replace(tzinfo=timezone.utc)
+                
                 now = datetime.now(timezone.utc)
                 next_claim = last_claim + timedelta(hours=24)
-                time_left = next_claim - now
                 
-                hours_left = time_left.seconds // 3600
-                minutes_left = (time_left.seconds % 3600) // 60
-                
-                await ctx.send(
-                    f"⏰ You can claim your daily reward in {hours_left}h {minutes_left}m!\n"
-                    f"Current streak: **{user['daily_streak']} days** 🔥",
-                    delete_after=10
-                )
-            except:
+                if next_claim > now:
+                    time_left = next_claim - now
+                    hours_left = time_left.seconds // 3600
+                    minutes_left = (time_left.seconds % 3600) // 60
+                    seconds_left = time_left.seconds % 60
+                    
+                    await ctx.send(
+                        f"⏰ **Daily Reward Cooldown!**\n"
+                        f"You can claim again in **{hours_left}h {minutes_left}m {seconds_left}s**\n"
+                        f"Current streak: **{user['daily_streak']} days** 🔥",
+                        delete_after=15
+                    )
+                else:
+                    await ctx.send("🎁 Daily reward is available now!")
+            except Exception as e:
+                print(f"Error calculating time: {e}")
                 await ctx.send("🎁 Daily reward is available now!")
         else:
             await ctx.send("🎁 Daily reward is available now!")
@@ -2004,6 +2022,13 @@ async def daily_reward(ctx):
         value=f"**{user['daily_streak']} days**",
         inline=True
     )
+    
+    if user['daily_streak'] >= 7:
+        embed.add_field(
+            name="🏆 Weekly Bonus!",
+            value="You've maintained a 7-day streak! 🎉",
+            inline=True
+        )
     
     embed.set_footer(text="Come back tomorrow for more gems!")
     await ctx.send(embed=embed)
