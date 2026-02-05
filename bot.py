@@ -292,7 +292,7 @@ class DatabaseSystem:
                 "transactions": []
             }
         return self.json_data[user_id]
-    
+
 async def can_claim_daily(self, user_id: str):
         """Check if user can claim daily reward (24-hour cooldown)"""
         if self.using_database:
