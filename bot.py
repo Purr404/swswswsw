@@ -1813,7 +1813,7 @@ async def currency_group(ctx):
    
     
     # ... rest of the command ...
-    )
+    
     
     # Check daily streak
     user_data = quiz_system.currency.get_user(user_id)
