@@ -1955,9 +1955,46 @@ async def currency_transfer_error(ctx, error):
 async def daily_reward(ctx):
     """Claim daily reward (1-100 gems + streak bonus)"""
     user_id = str(ctx.author.id)
-    
-    if not await db.can_claim_daily(user_id):
-        # Calculate time until next daily
+
+    # FIXED: Check if user CAN claim daily (not if they CANNOT claim)
+    if await db.can_claim_daily(user_id):  # REMOVED the "not"
+        # User CAN claim daily - give them the reward
+        transaction = await db.claim_daily(user_id)
+        user = await db.get_user(user_id)
+
+        # Extract gems from transaction
+        gems_earned = transaction["gems"]
+
+        embed = discord.Embed(
+            title="🎁 **Daily Reward Claimed!**",
+            description=f"Here's your daily reward, {ctx.author.mention}!",
+            color=discord.Color.gold()
+        )
+
+        embed.add_field(
+            name="💎 Gems Earned",
+            value=f"**+{gems_earned} gems**",
+            inline=False
+        )
+
+        embed.add_field(
+            name="🔥 Daily Streak",
+            value=f"**{user['daily_streak']} days**",
+            inline=True
+        )
+
+        if user['daily_streak'] >= 7:
+            embed.add_field(
+                name="🏆 Weekly Bonus!",
+                value="You've maintained a 7-day streak! 🎉",
+                inline=True
+            )
+
+        embed.set_footer(text="Come back tomorrow for more gems!")
+        await ctx.send(embed=embed)
+        
+    else:
+        # User CANNOT claim daily - show cooldown
         user = await db.get_user(user_id)
         if user["last_daily"]:
             try:
@@ -1969,20 +2006,20 @@ async def daily_reward(ctx):
                         last_claim = datetime.strptime(user["last_daily"], "%Y-%m-%d %H:%M:%S.%f")
                 else:
                     last_claim = user["last_daily"]
-                
+
                 # Make timezone-aware
                 if last_claim.tzinfo is None:
                     last_claim = last_claim.replace(tzinfo=timezone.utc)
-                
+
                 now = datetime.now(timezone.utc)
                 next_claim = last_claim + timedelta(hours=24)
-                
+
                 if next_claim > now:
                     time_left = next_claim - now
                     hours_left = time_left.seconds // 3600
                     minutes_left = (time_left.seconds % 3600) // 60
                     seconds_left = time_left.seconds % 60
-                    
+
                     await ctx.send(
                         f"⏰ **Daily Reward Cooldown!**\n"
                         f"You can claim again in **{hours_left}h {minutes_left}m {seconds_left}s**\n"
@@ -1990,13 +2027,14 @@ async def daily_reward(ctx):
                         delete_after=15
                     )
                 else:
+                    # This shouldn't happen if can_claim_daily returns False
                     await ctx.send("🎁 Daily reward is available now!")
             except Exception as e:
                 print(f"Error calculating time: {e}")
                 await ctx.send("🎁 Daily reward is available now!")
         else:
+            # No last daily recorded - should be able to claim
             await ctx.send("🎁 Daily reward is available now!")
-        return
     
     # Claim daily reward using database system
     transaction = await db.claim_daily(user_id)
