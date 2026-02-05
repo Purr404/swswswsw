@@ -1812,8 +1812,9 @@ async def currency_group(ctx):
             inline=True
         )
     
-    # Check next daily
+    # FIXED: Check if user can claim daily properly
     can_claim = await db.can_claim_daily(user_id)
+    
     if can_claim:
         embed.add_field(
             name="🎁 Daily Reward",
@@ -1822,10 +1823,10 @@ async def currency_group(ctx):
         )
     else:
         # Calculate time until next daily
-        user_data = await db.get_user(user_id)
         if user_data["last_daily"]:
             try:
                 last_claim = user_data["last_daily"]
+                # Parse the date string
                 if isinstance(last_claim, str):
                     if 'T' in last_claim:
                         last_claim = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
@@ -1836,26 +1837,42 @@ async def currency_group(ctx):
                 if last_claim.tzinfo is None:
                     last_claim = last_claim.replace(tzinfo=timezone.utc)
                 
-                next_claim = last_claim + timedelta(hours=24)
                 now = datetime.now(timezone.utc)
+                next_claim = last_claim + timedelta(hours=24)
                 
                 if next_claim > now:
                     time_left = next_claim - now
-                    hours = time_left.seconds // 3600
-                    minutes = (time_left.seconds % 3600) // 60
-                    seconds = time_left.seconds % 60
+                    hours_left = time_left.seconds // 3600
+                    minutes_left = (time_left.seconds % 3600) // 60
+                    seconds_left = time_left.seconds % 60
                     
+                    # Show exact time remaining
                     embed.add_field(
                         name="⏰ Next Daily",
-                        value=f"{hours}h {minutes}m {seconds}s",
+                        value=f"{hours_left}h {minutes_left}m {seconds_left}s",
                         inline=True
                     )
-            except:
+                else:
+                    # Time is up, should be available
+                    embed.add_field(
+                        name="🎁 Daily Reward",
+                        value="Available now!",
+                        inline=True
+                    )
+            except Exception as e:
+                print(f"Error calculating time in currency_group: {e}")
                 embed.add_field(
                     name="🎁 Daily Reward",
-                    value="Available now!",
+                    value="Check available!",
                     inline=True
                 )
+        else:
+            # No last daily recorded
+            embed.add_field(
+                name="🎁 Daily Reward",
+                value="Available now!",
+                inline=True
+            )
     
     # Show storage type
     if db.using_database:
@@ -1973,8 +1990,9 @@ async def daily_reward(ctx):
     can_claim = await db.can_claim_daily(user_id)
     
     if not can_claim:
-        # User CANNOT claim daily - show cooldown
+        # User CANNOT claim daily - show cooldown with exact time
         user = await db.get_user(user_id)
+        
         if user["last_daily"]:
             try:
                 # Parse last claim time
@@ -1998,21 +2016,47 @@ async def daily_reward(ctx):
                     minutes_left = (time_left.seconds % 3600) // 60
                     seconds_left = time_left.seconds % 60
 
-                    await ctx.send(
-                        f"⏰ **Daily Reward Cooldown!**\n"
-                        f"You can claim again in **{hours_left}h {minutes_left}m {seconds_left}s**\n"
-                        f"Current streak: **{user['daily_streak']} days** 🔥",
-                        delete_after=15
+                    # Create a nice embed for the cooldown message
+                    embed = discord.Embed(
+                        title="⏰ **Daily Reward Cooldown!**",
+                        description=f"Please wait before claiming your daily reward again.",
+                        color=discord.Color.orange()
                     )
+                    
+                    embed.add_field(
+                        name="⏳ Time Remaining",
+                        value=f"**{hours_left}h {minutes_left}m {seconds_left}s**",
+                        inline=False
+                    )
+                    
+                    embed.add_field(
+                        name="🔥 Current Streak",
+                        value=f"**{user['daily_streak']} days**",
+                        inline=True
+                    )
+                    
+                    embed.add_field(
+                        name="🕒 Next Available",
+                        value=f"<t:{int(next_claim.timestamp())}:R>",
+                        inline=True
+                    )
+                    
+                    embed.set_footer(text="Come back later to continue your streak!")
+                    await ctx.send(embed=embed, delete_after=30)
                 else:
                     # If time is up, let them claim
                     pass
             except Exception as e:
-                print(f"Error calculating time: {e}")
-                # If error, let them claim anyway
-                pass
+                print(f"Error calculating time in daily_reward: {e}")
+                # If error, show a simple message
+                await ctx.send(
+                    f"⏰ **Daily Reward Cooldown!**\n"
+                    f"Please wait before claiming again.\n"
+                    f"Current streak: **{user['daily_streak']} days** 🔥",
+                    delete_after=15
+                )
         
-        # Send message and return (don't give reward)
+        # Return without giving reward
         return
     
     # User CAN claim daily - give them the reward
@@ -2050,6 +2094,14 @@ async def daily_reward(ctx):
             value="You've maintained a 7-day streak! 🎉",
             inline=True
         )
+
+    # Show next claim time
+    next_claim_time = datetime.now(timezone.utc) + timedelta(hours=24)
+    embed.add_field(
+        name="⏰ Next Daily Available",
+        value=f"<t:{int(next_claim_time.timestamp())}:R>",
+        inline=False
+    )
 
     embed.set_footer(text="Come back tomorrow for more gems!")
     await ctx.send(embed=embed)
