@@ -11,6 +11,19 @@ print("Python path:", sys.path)
 print("Files in directory:", os.listdir('.'))
 print("==================")
 
+
+# Check for asyncpg
+try:
+    import asyncpg
+    print("✅ asyncpg is installed")
+    ASYNCPG_AVAILABLE = True
+except ImportError:
+    print("❌ asyncpg is NOT installed")
+    ASYNCPG_AVAILABLE = False
+    
+# end check for asyncpg
+
+
 import discord
 from discord.ext import commands, tasks
 from typing import Optional
