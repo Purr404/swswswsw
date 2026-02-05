@@ -2,7 +2,6 @@ import os
 import sys
 import json
 import asyncio
-import asyncpg  # ADD THIS LINE
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
