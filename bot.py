@@ -268,7 +268,10 @@ class SmartDatabaseSystem:
         return {"gems": 0, "total_earned": 0}
 
 # Create database system
-db = SmartDatabaseSystem()
+currency_system = CurrencySystem()
+
+# --- Create quiz system with the shared currency system ---
+quiz_system = QuizSystem(bot, currency_system)
 
 # --- 2. Store user selections ---
 user_selections = {}
@@ -730,11 +733,12 @@ async def send_here(ctx, *, message: str):
 
 # --- QUIZ SYSTEM CLASS ---
 class QuizSystem:
-    def __init__(self, bot):
+    def __init__(self, bot, currency_system=None):  # Add currency_system parameter
         print("=== QuizSystem.__init__ called ===")
-        print(f"CurrencySystem class exists: {'CurrencySystem' in globals()}")
-
+        
+         
         self.bot = bot
+        self.currency = currency_system or CurrencySystem()
         self.quiz_questions = []
         self.current_question = 0
         self.participants = {}
@@ -1579,49 +1583,50 @@ class QuizSystem:
         }
         return rank_emojis.get(rank, f"{rank}.")
     
-    async def distribute_quiz_rewards(self, sorted_participants):
-        """Distribute gems based on quiz performance"""
-        rewards = {}
-        total_participants = len(sorted_participants)
+async def distribute_quiz_rewards(self, sorted_participants):
+    """Distribute gems based on quiz performance"""
+    rewards = {}
+    total_participants = len(sorted_participants)
+    
+    for rank, (user_id, data) in enumerate(sorted_participants, 1):
+        base_gems = 50  # Participation reward
         
-        for rank, (user_id, data) in enumerate(sorted_participants, 1):
-            base_gems = 50  # Participation reward
-            
-            # Rank-based bonuses
-            if rank == 1:  # 1st place
-                base_gems += 500
-            elif rank == 2:  # 2nd place
-                base_gems += 250
-            elif rank == 3:  # 3rd place
-                base_gems += 125
-            elif rank <= 10:  # Top 10
-                base_gems += 75
-            
-            # Score-based bonus: 10 gems per 100 points
-            score_bonus = (data["score"] // 100) * 10
-            base_gems += score_bonus
-            
-            # Perfect score bonus
-            max_score = len(self.quiz_questions) * 300
-            if data["score"] == max_score:
-                base_gems += 250
-                reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
-            else:
-                reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
-            
-            # Speed bonus for fast answers
-            speed_bonus = self.calculate_speed_bonus(user_id)
-            if speed_bonus:
-                base_gems += speed_bonus
-                reason += f" + ⚡{speed_bonus} speed bonus"
-            
-            # Add gems to user
-            transaction = self.currency.add_gems(
-                user_id=user_id,
-                gems=base_gems,
-                reason=reason
-            )
-            
+        # Rank-based bonuses (same as before)
+        if rank == 1:  # 1st place
+            base_gems += 500
+        elif rank == 2:  # 2nd place
+            base_gems += 250
+        elif rank == 3:  # 3rd place
+            base_gems += 125
+        elif rank <= 10:  # Top 10
+            base_gems += 75
+        
+        # Score-based bonus: 10 gems per 100 points
+        score_bonus = (data["score"] // 100) * 10
+        base_gems += score_bonus
+        
+        # Perfect score bonus
+        max_score = len(self.quiz_questions) * 300
+        if data["score"] == max_score:
+            base_gems += 250
+            reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+        else:
+            reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+        
+        # Speed bonus for fast answers
+        speed_bonus = self.calculate_speed_bonus(user_id)
+        if speed_bonus:
+            base_gems += speed_bonus
+            reason += f" + ⚡{speed_bonus} speed bonus"
+        
+        # === FIXED: Use main db system instead of self.currency ===
+        result = await self.db.add_gems(
+            user_id=user_id,
+            gems=base_gems,
+            reason=reason
+        )
+        
+        if result:  # Check if successful
             rewards[user_id] = {
                 "gems": base_gems,
                 "rank": rank
@@ -1629,8 +1634,8 @@ class QuizSystem:
             
             # Log reward distribution
             await self.log_reward(user_id, data["name"], base_gems, rank)
-        
-        return rewards
+    
+    return rewards
     
     def calculate_speed_bonus(self, user_id):
         """Calculate speed bonus for fast answers"""
@@ -1790,18 +1795,24 @@ async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
         await ctx.send(f"❌ Error: {str(e)[:100]}")
 
 # CURRENCY COMMANDS -----
+# In currency_group command:
 @bot.group(name="currency", invoke_without_command=True)
 async def currency_group(ctx):
     """Currency and rewards commands"""
-    # Get user balance
+    # Get user balance using SHARED currency system
     user_id = str(ctx.author.id)
-    balance = quiz_system.currency.get_balance(user_id)
+    balance = currency_system.get_balance(user_id)  # Use currency_system, not quiz_system.currency
     
     embed = discord.Embed(
         title="💰 **Your Gems**",
         description=f"**💎 {balance['gems']} gems**\n"
                    f"Total earned: **{balance['total_earned']} gems**",
         color=discord.Color.gold()
+    )
+    
+   
+    
+    # ... rest of the command ...
     )
     
     # Check daily streak
@@ -1833,7 +1844,9 @@ async def currency_group(ctx):
 @currency_group.command(name="leaderboard")
 async def currency_leaderboard(ctx):
     """Show gems leaderboard"""
-    leaderboard = quiz_system.currency.get_leaderboard(limit=10)
+    leaderboard = currency_system.get_leaderboard(limit=10)  # Use currency_system
+    
+   
     
     embed = discord.Embed(
         title="🏆 **Gems Leaderboard**",
@@ -1930,9 +1943,9 @@ async def daily_reward(ctx):
     """Claim daily reward (1-100 gems + streak bonus)"""
     user_id = str(ctx.author.id)
     
-    if not quiz_system.currency.can_claim_daily(user_id):
+    if not currency_system.can_claim_daily(user_id):  # Use currency_system
         # Calculate time until next daily
-        user = quiz_system.currency.get_user(user_id)
+        user = currency_system.get_user(user_id)  # Use currency_system
         last_claim = datetime.fromisoformat(user["last_daily"])
         now = datetime.now(timezone.utc)
         hours_left = 24 - ((now - last_claim).seconds // 3600)
@@ -1945,9 +1958,9 @@ async def daily_reward(ctx):
         )
         return
     
-    # Claim daily reward
-    transaction = quiz_system.currency.claim_daily(user_id)
-    user = quiz_system.currency.get_user(user_id)
+    # Claim daily reward using currency_system
+    transaction = currency_system.claim_daily(user_id)  # Use currency_system
+    user = currency_system.get_user(user_id)  # Use currency_system
     
     # Extract gems from transaction
     gems_earned = transaction["gems"]
