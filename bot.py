@@ -1201,7 +1201,7 @@ async def process_answer(self, user, answer_text):
         
         await self.quiz_logs_channel.send(embed=embed)
     
-    async def end_quiz(self):
+async def end_quiz(self):
     """End the entire quiz with improved leaderboard"""
     print(f"\n=== QUIZ ENDING ===")
     print(f"Quiz running: {self.quiz_running}")
