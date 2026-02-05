@@ -1003,36 +1003,34 @@ async def send_question(self):
     question = self.quiz_questions[self.current_question]
     self.question_start_time = datetime.now(timezone.utc)
     
-    # ... rest of the code ...
-
-        # Initial progress bar (full) - GREEN for full time
-        progress_bar = "🟩" * 20
-        
-        # Create question embed
-        embed = discord.Embed(
-            title=f"❓ **Question {self.current_question + 1}/{len(self.quiz_questions)}**",
-            description=question["question"],
-            color=discord.Color.green()
-        )
-        
-        # Add countdown bar field
-        embed.add_field(
-            name=f"⏰ **{question['time_limit']:02d} SECONDS LEFT**",
-            value=f"```\n{progress_bar}\n{question['time_limit']:02d} seconds\n```\n"
-                  f"**Max Points:** {question['points']} ⭐",
-            inline=False
-        )
-        
-        embed.set_footer(text="Type your answer in the chat (multiple attempts allowed)")
-        
-        # Send question
-        self.question_message = await self.quiz_channel.send(embed=embed)
-        
-        # Start the live countdown
-        self.countdown_task.start(question["time_limit"])
-        
-        # Start question timer (for auto-ending)
-        self.start_question_timer(question["time_limit"])
+    # Initial progress bar (full) - GREEN for full time
+    progress_bar = "🟩" * 20  # <-- THIS LINE SHOULD HAVE 8 SPACES (2 tabs/indents)
+    
+    # Create question embed
+    embed = discord.Embed(
+        title=f"❓ **Question {self.current_question + 1}/{len(self.quiz_questions)}**",
+        description=question["question"],
+        color=discord.Color.green()
+    )
+    
+    # Add countdown bar field
+    embed.add_field(
+        name=f"⏰ **{question['time_limit']:02d} SECONDS LEFT**",
+        value=f"```\n{progress_bar}\n{question['time_limit']:02d} seconds\n```\n"
+              f"**Max Points:** {question['points']} ⭐",
+        inline=False
+    )
+    
+    embed.set_footer(text="Type your answer in the chat (multiple attempts allowed)")
+    
+    # Send question
+    self.question_message = await self.quiz_channel.send(embed=embed)
+    
+    # Start the live countdown
+    self.countdown_task.start(question["time_limit"])
+    
+    # Start question timer (for auto-ending)
+    self.start_question_timer(question["time_limit"])
     
 @tasks.loop(seconds=1)
 async def countdown_task(self, total_time):
