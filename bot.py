@@ -402,6 +402,11 @@ class DatabaseSystem:
             print("✅ Database connection pool closed")
 
 # CREATE DATABASE INSTANCE=========
+db = DatabaseSystem()
+
+# --- 2. Store user selections ---
+user_selections = {}
+
 # === CURRENCY SYSTEM CLASS ===
 class CurrencySystem:
     def __init__(self, filename="user_gems.json"):
