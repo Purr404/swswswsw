@@ -2367,10 +2367,10 @@ async def custom_help(ctx, command: str = None):
         await ctx.send(embed=embed)
 
 # === SIMPLE BOT COMMANDS ===
-@bot.command(name="ping")
+@bot.command(name="swswswsw")
 async def ping(ctx):
     """Check if bot is alive"""
-    await ctx.send("🏓 Pong!")
+    await ctx.send("Meooow~")
 
 @bot.command(name="add")
 @commands.has_permissions(manage_messages=True)  # ONLY STAFF CAN USE THIS
@@ -2518,24 +2518,47 @@ async def test_db(ctx):
 async def on_ready():
     print(f"\n✅ {bot.user} is online!")
     
-    # Connect to database - FIXED: use smart_connect() not connect()
-    print("\n🔌 Connecting to database...")
-    connected = await db.smart_connect()  # CHANGED FROM connect() TO smart_connect()
+    # Connect to PostgreSQL ONLY
+    print("\n🔌 Connecting to PostgreSQL Database...")
+    connected = await db.smart_connect()
     
     if connected:
-        print("🎉 POSTGRESQL DATABASE CONNECTED SUCCESSFULLY!")
-        print("✅ Your data will persist across redeploys")
+        print("🎉 PostgreSQL Database Connected Successfully!")
+        print("✅ All data stored in PostgreSQL")
     else:
-        print("⚠️ Using JSON fallback storage")
-        print("❌ Data may reset on redeploy")
+        print("❌ FATAL: Could not connect to PostgreSQL!")
+        print("💡 Solutions:")
+        print("  1. Check DATABASE_URL in Railway Variables")
+        print("  2. Ensure PostgreSQL service is running")
+        print("  3. Check if asyncpg is installed")
+        print("  4. Wait 2 minutes for Railway PostgreSQL to be ready")
+        # Exit if no database connection
+        print("\n❌ Bot cannot run without PostgreSQL!")
+        return
     
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name=""
+            name="Gem Shop • PostgreSQL"
         )
     )
     print("\n🤖 Bot is ready!")
+
+# Daily cleanup task
+@tasks.loop(hours=24)
+async def daily_cleanup():
+    """Daily cleanup of expired shop items"""
+    await db.shop_cleanup_expired()
+
+# Start cleanup task when bot is ready
+@bot.event
+async def on_ready():
+    # ... existing on_ready code ...
+    daily_cleanup.start()
+    print("✅ Started daily cleanup task")
+
+
+
 
 # === ERROR HANDLER ===
 @bot.event
