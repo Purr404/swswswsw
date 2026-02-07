@@ -440,7 +440,6 @@ async def say_group(ctx):
         color=0x5865F2
     )
     await ctx.send(embed=embed)
-
 # --- FIXED SAY COMMAND ---
 @say_group.command(name="send")
 @commands.has_permissions(manage_messages=True)
@@ -505,20 +504,7 @@ async def send_to(ctx, channel: discord.TextChannel, *, message: str):
     except Exception as e:
         await ctx.send(f"❌ Error: {str(e)[:100]}")
 
-@bot.command(name="sendhere")
-@commands.has_permissions(manage_messages=True)
-async def send_here(ctx, *, message: str):
-    """
-    Send message in current channel
-    Usage: !!sendhere Your message here
-    """
-    try:
-        await ctx.send(message)
-        await ctx.message.delete(delay=2)
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
 
-# END SEND MESSAGES COMMAND --------
 
 # --- QUIZ SYSTEM CLASS ---
 class QuizSystem:
@@ -539,132 +525,43 @@ class QuizSystem:
         print(f"✓ Using shared CurrencySystem instance")
         print(f"  currency attribute: {hasattr(self, 'currency')}")
         
-        # Load 20 questions
+        # Load 5 questions
         self.load_questions()
     
     def load_questions(self):
-        """Load 20 quiz questions with open-ended answers"""
+        """Load 5 quiz questions with open-ended answers"""
         self.quiz_questions = [
             {
                 "question": "What is the capital city of France?",
                 "correct_answers": ["paris"],
                 "points": 300,
-                "time_limit": 60
+                "time_limit": 30
             },
             {
                 "question": "Which planet is known as the Red Planet?",
                 "correct_answers": ["mars", "planet mars"],
                 "points": 300,
-                "time_limit": 60
+                "time_limit": 30
             },
             {
                 "question": "What is the chemical symbol for gold?",
                 "correct_answers": ["au"],
                 "points": 200,
-                "time_limit": 45
+                "time_limit": 30
             },
             {
                 "question": "Who painted the Mona Lisa?",
                 "correct_answers": ["leonardo da vinci", "da vinci", "leonardo"],
                 "points": 300,
-                "time_limit": 60
+                "time_limit": 30
             },
             {
                 "question": "What is the largest mammal in the world?",
                 "correct_answers": ["blue whale", "whale"],
                 "points": 300,
-                "time_limit": 60
+                "time_limit": 30
             },
-            {
-                "question": "How many continents are there on Earth?",
-                "correct_answers": ["7", "seven"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "What is H2O commonly known as?",
-                "correct_answers": ["water", "h2o"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "Who wrote the play 'Romeo and Juliet'?",
-                "correct_answers": ["william shakespeare", "shakespeare"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the fastest land animal?",
-                "correct_answers": ["cheetah"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "Which country gifted the Statue of Liberty to the USA?",
-                "correct_answers": ["france"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "How many sides does a hexagon have?",
-                "correct_answers": ["6", "six"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "What is the hardest natural substance on Earth?",
-                "correct_answers": ["diamond"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "Which gas do plants absorb from the atmosphere?",
-                "correct_answers": ["carbon dioxide", "co2"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the smallest country in the world?",
-                "correct_answers": ["vatican city", "vatican"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "Which planet has the most moons?",
-                "correct_answers": ["saturn"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the capital of Japan?",
-                "correct_answers": ["tokyo"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "How many players are on a basketball team?",
-                "correct_answers": ["5", "five"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "What is the main ingredient in guacamole?",
-                "correct_answers": ["avocado"],
-                "points": 200,
-                "time_limit": 45
-            },
-            {
-                "question": "Which year did World War II end?",
-                "correct_answers": ["1945"],
-                "points": 300,
-                "time_limit": 60
-            },
-            {
-                "question": "What is the currency of Japan?",
-                "correct_answers": ["yen"],
-                "points": 300,
-                "time_limit": 60
-            }
+
         ]
     
     def calculate_points(self, answer_time, total_time, max_points):
@@ -705,7 +602,7 @@ class QuizSystem:
         start_msg = await channel.send(embed=embed)
         
         # Start countdown
-        for i in range(5, 0, -1):
+        for i in range(10, 0, -1):
             await start_msg.edit(content=f"⏰ **{i}...**")
             await asyncio.sleep(1)
         
@@ -1416,7 +1313,7 @@ class QuizSystem:
         
         await self.quiz_logs_channel.send(embed=embed)
 
-# === CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
+# === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
 quiz_system = QuizSystem(bot)
 
 # --- ANNOUNCEMENT COMMANDS ---
@@ -1457,9 +1354,8 @@ async def announce_send(ctx, *, message: str):
     )
     
     try:
-        sent_message = await channel.send("@here", embed=embed)
+        sent_message = await channel.send("@everyone", embed=embed)
         
-        await sent_message.add_reaction("📢")
         await sent_message.add_reaction("✅")
         
         if server_id in announcements.announcement_images:
