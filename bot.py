@@ -28,20 +28,7 @@ except ImportError:
         print(f"❌ Failed to install asyncpg: {e}")
         print("⚠️ Bot will run with JSON fallback only")
 
-# Check for discord-components
-print("\n=== CHECKING DISCORD-COMPONENTS ===")
-try:
-    import discord_components
-    from discord_components import DiscordComponents, Components, Button, Select, SelectOption
-    COMPONENTS_AVAILABLE = True
-    print("✅ discord-components is installed!")
-except ImportError as e:
-    print(f"❌ discord-components not available: {e}")
-    print("💡 Add 'discord-components>=2.1.2' to requirements.txt")
-    COMPONENTS_AVAILABLE = False
-    discord_components = None
-
-# ... rest of your imports and asyncpg setup ...
+# Now continue with the rest of your imports...
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
@@ -84,973 +71,299 @@ for key, value in os.environ.items():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 
-# === DATABASE SYSTEM (PostgreSQL ONLY) ===
-class DatabaseSystem:
+# === CURRENCY SYSTEM CLASS ===
+class CurrencySystem:
+    def __init__(self, filename="user_gems.json"):
+        self.filename = filename
+        self.data = self.load_data()
+    
+    def load_data(self):
+        """Load gems data from JSON file"""
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+    
+    def save_data(self):
+        """Save gems data to JSON file"""
+        try:
+            with open(self.filename, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"Error saving gems data: {e}")
+            return False
+    
+    def get_user(self, user_id: str):
+        """Get or create user gems data"""
+        if user_id not in self.data:
+            self.data[user_id] = {
+                "gems": 0,
+                "total_earned": 0,
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "daily_streak": 0,
+                "last_daily": None,
+                "transactions": []
+            }
+        return self.data[user_id]
+    
+    def add_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Add gems to a user with transaction history"""
+        user = self.get_user(user_id)
+        
+        # Add gems
+        user["gems"] += gems
+        user["total_earned"] += gems
+        user["last_updated"] = datetime.now(timezone.utc).isoformat()
+        
+        # Record transaction
+        transaction = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "type": "reward",
+            "gems": gems,
+            "reason": reason,
+            "balance": user["gems"]
+        }
+        user["transactions"].append(transaction)
+        
+        # Keep only last 50 transactions
+        if len(user["transactions"]) > 50:
+            user["transactions"] = user["transactions"][-50:]
+        
+        self.save_data()
+        return transaction
+    
+    def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Deduct gems from a user (for purchases)"""
+        user = self.get_user(user_id)
+        
+        if user["gems"] < gems:
+            return False  # Not enough gems
+        
+        # Deduct gems
+        user["gems"] -= gems
+        user["last_updated"] = datetime.now(timezone.utc).isoformat()
+        
+        # Record transaction
+        transaction = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "type": "purchase",
+            "gems": -gems,
+            "reason": reason,
+            "balance": user["gems"]
+        }
+        user["transactions"].append(transaction)
+        
+        self.save_data()
+        return transaction
+    
+    def get_balance(self, user_id: str):
+        """Get user's current gems balance"""
+        user = self.get_user(user_id)
+        return {
+            "gems": user["gems"],
+            "total_earned": user["total_earned"]
+        }
+    
+    def get_leaderboard(self, limit: int = 10):
+        """Get gems leaderboard"""
+        if not self.data:
+            return []
+        
+        sorted_users = sorted(
+            self.data.items(),
+            key=lambda x: x[1]["gems"],
+            reverse=True
+        )[:limit]
+        
+        return [
+            {
+                "user_id": user_id,
+                "gems": data["gems"],
+                "total_earned": data["total_earned"]
+            }
+            for user_id, data in sorted_users
+        ]
+    
+    def can_claim_daily(self, user_id: str):
+        """Check if user can claim daily reward"""
+        user = self.get_user(user_id)
+        
+        if not user["last_daily"]:
+            return True
+        
+        try:
+            last_claim = datetime.fromisoformat(user["last_daily"])
+            now = datetime.now(timezone.utc)
+            
+            # Check if 24 hours have passed
+            hours_passed = (now - last_claim).total_seconds() / 3600
+            return hours_passed >= 23.5
+        except:
+            return True
+    
+    def claim_daily(self, user_id: str):
+        """Claim daily reward with streak bonus"""
+        user = self.get_user(user_id)
+        now = datetime.now(timezone.utc)
+        
+        # Check streak
+        if user["last_daily"]:
+            try:
+                last_claim = datetime.fromisoformat(user["last_daily"])
+                days_diff = (now - last_claim).days
+                
+                if days_diff == 1:
+                    user["daily_streak"] += 1
+                elif days_diff > 1:
+                    user["daily_streak"] = 1
+            except:
+                user["daily_streak"] = 1
+        else:
+            user["daily_streak"] = 1
+        
+        # Base daily reward (1-100 gems)
+        base_gems = random.randint(1, 100)
+        
+        # Streak bonus (extra 10% per day, max 100% bonus)
+        streak_bonus = min(user["daily_streak"] * 0.1, 1.0)
+        bonus_gems = int(base_gems * streak_bonus)
+        
+        total_gems = base_gems + bonus_gems
+        
+        # Update last claim
+        user["last_daily"] = now.isoformat()
+        
+        # Add gems
+        return self.add_gems(
+            user_id=user_id,
+            gems=total_gems,
+            reason=f"🎁 Daily Reward (Streak: {user['daily_streak']} days)"
+        )
+
+# === CREATE SHARED CURRENCY SYSTEM INSTANCE ===
+currency_system = CurrencySystem()
+
+# === SIMPLE BUT EFFECTIVE DATABASE SYSTEM ===
+class SmartDatabaseSystem:
     def __init__(self):
         self.pool = None
         self.using_database = False
+        self.json_file = "user_gems.json"
+        self.json_data = {}
+        self.load_json_data()
         print(f"\n📊 Database System Status:")
         print(f"  - DATABASE_URL exists: {'YES' if DATABASE_URL else 'NO'}")
         print(f"  - asyncpg available: {'YES' if ASYNCPG_AVAILABLE else 'NO'}")
         
+    def load_json_data(self):
+        """Load data from JSON file"""
+        try:
+            if os.path.exists(self.json_file):
+                with open(self.json_file, 'r', encoding='utf-8') as f:
+                    self.json_data = json.load(f)
+                print(f"  - JSON users loaded: {len(self.json_data)}")
+            else:
+                self.json_data = {}
+                print(f"  - JSON file: Not found (will create)")
+        except Exception as e:
+            print(f"  - JSON load error: {e}")
+            self.json_data = {}
+    
+    def save_json_data(self):
+        """Save data to JSON file"""
+        try:
+            with open(self.json_file, 'w', encoding='utf-8') as f:
+                json.dump(self.json_data, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"❌ Error saving JSON: {e}")
+            return False
+    
     async def smart_connect(self):
-        """Connect to PostgreSQL database"""
+        """Smart database connection that tries multiple approaches"""
         if not DATABASE_URL:
-            print("❌ No DATABASE_URL found!")
-            print("💡 Set DATABASE_URL environment variable in Railway")
+            print("❌ No DATABASE_URL - using JSON only")
             return False
         
         if not ASYNCPG_AVAILABLE:
-            print("❌ asyncpg not available!")
-            print("💡 Add asyncpg to requirements.txt: asyncpg>=0.29.0")
+            print("❌ asyncpg not available - using JSON only")
             return False
         
-        print("\n🔌 Connecting to PostgreSQL...")
+        print("\n🔌 Attempting database connection...")
         
-        try:
-            self.pool = await asyncpg.create_pool(
-                DATABASE_URL,
-                min_size=1,
-                max_size=3,
-                ssl='require',
-                command_timeout=30
-            )
-            
-            # Test connection
-            async with self.pool.acquire() as conn:
-                result = await conn.fetchval('SELECT 1')
-                print(f"    ✅ Connection test: {result}")
+        # Try different connection strategies
+        connection_strategies = [
+            ("Standard with SSL", {'ssl': 'require'}),
+            ("Standard without SSL", {'ssl': None}),
+            ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
+        ]
+        
+        for strategy_name, strategy_args in connection_strategies:
+            print(f"  Trying: {strategy_name}...")
+            try:
+                self.pool = await asyncpg.create_pool(
+                    DATABASE_URL,
+                    min_size=1,
+                    max_size=3,
+                    **strategy_args
+                )
                 
-                # Create main gems table
-                await conn.execute('''
-                    CREATE TABLE IF NOT EXISTS user_gems (
-                        user_id TEXT PRIMARY KEY,
-                        gems INTEGER DEFAULT 0,
-                        total_earned INTEGER DEFAULT 0,
-                        daily_streak INTEGER DEFAULT 0,
-                        last_daily TIMESTAMP WITH TIME ZONE,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                    )
-                ''')
+                # Test connection
+                async with self.pool.acquire() as conn:
+                    result = await conn.fetchval('SELECT 1')
+                    print(f"    ✅ Connection test: {result}")
+                    
+                    # Create table
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_gems (
+                            user_id TEXT PRIMARY KEY,
+                            gems INTEGER DEFAULT 0,
+                            total_earned INTEGER DEFAULT 0,
+                            daily_streak INTEGER DEFAULT 0,
+                            last_daily TIMESTAMP,
+                            created_at TIMESTAMP DEFAULT NOW(),
+                            updated_at TIMESTAMP DEFAULT NOW()
+                        )
+                    ''')
                 
-                # Create shop tables
-                await self.create_shop_tables()
-            
-            self.using_database = True
-            print("🎉 PostgreSQL Database Connected Successfully!")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Database connection failed: {type(e).__name__}: {str(e)[:200]}")
-            print("💡 Check your DATABASE_URL in Railway Variables")
-            return False
-    
-    async def create_shop_tables(self):
-        """Create shop tables in PostgreSQL"""
-        try:
-            async with self.pool.acquire() as conn:
-                # Create shop_purchases table
-                await conn.execute('''
-                    CREATE TABLE IF NOT EXISTS shop_purchases (
-                        id SERIAL PRIMARY KEY,
-                        user_id TEXT NOT NULL,
-                        item_id INTEGER NOT NULL,
-                        item_name TEXT NOT NULL,
-                        item_type TEXT NOT NULL,
-                        price INTEGER NOT NULL,
-                        purchased_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                    )
-                ''')
-                
-                # Create shop_active_items table
-                await conn.execute('''
-                    CREATE TABLE IF NOT EXISTS shop_active_items (
-                        id SERIAL PRIMARY KEY,
-                        user_id TEXT NOT NULL,
-                        item_id INTEGER NOT NULL,
-                        item_type TEXT NOT NULL,
-                        role_id TEXT,
-                        expires_at TIMESTAMP WITH TIME ZONE,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                    )
-                ''')
-                
-                # Create indexes
-                await conn.execute('CREATE INDEX IF NOT EXISTS idx_shop_purchases_user ON shop_purchases(user_id)')
-                await conn.execute('CREATE INDEX IF NOT EXISTS idx_shop_purchases_time ON shop_purchases(purchased_at DESC)')
-                await conn.execute('CREATE INDEX IF NOT EXISTS idx_shop_active_items_user ON shop_active_items(user_id)')
-                await conn.execute('CREATE INDEX IF NOT EXISTS idx_shop_active_items_expires ON shop_active_items(expires_at)')
-                
-                print("✅ Shop tables created successfully!")
+                self.using_database = True
+                print(f"🎉 Success with: {strategy_name}")
+                print("✅ Database connected and ready!")
                 return True
                 
-        except Exception as e:
-            print(f"❌ Error creating shop tables: {e}")
-            return False
+            except Exception as e:
+                print(f"    ❌ Failed: {type(e).__name__}: {str(e)[:100]}")
+                continue
+        
+        print("❌ All connection strategies failed")
+        print("💡 Possible solutions:")
+        print("  1. Wait 2 minutes for Railway PostgreSQL to be ready")
+        print("  2. Restart both bot and PostgreSQL services")
+        print("  3. Check DATABASE_URL format in Railway Variables")
+        return False
     
-    # === GEM MANAGEMENT ===
     async def add_gems(self, user_id: str, gems: int, reason: str = ""):
         """Add gems to a user"""
-        try:
-            async with self.pool.acquire() as conn:
-                # Try to update existing user
-                result = await conn.execute('''
-                    UPDATE user_gems 
-                    SET gems = gems + $2,
-                        total_earned = total_earned + $2,
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                    RETURNING gems
-                ''', user_id, gems)
-                
-                if result == 'UPDATE 0':
-                    # User doesn't exist, create them
-                    await conn.execute('''
-                        INSERT INTO user_gems (user_id, gems, total_earned)
-                        VALUES ($1, $2, $2)
-                    ''', user_id, gems)
-                    new_balance = gems
-                else:
-                    # Get new balance
-                    row = await conn.fetchrow(
-                        'SELECT gems FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
-                    new_balance = row['gems'] if row else gems
-                
-                print(f"✅ [DB] Added {gems} gems to {user_id} (Balance: {new_balance})")
-                return {"gems": gems, "balance": new_balance}
-                
-        except Exception as e:
-            print(f"❌ Database error in add_gems: {e}")
-            raise
+        # Instead of implementing our own, use the shared currency system
+        transaction = currency_system.add_gems(user_id, gems, reason)
+        balance = currency_system.get_balance(user_id)
+        return {"gems": gems, "balance": balance["gems"]}
     
     async def get_balance(self, user_id: str):
         """Get user balance"""
-        try:
-            async with self.pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    'SELECT gems, total_earned FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
-                
-                if row:
-                    return {"gems": row['gems'], "total_earned": row['total_earned']}
-                else:
-                    return {"gems": 0, "total_earned": 0}
-                    
-        except Exception as e:
-            print(f"❌ Database error in get_balance: {e}")
-            return {"gems": 0, "total_earned": 0}
-    
-    async def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Deduct gems from a user"""
-        try:
-            async with self.pool.acquire() as conn:
-                # Check if user has enough gems
-                row = await conn.fetchrow(
-                    'SELECT gems FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
-                
-                if not row or row['gems'] < gems:
-                    return False
-                
-                # Deduct gems
-                await conn.execute('''
-                    UPDATE user_gems 
-                    SET gems = gems - $2,
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                ''', user_id, gems)
-                
-                return True
-                
-        except Exception as e:
-            print(f"❌ Database error in deduct_gems: {e}")
-            return False
-    
-    # === DAILY REWARD SYSTEM ===
-    async def can_claim_daily(self, user_id: str):
-        """Check if user can claim daily reward"""
-        try:
-            async with self.pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    'SELECT last_daily FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
-                
-                if not row or not row['last_daily']:
-                    return True  # Never claimed before
-                
-                last_claim = row['last_daily']
-                now = datetime.now(timezone.utc)
-                
-                # Check if 24 hours have passed
-                time_diff = now - last_claim
-                return time_diff.total_seconds() >= 86400
-                
-        except Exception as e:
-            print(f"❌ Database error in can_claim_daily: {e}")
-            return True
-    
-    async def get_user(self, user_id: str):
-        """Get user data"""
-        try:
-            async with self.pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
-                
-                if row:
-                    return {
-                        "gems": row['gems'],
-                        "total_earned": row['total_earned'],
-                        "daily_streak": row['daily_streak'] or 0,
-                        "last_daily": row['last_daily']
-                    }
-                else:
-                    return {
-                        "gems": 0,
-                        "total_earned": 0,
-                        "daily_streak": 0,
-                        "last_daily": None
-                    }
-                    
-        except Exception as e:
-            print(f"❌ Database error in get_user: {e}")
-            return {
-                "gems": 0,
-                "total_earned": 0,
-                "daily_streak": 0,
-                "last_daily": None
-            }
-    
-    async def claim_daily(self, user_id: str):
-        """Claim daily reward"""
-        now = datetime.now(timezone.utc)
-        
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.transaction():
-                    # Get user data with lock
-                    row = await conn.fetchrow('''
-                        SELECT gems, daily_streak, last_daily 
-                        FROM user_gems 
-                        WHERE user_id = $1
-                        FOR UPDATE
-                    ''', user_id)
-                    
-                    # Calculate streak
-                    if not row or not row['last_daily']:
-                        new_streak = 1
-                    else:
-                        last_claim = row['last_daily']
-                        time_diff = now - last_claim
-                        
-                        if time_diff.total_seconds() < 86400:
-                            return {"gems": 0, "streak": row['daily_streak'] or 0, "error": "Already claimed today"}
-                        
-                        days_diff = (now.date() - last_claim.date()).days
-                        
-                        if days_diff == 1:
-                            new_streak = (row['daily_streak'] or 0) + 1
-                        else:
-                            new_streak = 1
-                    
-                    # Calculate daily reward
-                    base_gems = random.randint(1, 100)
-                    streak_bonus = min(new_streak * 0.1, 1.0)
-                    bonus_gems = int(base_gems * streak_bonus)
-                    total_gems = base_gems + bonus_gems
-                    
-                    # Update user
-                    if not row:
-                        await conn.execute('''
-                            INSERT INTO user_gems (user_id, gems, total_earned, daily_streak, last_daily)
-                            VALUES ($1, $2, $2, $3, $4)
-                        ''', user_id, total_gems, new_streak, now)
-                    else:
-                        await conn.execute('''
-                            UPDATE user_gems 
-                            SET gems = gems + $2,
-                                total_earned = total_earned + $2,
-                                daily_streak = $3,
-                                last_daily = $4,
-                                updated_at = NOW()
-                            WHERE user_id = $1
-                        ''', user_id, total_gems, new_streak, now)
-                    
-                    return {
-                        "gems": total_gems, 
-                        "streak": new_streak,
-                        "base_gems": base_gems,
-                        "bonus_gems": bonus_gems
-                    }
-                    
-        except Exception as e:
-            print(f"❌ Database error in claim_daily: {e}")
-            return {"gems": 0, "streak": 0, "error": "Database error"}
-    
-    # === LEADERBOARD ===
-    async def get_leaderboard(self, limit: int = 10):
-        """Get gems leaderboard"""
-        try:
-            async with self.pool.acquire() as conn:
-                rows = await conn.fetch('''
-                    SELECT user_id, gems, total_earned 
-                    FROM user_gems 
-                    ORDER BY gems DESC 
-                    LIMIT $1
-                ''', limit)
-                
-                return [
-                    {
-                        "user_id": row['user_id'],
-                        "gems": row['gems'],
-                        "total_earned": row['total_earned']
-                    }
-                    for row in rows
-                ]
-                
-        except Exception as e:
-            print(f"❌ Database error in get_leaderboard: {e}")
-            return []
-    
-    # === SHOP SYSTEM ===
-    async def shop_get_items(self):
-        """Get all shop items (SIMPLIFIED - no boosters)"""
-        shop_items = [
-            {
-                "id": 1,
-                "name": "🛡️ Role Color Change",
-                "description": "Change your role color for 7 days",
-                "price": 500,
-                "type": "role_color",
-                "duration_days": 7
-            },
-            {
-                "id": 2,
-                "name": "🎨 Custom Nickname Color",
-                "description": "Set a custom color for your nickname",
-                "price": 300,
-                "type": "nickname_color",
-                "duration_days": 30
-            },
-            {
-                "id": 3,
-                "name": "🌟 Special Role",
-                "description": "Get a special 'Gem Master' role",
-                "price": 1000,
-                "type": "special_role",
-                "duration_days": 30
-            },
-            {
-                "id": 4,
-                "name": "🎁 Mystery Box",
-                "description": "Random reward between 50-500 gems",
-                "price": 250,
-                "type": "mystery_box",
-                "min_gems": 50,
-                "max_gems": 500
-            }
-        ]
-        return shop_items
-    
-    async def shop_purchase(self, user_id: str, item_id: int):
-        """Purchase an item"""
-        items = await self.shop_get_items()
-        item = next((i for i in items if i["id"] == item_id), None)
-        
-        if not item:
-            return {"success": False, "error": "Item not found"}
-        
-        try:
-            async with self.pool.acquire() as conn:
-                async with conn.transaction():
-                    # Check balance
-                    row = await conn.fetchrow(
-                        'SELECT gems FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
-                    
-                    if not row or row['gems'] < item["price"]:
-                        return {"success": False, "error": "Not enough gems"}
-                    
-                    # Deduct gems
-                    await conn.execute('''
-                        UPDATE user_gems 
-                        SET gems = gems - $2,
-                            updated_at = NOW()
-                        WHERE user_id = $1
-                    ''', user_id, item["price"])
-                    
-                    # Get new balance
-                    new_balance_row = await conn.fetchrow(
-                        'SELECT gems FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
-                    new_balance = new_balance_row['gems'] if new_balance_row else 0
-                    
-                    # Record purchase
-                    await conn.execute('''
-                        INSERT INTO shop_purchases 
-                        (user_id, item_id, item_name, item_type, price)
-                        VALUES ($1, $2, $3, $4, $5)
-                    ''', user_id, item["id"], item["name"], item["type"], item["price"])
-                    
-                    # For timed items, add to active_items
-                    if "duration_days" in item:
-                        expires_at = datetime.now(timezone.utc) + timedelta(days=item["duration_days"])
-                        await conn.execute('''
-                            INSERT INTO shop_active_items 
-                            (user_id, item_id, item_type, expires_at)
-                            VALUES ($1, $2, $3, $4)
-                        ''', user_id, item["id"], item["type"], expires_at)
-                    
-                    return {
-                        "success": True, 
-                        "item": item,
-                        "new_balance": new_balance
-                    }
-                    
-        except Exception as e:
-            print(f"❌ Database error in shop_purchase: {e}")
-            return {"success": False, "error": "Database error"}
-    
-    async def shop_get_user_purchases(self, user_id: str, limit: int = 20):
-        """Get user's purchase history"""
-        try:
-            async with self.pool.acquire() as conn:
-                rows = await conn.fetch('''
-                    SELECT item_id, item_name, item_type, price, purchased_at
-                    FROM shop_purchases
-                    WHERE user_id = $1
-                    ORDER BY purchased_at DESC
-                    LIMIT $2
-                ''', user_id, limit)
-                
-                purchases = []
-                for row in rows:
-                    purchases.append({
-                        "item_id": row['item_id'],
-                        "item_name": row['item_name'],
-                        "item_type": row['item_type'],
-                        "price": row['price'],
-                        "purchased_at": row['purchased_at'].isoformat() if row['purchased_at'] else None
-                    })
-                
-                return purchases
-                
-        except Exception as e:
-            print(f"❌ Database error getting purchases: {e}")
-            return []
-    
-    async def shop_cleanup_expired(self):
-        """Clean up expired items"""
-        try:
-            async with self.pool.acquire() as conn:
-                # Delete expired active items
-                deleted = await conn.execute('''
-                    DELETE FROM shop_active_items 
-                    WHERE expires_at < NOW()
-                ''')
-                
-                if deleted != 'DELETE 0':
-                    print(f"✅ Cleaned up {deleted.split()[1]} expired shop items")
-        except Exception as e:
-            print(f"❌ Error cleaning up shop items: {e}")
+        # Use the shared currency system
+        balance = currency_system.get_balance(user_id)
+        return balance
 
-# === CREATE SHARED DATABASE SYSTEM INSTANCE ===
-db = DatabaseSystem()
+# Create database system
+db = SmartDatabaseSystem()
 
-# === SHOP SYSTEM CLASS ===
-class ShopSystem:
-    def __init__(self, bot, db):
-        self.bot = bot
-        self.db = db
-        print("✅ ShopSystem created")
-    
-    async def process_purchase(self, user, item_id, guild):
-        """Process item purchase"""
-        # Get item info
-        items = await self.db.shop_get_items()
-        item = next((i for i in items if i["id"] == item_id), None)
-        
-        if not item:
-            return {"success": False, "message": "❌ Item not found!"}
-        
-        # Purchase item from database
-        result = await self.db.shop_purchase(str(user.id), item_id)
-        
-        if not result["success"]:
-            return {"success": False, "message": f"❌ {result['error']}"}
-        
-        # Process item based on type
-        item_result = await self._process_item_type(user, item, guild)
-        
-        return {
-            "success": True,
-            "message": f"✅ **Purchase Successful!**\nYou bought: **{item['name']}**\n{item_result['message']}\nNew balance: **💎 {result['new_balance']:,} gems**",
-            "item": item,
-            "item_result": item_result
-        }
-    
-    async def _process_item_type(self, user, item, guild):
-        """Process different item types"""
-        if item["type"] == "role_color":
-            return await self._process_role_color(user, item, guild)
-        elif item["type"] == "nickname_color":
-            return await self._process_nickname_color(user, item, guild)
-        elif item["type"] == "special_role":
-            return await self._process_special_role(user, item, guild)
-        elif item["type"] == "mystery_box":
-            return await self._process_mystery_box(user, item)
-        
-        return {"success": False, "message": "Item type not implemented"}
-    
-    async def _process_role_color(self, user, item, guild):
-        """Process role color purchase"""
-        try:
-            # Create or get custom role
-            role_name = f"Gem-{user.name[:20]}"
-            role = discord.utils.get(guild.roles, name=role_name)
-            
-            if not role:
-                # Create new role
-                role = await guild.create_role(
-                    name=role_name,
-                    color=discord.Color.random(),
-                    reason=f"Gem shop purchase by {user.name}"
-                )
-                print(f"✅ Created new role {role_name} for {user.name}")
-            else:
-                # Update existing role color
-                await role.edit(color=discord.Color.random())
-                print(f"✅ Updated role color for {user.name}")
-            
-            # Add role to user (removing old ones if any)
-            gem_roles = [r for r in user.roles if r.name.startswith("Gem-")]
-            for gem_role in gem_roles:
-                if gem_role != role:
-                    await user.remove_roles(gem_role, reason="Removing old gem role")
-            
-            # Add new role
-            await user.add_roles(role, reason="Gem shop purchase")
-            
-            return {
-                "success": True,
-                "message": f"🎨 Your custom role **{role.name}** has been set with color **#{role.color.value:06x}**!\nIt will expire in {item['duration_days']} days."
-            }
-        except Exception as e:
-            print(f"Error in role color processing: {e}")
-            return {"success": False, "message": f"Failed to set role: {str(e)[:100]}"}
-    
-    async def _process_nickname_color(self, user, item, guild):
-        """Process nickname color purchase"""
-        try:
-            # Generate random color
-            color = discord.Color.random()
-            
-            embed = discord.Embed(
-                title="🎨 **Nickname Color Applied!**",
-                description=f"Your nickname now has a custom color for {item['duration_days']} days!",
-                color=color
-            )
-            
-            embed.add_field(
-                name="Color Preview",
-                value=f"Hex: `#{color.value:06x}`",
-                inline=True
-            )
-            
-            return {
-                "success": True,
-                "message": f"🎨 Custom nickname color set for {item['duration_days']} days!",
-                "embed": embed
-            }
-        except Exception as e:
-            return {"success": False, "message": f"Failed to set color: {str(e)[:100]}"}
-    
-    async def _process_special_role(self, user, item, guild):
-        """Process special role purchase"""
-        try:
-            # Find or create "Gem Master" role
-            role_name = "💎 Gem Master"
-            role = discord.utils.get(guild.roles, name=role_name)
-            
-            if not role:
-                # Create the role
-                role = await guild.create_role(
-                    name=role_name,
-                    color=discord.Color.gold(),
-                    hoist=True,
-                    mentionable=True,
-                    reason="Gem shop special role"
-                )
-            
-            # Add role to user
-            await user.add_roles(role, reason="Gem shop purchase")
-            
-            return {
-                "success": True,
-                "message": f"🌟 You now have the **{role_name}** role for {item['duration_days']} days!"
-            }
-        except Exception as e:
-            return {"success": False, "message": f"Failed to set role: {str(e)[:100]}"}
-    
-    async def _process_mystery_box(self, user, item):
-        """Process mystery box purchase"""
-        try:
-            # Random gems between min and max
-            gems_won = random.randint(item["min_gems"], item["max_gems"])
-            
-            # Add gems to user using database
-            await self.db.add_gems(
-                str(user.id),
-                gems=gems_won,
-                reason="Mystery Box Prize"
-            )
-            
-            # Determine rarity
-            if gems_won >= 400:
-                rarity = "✨ **LEGENDARY!**"
-                color = 0xFFD700  # Gold
-            elif gems_won >= 250:
-                rarity = "⚡ **RARE!**"
-                color = 0x9B59B6  # Purple
-            elif gems_won >= 150:
-                rarity = "🌟 **UNCOMMON!**"
-                color = 0x3498DB  # Blue
-            else:
-                rarity = "🎁 **COMMON**"
-                color = 0x2ECC71  # Green
-            
-            # Create embed for result
-            embed = discord.Embed(
-                title="🎁 **MYSTERY BOX OPENED!**",
-                description=f"{rarity}\nYou won: **💎 {gems_won:,} gems**!",
-                color=color
-            )
-            
-            return {
-                "success": True,
-                "message": f"🎁 **Mystery Box Opened!**\n{rarity}\nYou won: **💎 {gems_won:,} gems**!",
-                "embed": embed
-            }
-        except Exception as e:
-            return {"success": False, "message": f"Failed to open box: {str(e)[:100]}"}
-
-# === CREATE SHOP SYSTEM INSTANCE ===
-shop_system = ShopSystem(bot, db)
-print("✅ ShopSystem instance created")
-
-
-# === BEAUTIFUL VISUAL SHOP WITH BUTTONS ===
-class VisualShopUI:
-    def __init__(self, bot, db, shop_system):
-        self.bot = bot
-        self.db = db
-        self.shop_system = shop_system
-        print("✅ VisualShopUI created")
-    
-    async def setup_shop_channel(self, guild):
-        """Setup shop channel with beautiful button interface"""
-        try:
-            # Initialize discord-components
-            DiscordComponents(self.bot)
-            
-            # Find or create shop channel
-            shop_channel = discord.utils.get(guild.text_channels, name="shops")
-            if not shop_channel:
-                shop_channel = await guild.create_text_channel(
-                    "shops",
-                    topic="🛒 Interactive Gem Shop - Click buttons to shop!",
-                    reason="Auto-created shop channel"
-                )
-                print(f"✅ Created shop channel: #{shop_channel.name}")
-            
-            # Clear channel
-            try:
-                await shop_channel.purge(limit=100)
-            except:
-                pass
-            
-            # Create BEAUTIFUL shop interface
-            embed = discord.Embed(
-                title="🛒 **WELCOME TO THE GEM SHOP!** 🛒",
-                description=(
-                    "**✨ CLICK BUTTONS TO SHOP! ✨**\n\n"
-                    "🌟 **No commands needed!** Just click buttons!\n"
-                    "💎 **Use your gems** to unlock amazing items!\n"
-                    "🎮 **Interactive shopping experience!**\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**🎯 HOW TO USE:**\n"
-                    "1. Click 📦 to browse items\n"
-                    "2. Click buttons to view details\n"
-                    "3. Click BUY to purchase\n"
-                    "4. Get items instantly!\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                ),
-                color=discord.Color.gold()
-            )
-            
-            embed.add_field(
-                name="💎 **EARN MORE GEMS**",
-                value=(
-                    "• Click 🎰 for daily rewards\n"
-                    "• Join quizzes (`!!quiz`)\n"
-                    "• Win events and giveaways\n"
-                    "• Purchase mystery boxes"
-                ),
-                inline=False
-            )
-            
-            embed.set_footer(text="🛒 Interactive Shop • Powered by discord-components")
-            
-            # Create buttons
-            buttons = [
-                Button(style=3, label="📦 BROWSE ITEMS", custom_id="browse_items", emoji="📦"),
-                Button(style=2, label="💰 MY BALANCE", custom_id="check_balance", emoji="💰"),
-                Button(style=2, label="📜 HISTORY", custom_id="view_history", emoji="📜"),
-                Button(style=1, label="🎰 DAILY", custom_id="daily_reward", emoji="🎰"),
-                Button(style=2, label="❓ HELP", custom_id="shop_help", emoji="❓")
-            ]
-            
-            # Send message with buttons
-            message = await shop_channel.send(
-                embed=embed,
-                components=[buttons]
-            )
-            
-            print(f"✅ Beautiful shop setup complete in #{shop_channel.name}")
-            return shop_channel
-            
-        except Exception as e:
-            print(f"❌ Error setting up shop: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-    
-    async def show_shop_items(self, user):
-        """Show shop items with buttons"""
-        try:
-            items = await self.db.shop_get_items()
-            user_id = str(user.id)
-            balance = await self.db.get_balance(user_id)
-            
-            embed = discord.Embed(
-                title="📦 **SHOP ITEMS**",
-                description=f"**Your Balance:** 💎 **{balance['gems']:,} gems**\n\n"
-                           "**Click an item to view details:**",
-                color=discord.Color.blue()
-            )
-            
-            # Create item buttons
-            buttons = []
-            for i, item in enumerate(items[:4]):  # Max 4 items per row
-                emoji = "🛒"
-                if item["type"] == "role_color":
-                    emoji = "🎨"
-                elif item["type"] == "nickname_color":
-                    emoji = "🛡️"
-                elif item["type"] == "special_role":
-                    emoji = "🌟"
-                elif item["type"] == "mystery_box":
-                    emoji = "🎁"
-                
-                buttons.append(
-                    Button(
-                        style=2,
-                        label=f"{item['name']} - 💎{item['price']}",
-                        custom_id=f"view_item_{item['id']}",
-                        emoji=emoji
-                    )
-                )
-            
-            # Add navigation buttons
-            nav_buttons = [
-                Button(style=1, label="⬅️ BACK", custom_id="back_to_shop", emoji="⬅️"),
-                Button(style=3, label="🛒 MAIN SHOP", custom_id="main_shop", emoji="🛒")
-            ]
-            
-            # Add items to embed
-            for item in items:
-                embed.add_field(
-                    name=f"{item['name']}",
-                    value=f"💎 **{item['price']:,}** • {item['description']}",
-                    inline=False
-                )
-            
-            return embed, [buttons, nav_buttons]
-            
-        except Exception as e:
-            print(f"❌ Error showing items: {e}")
-            return None, None
-    
-    async def show_item_details(self, user, item_id):
-        """Show item details with buy button"""
-        try:
-            items = await self.db.shop_get_items()
-            item = next((i for i in items if i["id"] == item_id), None)
-            
-            if not item:
-                return None, None
-            
-            user_id = str(user.id)
-            balance = await self.db.get_balance(user_id)
-            can_afford = balance["gems"] >= item["price"]
-            
-            embed = discord.Embed(
-                title=f"🛒 **{item['name']}**",
-                color=discord.Color.gold() if can_afford else discord.Color.red()
-            )
-            
-            # Item details
-            embed.description = f"**{item['description']}**\n\n"
-            
-            if item["type"] == "role_color":
-                embed.description += "🎨 **Get a custom role with unique color!**"
-            elif item["type"] == "nickname_color":
-                embed.description += "🛡️ **Custom color for your nickname!**"
-            elif item["type"] == "special_role":
-                embed.description += "🌟 **Exclusive 'Gem Master' role!**"
-            elif item["type"] == "mystery_box":
-                embed.description += f"🎁 **Win {item['min_gems']}-{item['max_gems']} gems!**"
-            
-            # Price and balance
-            embed.add_field(name="💰 **PRICE**", value=f"💎 **{item['price']:,}**", inline=True)
-            embed.add_field(name="💰 **YOUR BALANCE**", value=f"💎 **{balance['gems']:,}**", inline=True)
-            embed.add_field(name="💳 **CAN AFFORD**", value="✅ **YES**" if can_afford else "❌ **NO**", inline=True)
-            
-            # Create buttons
-            buy_button = Button(
-                style=3 if can_afford else 2,
-                label="✅ BUY NOW" if can_afford else "❌ NEED MORE GEMS",
-                custom_id=f"buy_item_{item_id}",
-                emoji="💳",
-                disabled=not can_afford
-            )
-            
-            back_button = Button(style=2, label="⬅️ BACK TO ITEMS", custom_id="back_to_items", emoji="⬅️")
-            shop_button = Button(style=1, label="🛒 MAIN SHOP", custom_id="main_shop", emoji="🛒")
-            
-            return embed, [[buy_button], [back_button, shop_button]]
-            
-        except Exception as e:
-            print(f"❌ Error showing item details: {e}")
-            return None, None
-
-# === CREATE SHOP UI INSTANCE ===
-if COMPONENTS_AVAILABLE:
-    visual_shop = VisualShopUI(bot, db, shop_system)
-    print("✅ VisualShopUI instance created")
-else:
-    print("❌ discord-components not available, shop will use commands")
-    visual_shop = None
-
-# === BUTTON INTERACTION HANDLER ===
-@bot.event
-async def on_button_click(interaction):
-    """Handle button clicks"""
-    try:
-        user = interaction.user
-        custom_id = interaction.custom_id
-        
-        # Defer response
-        await interaction.respond(type=6)  # Defer
-        
-        if custom_id == "browse_items":
-            embed, components = await visual_shop.show_shop_items(user)
-            if embed and components:
-                await interaction.send(embed=embed, components=components)
-        
-        elif custom_id.startswith("view_item_"):
-            item_id = int(custom_id.split("_")[-1])
-            embed, components = await visual_shop.show_item_details(user, item_id)
-            if embed and components:
-                await interaction.send(embed=embed, components=components)
-        
-        elif custom_id.startswith("buy_item_"):
-            item_id = int(custom_id.split("_")[-1])
-            result = await shop_system.process_purchase(user, item_id, user.guild)
-            
-            if result["success"]:
-                embed = discord.Embed(
-                    title="✅ **PURCHASE SUCCESSFUL!**",
-                    description=f"**{result['item']['name']}** purchased!\n{result['message']}",
-                    color=discord.Color.green()
-                )
-                await interaction.send(embed=embed)
-            else:
-                embed = discord.Embed(
-                    title="❌ **PURCHASE FAILED**",
-                    description=result.get("message", "Unknown error"),
-                    color=discord.Color.red()
-                )
-                await interaction.send(embed=embed)
-        
-        elif custom_id == "check_balance":
-            balance = await db.get_balance(str(user.id))
-            embed = discord.Embed(
-                title="💰 **YOUR BALANCE**",
-                description=f"💎 **{balance['gems']:,} gems**\nTotal earned: **{balance['total_earned']:,}**",
-                color=discord.Color.gold()
-            )
-            await interaction.send(embed=embed)
-        
-        elif custom_id == "daily_reward":
-            embed = discord.Embed(
-                title="🎰 **DAILY REWARD**",
-                description="Use `!!currency daily` to claim your daily reward!",
-                color=discord.Color.blue()
-            )
-            await interaction.send(embed=embed)
-        
-        elif custom_id == "shop_help":
-            embed = discord.Embed(
-                title="❓ **SHOP HELP**",
-                description=(
-                    "**How to use the shop:**\n\n"
-                    "📦 **Browse Items** - View all items\n"
-                    "💰 **My Balance** - Check your gems\n"
-                    "📜 **History** - View purchases\n"
-                    "🎰 **Daily** - Claim daily reward\n\n"
-                    "**To buy:** Click an item, then click BUY!"
-                ),
-                color=discord.Color.blue()
-            )
-            await interaction.send(embed=embed)
-        
-        elif custom_id in ["back_to_shop", "main_shop"]:
-            # Recreate main shop
-            channel = interaction.channel
-            embed = discord.Embed(
-                title="🛒 **BACK TO SHOP** 🛒",
-                description="Welcome back to the gem shop!",
-                color=discord.Color.gold()
-            )
-            
-            buttons = [
-                Button(style=3, label="📦 BROWSE ITEMS", custom_id="browse_items", emoji="📦"),
-                Button(style=2, label="💰 MY BALANCE", custom_id="check_balance", emoji="💰"),
-                Button(style=1, label="🎰 DAILY", custom_id="daily_reward", emoji="🎰"),
-                Button(style=2, label="❓ HELP", custom_id="shop_help", emoji="❓")
-            ]
-            
-            await interaction.send(embed=embed, components=[buttons])
-        
-        elif custom_id == "back_to_items":
-            embed, components = await visual_shop.show_shop_items(user)
-            if embed and components:
-                await interaction.send(embed=embed, components=components)
-    
-    except Exception as e:
-        print(f"Button click error: {e}")
-        await interaction.send("❌ An error occurred. Please try again.")
-
+# --- 2. Store user selections ---
+user_selections = {}
 
 # --- 3. ANNOUNCEMENT SYSTEM CLASS ---
 class AnnouncementSystem:
@@ -1109,7 +422,1004 @@ class AnnouncementSystem:
 # --- 4. Create announcement system AFTER bot is defined ---
 announcements = AnnouncementSystem()
 
-# --- 5. ANNOUNCEMENT COMMANDS ---
+# --- MESSAGE SENDING SYSTEM ---
+@bot.group(name="say", invoke_without_command=True)
+@commands.has_permissions(manage_messages=True)
+async def say_group(ctx):
+    """Send messages through the bot"""
+    embed = discord.Embed(
+        title="💬 Message Sending System",
+        description=(
+            "**Commands:**\n"
+            "• `!!say <message>` - Send message in current channel\n"
+            "• `!!say #channel <message>` - Send to specific channel\n"
+            "• `!!say embed #channel <title> | <description>` - Send embed\n"
+            "• `!!say reply <message_id> <message>` - Reply to a message\n"
+            "• `!!say dm @user <message>` - Send DM to user\n"
+        ),
+        color=0x5865F2
+    )
+    await ctx.send(embed=embed)
+
+# --- FIXED SAY COMMAND ---
+@say_group.command(name="send")
+@commands.has_permissions(manage_messages=True)
+async def say_send(ctx, target: Optional[discord.TextChannel] = None, *, message: str = None):
+    """
+    Send a message to any channel
+    Usage: !!say #channel Hello everyone!
+           !!say Hello (sends in current channel)
+    """
+    # If no channel provided, send in current channel
+    if target is None:
+        # The entire content is the message
+        message = ctx.message.content[len(ctx.prefix + ctx.command.name) + 1:]
+        target_channel = ctx.channel
+    else:
+        # Channel was provided, message is already set
+        target_channel = target
+
+    if not message or message.strip() == "":
+        await ctx.send("❌ Please provide a message!")
+        return
+
+    try:
+        # Send the message
+        sent_message = await target_channel.send(message)
+
+        # Send confirmation
+        if target_channel != ctx.channel:
+            confirm_embed = discord.Embed(
+                description=f"✅ **Message sent to {target_channel.mention}**\n[Jump to message]({sent_message.jump_url})",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=confirm_embed, delete_after=10)
+        else:
+            # If sending in same channel, just delete command
+            await ctx.message.delete(delay=2)
+
+        # Log
+        print(f"[SAY] {ctx.author} sent message to #{target_channel.name}: {message[:50]}...")
+
+    except Exception as e:
+        await ctx.send(f"❌ Failed to send message: {str(e)[:100]}")
+
+# Alternative simpler version:
+@bot.command(name="sendto")
+@commands.has_permissions(manage_messages=True)
+async def send_to(ctx, channel: discord.TextChannel, *, message: str):
+    """
+    Send message to specific channel
+    Usage: !!sendto #channel Your message here
+    """
+    try:
+        sent_message = await channel.send(message)
+
+        confirm_embed = discord.Embed(
+            description=f"✅ **Message sent to {channel.mention}**\n[Jump to message]({sent_message.jump_url})",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=confirm_embed, delete_after=10)
+        await ctx.message.delete(delay=2)
+
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
+
+@bot.command(name="sendhere")
+@commands.has_permissions(manage_messages=True)
+async def send_here(ctx, *, message: str):
+    """
+    Send message in current channel
+    Usage: !!sendhere Your message here
+    """
+    try:
+        await ctx.send(message)
+        await ctx.message.delete(delay=2)
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
+
+# END SEND MESSAGES COMMAND --------
+
+# --- QUIZ SYSTEM CLASS ---
+class QuizSystem:
+    def __init__(self, bot):
+        print("=== QuizSystem.__init__ called ===")
+        
+        self.bot = bot
+        self.currency = currency_system  # Use the SHARED currency system
+        self.quiz_questions = []
+        self.current_question = 0
+        self.participants = {}
+        self.question_timer = None
+        self.quiz_channel = None
+        self.quiz_logs_channel = None
+        self.quiz_running = False
+        self.question_start_time = None
+        
+        print(f"✓ Using shared CurrencySystem instance")
+        print(f"  currency attribute: {hasattr(self, 'currency')}")
+        
+        # Load 20 questions
+        self.load_questions()
+    
+    def load_questions(self):
+        """Load 20 quiz questions with open-ended answers"""
+        self.quiz_questions = [
+            {
+                "question": "What is the capital city of France?",
+                "correct_answers": ["paris"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "Which planet is known as the Red Planet?",
+                "correct_answers": ["mars", "planet mars"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the chemical symbol for gold?",
+                "correct_answers": ["au"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "Who painted the Mona Lisa?",
+                "correct_answers": ["leonardo da vinci", "da vinci", "leonardo"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the largest mammal in the world?",
+                "correct_answers": ["blue whale", "whale"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "How many continents are there on Earth?",
+                "correct_answers": ["7", "seven"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "What is H2O commonly known as?",
+                "correct_answers": ["water", "h2o"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "Who wrote the play 'Romeo and Juliet'?",
+                "correct_answers": ["william shakespeare", "shakespeare"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the fastest land animal?",
+                "correct_answers": ["cheetah"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "Which country gifted the Statue of Liberty to the USA?",
+                "correct_answers": ["france"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "How many sides does a hexagon have?",
+                "correct_answers": ["6", "six"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "What is the hardest natural substance on Earth?",
+                "correct_answers": ["diamond"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "Which gas do plants absorb from the atmosphere?",
+                "correct_answers": ["carbon dioxide", "co2"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the smallest country in the world?",
+                "correct_answers": ["vatican city", "vatican"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "Which planet has the most moons?",
+                "correct_answers": ["saturn"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the capital of Japan?",
+                "correct_answers": ["tokyo"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "How many players are on a basketball team?",
+                "correct_answers": ["5", "five"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "What is the main ingredient in guacamole?",
+                "correct_answers": ["avocado"],
+                "points": 200,
+                "time_limit": 45
+            },
+            {
+                "question": "Which year did World War II end?",
+                "correct_answers": ["1945"],
+                "points": 300,
+                "time_limit": 60
+            },
+            {
+                "question": "What is the currency of Japan?",
+                "correct_answers": ["yen"],
+                "points": 300,
+                "time_limit": 60
+            }
+        ]
+    
+    def calculate_points(self, answer_time, total_time, max_points):
+        """Calculate points based on answer speed"""
+        time_left = total_time - answer_time
+        if time_left <= 0:
+            return 0
+        percentage = time_left / total_time
+        return int(max_points * percentage)
+    
+    async def start_quiz(self, channel, logs_channel):
+        """Start a new quiz in specified channel"""
+        self.quiz_channel = channel
+        self.quiz_logs_channel = logs_channel
+        self.quiz_running = True
+        self.current_question = 0
+        self.participants = {}
+        
+        # Shuffle questions
+        random.shuffle(self.quiz_questions)
+        
+        # Send quiz start message
+        embed = discord.Embed(
+            title="🎯 **QUIZ STARTING!**",
+            description=(
+                "**Open-Ended Quiz**\n"
+                "Think carefully and type your answers!\n\n"
+                "**Rules:**\n"
+                "• Type your answer exactly\n"
+                "• Spelling matters!\n"
+                "• Faster answers = more points!\n"
+                "• You can answer multiple times!\n"
+                "• Max points: 300 per question\n\n"
+                f"First question starts in **5 seconds**!"
+            ),
+            color=discord.Color.gold()
+        )
+        start_msg = await channel.send(embed=embed)
+        
+        # Start countdown
+        for i in range(5, 0, -1):
+            await start_msg.edit(content=f"⏰ **{i}...**")
+            await asyncio.sleep(1)
+        
+        await start_msg.delete()
+        
+        # Start first question
+        await self.send_question()
+    
+    async def send_question(self):
+        """Send current question with countdown bar"""
+        if self.current_question >= len(self.quiz_questions):
+            await self.end_quiz()
+            return
+        
+        question = self.quiz_questions[self.current_question]
+        self.question_start_time = datetime.now(timezone.utc)  # FIXED
+        
+        # Initial progress bar (full)
+        progress_bar = "🟩" * 20
+        
+        # Create question embed
+        embed = discord.Embed(
+            title=f"❓ **Question {self.current_question + 1}/{len(self.quiz_questions)}**",
+            description=question["question"],
+            color=discord.Color.blue()
+        )
+        
+        # Add countdown bar field
+        embed.add_field(
+            name=f"⏰ **{question['time_limit']:02d} SECONDS LEFT**",
+            value=f"```\n{progress_bar}\n{question['time_limit']:02d} seconds\n```\n"
+                  f"**Max Points:** {question['points']} ⭐",
+            inline=False
+        )
+        
+        embed.set_footer(text="Type your answer in the chat (multiple attempts allowed)")
+        
+        # Send question
+        self.question_message = await self.quiz_channel.send(embed=embed)
+        
+        # Start the live countdown
+        self.countdown_task.start(question["time_limit"])
+        
+        # Start question timer (for auto-ending)
+        self.start_question_timer(question["time_limit"])
+    
+    @tasks.loop(seconds=1)
+    async def countdown_task(self, total_time):
+        """Update live countdown bar every second"""
+        if not self.quiz_running:
+            self.countdown_task.stop()
+            return
+        
+        try:
+            elapsed = (datetime.now(timezone.utc) - self.question_start_time).seconds
+            time_left = total_time - elapsed
+            
+            if time_left <= 0:
+                self.countdown_task.stop()
+                return
+            
+            # Create progress bar
+            progress = int((time_left / total_time) * 20)
+            progress_bar = "🟩" * progress + "⬜" * (20 - progress)
+            
+            # Update embed
+            embed = self.question_message.embeds[0]
+            
+            # Find and update the time field
+            for i, field in enumerate(embed.fields):
+                if "⏰" in field.name:
+                    embed.set_field_at(
+                        i,
+                        name=f"⏰ **{time_left:02d} SECONDS LEFT**",
+                        value=f"```\n{progress_bar}\n{time_left:02d} seconds\n```\n"
+                              f"**Max Points:** {self.quiz_questions[self.current_question]['points']} ⭐",
+                        inline=False
+                    )
+                    break
+            
+            # Change embed color based on time
+            if time_left <= 10:
+                embed.color = discord.Color.red()
+            elif time_left <= 30:
+                embed.color = discord.Color.orange()
+            else:
+                embed.color = discord.Color.blue()
+            
+            await self.question_message.edit(embed=embed)
+            
+        except Exception as e:
+            print(f"Countdown error: {e}")
+            self.countdown_task.stop()
+    
+    def start_question_timer(self, time_limit):
+        """Start timer for current question"""
+        async def timer():
+            await asyncio.sleep(time_limit)
+            await self.end_question()
+        
+        if self.question_timer:
+            self.question_timer.cancel()
+        
+        self.question_timer = asyncio.create_task(timer())
+    
+    async def process_answer(self, user, answer_text):
+        """Process user's answer - allow multiple attempts"""
+        if not self.quiz_running:
+            return False
+        
+        question = self.quiz_questions[self.current_question]
+        answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
+        
+        # Check if time's up
+        if answer_time > question["time_limit"]:
+            return False
+        
+        # Initialize user in participants if not exists
+        user_id = str(user.id)
+        if user_id not in self.participants:
+            self.participants[user_id] = {
+                "name": user.display_name,
+                "score": 0,
+                "answers": [],
+                "total_time": 0,
+                "correct_answers": 0,
+                "answered_current": False
+            }
+        
+        # Check if user already got this question right
+        if self.participants[user_id]["answered_current"]:
+            return False
+        
+        # Check if answer is correct (case-insensitive, trim spaces)
+        user_answer = answer_text.lower().strip()
+        is_correct = any(correct_answer == user_answer 
+                        for correct_answer in question["correct_answers"])
+        
+        # Calculate points (only if correct)
+        points = 0
+        if is_correct:
+            points = self.calculate_points(
+                answer_time,
+                question["time_limit"],
+                question["points"]
+            )
+            self.participants[user_id]["score"] += points
+            self.participants[user_id]["correct_answers"] += 1
+            self.participants[user_id]["answered_current"] = True
+        
+        # Record ALL attempts (both correct and incorrect)
+        self.participants[user_id]["answers"].append({
+            "question": self.current_question,
+            "question_text": question["question"][:100],
+            "answer": answer_text,
+            "correct": is_correct,
+            "points": points,
+            "time": answer_time
+        })
+        
+        # Log to quiz logs ONLY if correct
+        if is_correct:
+            await self.log_answer(user, question["question"], answer_text, points, answer_time)
+        
+        return True
+    
+    async def log_answer(self, user, question, answer, points, time):
+        """Log ONLY correct answers to quiz logs channel"""
+        if not self.quiz_logs_channel:
+            return
+        
+        embed = discord.Embed(
+            title="✅ **Correct Answer Logged**",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        embed.add_field(name="👤 User", value=user.mention, inline=True)
+        embed.add_field(name="📋 Question", value=question[:100], inline=False)
+        embed.add_field(name="✏️ Answer", value=answer[:50], inline=True)
+        embed.add_field(name="⭐ Points", value=str(points), inline=True)
+        embed.add_field(name="⏱️ Time", value=f"{time}s", inline=True)
+        embed.add_field(name="Question #", value=str(self.current_question + 1), inline=True)
+        
+        await self.quiz_logs_channel.send(embed=embed)
+    
+    async def end_question(self):
+        """End current question and show live leaderboard"""
+        self.countdown_task.stop()
+        
+        question = self.quiz_questions[self.current_question]
+        
+        # Show correct answer(s)
+        correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
+        
+        embed = discord.Embed(
+            title=f"✅ **Question {self.current_question + 1} Complete**",
+            description=f"**Correct answer(s):** {correct_answers}",
+            color=discord.Color.green()
+        )
+        
+        # Show statistics for this question
+        total_participants = len([p for p in self.participants.values()])
+        total_answered = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
+        correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
+        
+        # Find fastest correct answer
+        fastest_time = None
+        fastest_user = None
+        for user_id, data in self.participants.items():
+            for answer in data["answers"]:
+                if answer["question"] == self.current_question and answer["correct"]:
+                    if fastest_time is None or answer["time"] < fastest_time:
+                        fastest_time = answer["time"]
+                        fastest_user = data["name"]
+        
+        embed.add_field(
+            name="📊 **Question Statistics**",
+            value=f"**Total Participants:** {total_participants}\n"
+                  f"**Attempted This Q:** {total_answered}\n"
+                  f"**Got It Right:** {correct_count}\n"
+                  f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
+                  + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
+            inline=False
+        )
+        
+        await self.quiz_channel.send(embed=embed)
+        
+        # Wait 3 seconds
+        await asyncio.sleep(3)
+        
+        # SHOW LIVE LEADERBOARD WITH ALL USERS
+        leaderboard_embed = await self.create_live_leaderboard()
+        leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
+        
+        # Countdown to next question with leaderboard showing
+        countdown_seconds = 5
+        for i in range(countdown_seconds, 0, -1):
+            # Update leaderboard countdown
+            updated_embed = await self.create_live_leaderboard(countdown=i)
+            await leaderboard_message.edit(embed=updated_embed)
+            await asyncio.sleep(1)
+        
+        await leaderboard_message.delete()
+        
+        # Reset answered_current for all users for next question
+        for user_id in self.participants:
+            self.participants[user_id]["answered_current"] = False
+        
+        # Move to next question
+        self.current_question += 1
+        await self.send_question()
+    
+    async def create_live_leaderboard(self, countdown=None):
+        """Create a live leaderboard embed showing all participants"""
+        if not self.participants:
+            embed = discord.Embed(
+                title="📊 **Current Leaderboard**",
+                description="No participants yet!",
+                color=discord.Color.blue()
+            )
+            return embed
+        
+        # Sort by score (highest first)
+        sorted_participants = sorted(
+            self.participants.items(),
+            key=lambda x: x[1]["score"],
+            reverse=True
+        )
+        
+        # Calculate statistics
+        total_questions = self.current_question + 1
+        max_possible = total_questions * 300
+        
+        embed = discord.Embed(
+            title="📊 **LIVE LEADERBOARD**",
+            color=discord.Color.gold()
+        )
+        
+        # Add countdown if provided
+        if countdown:
+            embed.description = f"**Next question in:** {countdown} seconds\n"
+        
+        # Show question progress
+        embed.add_field(
+            name="📈 **Progress**",
+            value=f"**Question:** {self.current_question + 1}/{len(self.quiz_questions)}\n"
+                  f"**Max Possible:** {max_possible} points",
+            inline=False
+        )
+        
+        # Create leaderboard entries
+        leaderboard_lines = []
+        for i, (user_id, data) in enumerate(sorted_participants):
+            # Check user status for current question
+            q_status = "⏳ Not attempted"
+            current_q_points = 0
+            attempts_count = 0
+            
+            # Count attempts for current question
+            for answer in data["answers"]:
+                if answer["question"] == self.current_question:
+                    attempts_count += 1
+                    if answer["correct"]:
+                        q_status = f"✅ +{answer['points']} pts ({answer['time']}s)"
+                        current_q_points = answer['points']
+                        break
+                    else:
+                        q_status = f"❌ Wrong ({attempts_count} attempt{'s' if attempts_count > 1 else ''})"
+            
+            # Format line with emoji based on rank
+            rank_emoji = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            emoji = rank_emoji[i] if i < len(rank_emoji) else f"{i+1}."
+            
+            leaderboard_lines.append(
+                f"{emoji} **{data['name']}**\n"
+                f"   Total: **{data['score']}** pts | This Q: {q_status}"
+            )
+        
+        # Split leaderboard into chunks (10 per field)
+        for i in range(0, len(leaderboard_lines), 10):
+            chunk = leaderboard_lines[i:i + 10]
+            embed.add_field(
+                name=f"**Rank {i+1}-{i+len(chunk)}**" if i > 0 else "**🏆 TOP 10**",
+                value="\n".join(chunk),
+                inline=False
+            )
+        
+        # Add statistics
+        total_participants = len(self.participants)
+        attempted_this_q = len([p for p in self.participants.values() 
+                               if any(a["question"] == self.current_question for a in p["answers"])])
+        correct_this_q = len([p for p in self.participants.values() if p.get("answered_current", False)])
+        
+        embed.add_field(
+            name="📊 **Statistics**",
+            value=f"**Participants:** {total_participants}\n"
+                  f"**Attempted Q{self.current_question + 1}:** {attempted_this_q}/{total_participants}\n"
+                  f"**Correct Q{self.current_question + 1}:** {correct_this_q}/{total_participants}",
+            inline=True
+        )
+        
+        embed.set_footer(text=f"Question {self.current_question + 1} of {len(self.quiz_questions)} | Multiple attempts allowed")
+        
+        return embed
+    
+    async def end_quiz(self):
+        """End the entire quiz with improved leaderboard"""
+        self.quiz_running = False
+        self.countdown_task.stop()
+        
+        if self.question_timer:
+            self.question_timer.cancel()
+        
+        # Sort participants by score
+        sorted_participants = sorted(
+            self.participants.items(),
+            key=lambda x: x[1]["score"],
+            reverse=True
+        )
+        
+        # First, send a congratulations embed
+        embed = discord.Embed(
+            title="🏆 **QUIZ FINISHED!** 🏆",
+            description="Congratulations to all participants!\nHere are the final results:",
+            color=discord.Color.gold(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        # Add quiz statistics
+        total_questions = len(self.quiz_questions)
+        total_correct = sum(p['correct_answers'] for p in self.participants.values())
+        total_attempts = sum(len(p['answers']) for p in self.participants.values())
+        total_participants = len(self.participants)
+        
+        embed.add_field(
+            name="📊 **Quiz Statistics**",
+            value=(
+                f"**• Participants:** {total_participants}\n"
+                f"**• Questions:** {total_questions}\n"
+                f"**• Total Attempts:** {total_attempts}\n"
+                f"**• Correct Answers:** {total_correct}\n"
+                f"**• Overall Accuracy:** {round(total_correct/total_attempts*100 if total_attempts > 0 else 0, 1)}%\n"
+                f"**• Max Possible:** {total_questions * 300} pts"
+            ),
+            inline=False
+        )
+        
+        await self.quiz_channel.send(embed=embed)
+        
+        # Wait 2 seconds
+        await asyncio.sleep(2)
+        
+        # Send TOP 3 WINNERS with avatars
+        if len(sorted_participants) >= 3:
+            # Get top 3 users
+            top3_embed = discord.Embed(
+                title="🎉 **TOP 3 WINNERS** 🎉",
+                color=discord.Color.nitro_pink()
+            )
+            
+            # Fetch user objects for top 3
+            top3_users = []
+            for i in range(min(3, len(sorted_participants))):
+                user_id = int(sorted_participants[i][0])
+                user_data = sorted_participants[i][1]
+                
+                try:
+                    user = await self.bot.fetch_user(user_id)
+                    top3_users.append((user, user_data))
+                except:
+                    # Fallback if can't fetch user
+                    top3_users.append((None, user_data))
+            
+            # Define medals and colors
+            medals = ["🥇", "🥈", "🥉"]
+            colors = [0xFFD700, 0xC0C0C0, 0xCD7F32]  # Gold, Silver, Bronze
+            
+            # Create top 3 display
+            top3_text = ""
+            for i, (user, data) in enumerate(top3_users):
+                medal = medals[i]
+                
+                # Calculate accuracy
+                user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
+                
+                # Format user mention or name
+                user_display = user.mention if user else f"**{data['name']}**"
+                
+                top3_text += (
+                    f"{medal} **{user_display}**\n"
+                    f"   ⭐ **{data['score']}** points\n"
+                    f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n"
+                    f"   ⏱️ Avg time per correct answer: {self.calculate_average_time(data):.1f}s\n\n"
+                )
+            
+            top3_embed.description = top3_text
+            top3_embed.color = colors[0]  # Gold color for winner
+            
+            # Set winner's avatar as thumbnail
+            if top3_users[0][0] and top3_users[0][0].avatar:
+                top3_embed.set_thumbnail(url=top3_users[0][0].avatar.url)
+            
+            await self.quiz_channel.send(embed=top3_embed)
+        
+        # Wait 2 seconds
+        await asyncio.sleep(2)
+        
+        # Send FULL LEADERBOARD with pagination if many participants
+        if sorted_participants:
+            # Create main leaderboard embed
+            leaderboard_embed = discord.Embed(
+                title="📋 **FINAL LEADERBOARD**",
+                description="All participants ranked by score:",
+                color=discord.Color.blue(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            # Split participants into chunks of 15 for readability
+            chunk_size = 15
+            chunks = [sorted_participants[i:i + chunk_size] 
+                     for i in range(0, len(sorted_participants), chunk_size)]
+            
+            for chunk_idx, chunk in enumerate(chunks):
+                leaderboard_text = ""
+                
+                for rank, (user_id, data) in enumerate(chunk, start=chunk_idx * chunk_size + 1):
+                    # Get rank emoji
+                    rank_emoji = self.get_rank_emoji(rank)
+                    
+                    # Try to fetch user for avatar in field
+                    try:
+                        user = await self.bot.fetch_user(int(user_id))
+                        user_display = user.display_name
+                    except:
+                        user_display = data['name']
+                    
+                    # Calculate user stats
+                    user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
+                    avg_time = self.calculate_average_time(data)
+                    
+                    leaderboard_text += (
+                        f"{rank_emoji} **{user_display}**\n"
+                        f"   ⭐ {data['score']} pts | 📊 {data['correct_answers']}/{total_questions} ({user_accuracy}%)\n"
+                        f"   ⏱️ Avg: {avg_time:.1f}s | 📈 Rank: #{rank}\n"
+                    )
+                    
+                    # Add separator between entries
+                    if rank < len(chunk) + chunk_idx * chunk_size:
+                        leaderboard_text += "━━━━━━━━━━━━━━━━━━━━\n"
+                
+                # Add chunk as a field
+                field_name = f"🏆 **Rank {chunk_idx * chunk_size + 1}-{chunk_idx * chunk_size + len(chunk)}**"
+                if chunk_idx == 0:
+                    field_name = "🏆 **TOP CONTENDERS**"
+                
+                leaderboard_embed.add_field(
+                    name=field_name,
+                    value=leaderboard_text if leaderboard_text else "No participants",
+                    inline=False
+                )
+            
+            # Add footer with quiz completion time
+            leaderboard_embed.set_footer(
+                text=f"Quiz completed • {total_participants} participants",
+                icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None
+            )
+            
+            await self.quiz_channel.send(embed=leaderboard_embed)
+
+        # DISTRIBUTE REWARDS
+        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+
+        # Send rewards summary
+        rewards_embed = discord.Embed(
+            title="💰 **Quiz Rewards Distributed!**",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        # Show top 3 with rewards
+        top_3 = []
+        for i, (user_id, data) in enumerate(sorted_participants[:3]):
+            reward = rewards_distributed.get(user_id, {})
+            gems = reward.get("gems", 0)
+
+            medal = ["🥇", "🥈", "🥉"][i]
+            top_3.append(
+                f"{medal} **{data['name']}** - {data['score']} pts\n"
+                f"   Reward: 💎 {gems} gems"
+            )
+        
+        if top_3:
+            rewards_embed.add_field(
+                name="🏆 **TOP 3 WINNERS**",
+                value="\n".join(top_3),
+                inline=False
+            )
+        
+        # Show participation rewards
+        if len(sorted_participants) > 3:
+            rewards_embed.add_field(
+                name="🎁 **Participation Rewards**",
+                value=f"All {len(sorted_participants)} participants received:\n"
+                      f"• 💎 50 gems for joining\n"
+                      f"• +10 gems per 100 points scored\n"
+                      f"• Speed bonuses for fast answers!",
+                inline=False
+            )
+
+        await self.quiz_channel.send(embed=rewards_embed)
+        
+        # Send individual DMs with rewards
+        for user_id, data in self.participants.items():
+            reward = rewards_distributed.get(user_id, {})
+            if reward:
+                user_obj = self.bot.get_user(int(user_id))
+                if user_obj:
+                    try:
+                        dm_embed = discord.Embed(
+                            title="🎁 **Quiz Rewards Claimed!**",
+                            description=f"**Quiz Results:**\n"
+                                      f"Final Score: **{data['score']}** points\n"
+                                      f"Rank: **#{list(self.participants.keys()).index(user_id) + 1}**",
+                            color=discord.Color.gold()
+                        )
+                        
+                        dm_embed.add_field(
+                            name="💰 **Rewards Earned**",
+                            value=f"💎 **{reward['gems']} Gems**",
+                            inline=False
+                        )
+                        
+                        balance = self.currency.get_balance(user_id)
+                        dm_embed.add_field(
+                            name="📊 **New Balance**",
+                            value=f"💎 Total Gems: **{balance['gems']}**",
+                            inline=False
+                        )
+                        
+                        dm_embed.set_footer(text="Use !!currency to check your gems!")
+                        await user_obj.send(embed=dm_embed)
+                    except:
+                        pass  # User has DMs disabled
+        
+        # Wait 2 seconds
+        await asyncio.sleep(2)
+        
+        # Final message
+        final_embed = discord.Embed(
+            description="🎉 **Thank you for participating!** 🎉\n\nUse `!!quiz start` to play again!",
+            color=discord.Color.green()
+        )
+        final_embed.set_footer(text="Quiz System • Powered by 558 Discord Server")
+        
+        await self.quiz_channel.send(embed=final_embed)
+        
+        # Reset for next quiz
+        self.quiz_channel = None
+        self.quiz_logs_channel = None
+        self.current_question = 0
+        self.participants = {}
+    
+    def calculate_average_time(self, user_data):
+        """Calculate average time for correct answers"""
+        correct_times = [a['time'] for a in user_data['answers'] if a['correct']]
+        if not correct_times:
+            return 0
+        return sum(correct_times) / len(correct_times)
+    
+    def get_rank_emoji(self, rank):
+        """Get appropriate emoji for rank position"""
+        rank_emojis = {
+            1: "🥇",
+            2: "🥈", 
+            3: "🥉",
+            4: "4️⃣",
+            5: "5️⃣",
+            6: "6️⃣",
+            7: "7️⃣",
+            8: "8️⃣",
+            9: "9️⃣",
+            10: "🔟"
+        }
+        return rank_emojis.get(rank, f"{rank}.")
+    
+    async def distribute_quiz_rewards(self, sorted_participants):
+        """Distribute gems based on quiz performance"""
+        rewards = {}
+        total_participants = len(sorted_participants)
+        
+        for rank, (user_id, data) in enumerate(sorted_participants, 1):
+            base_gems = 50  # Participation reward
+            
+            # Rank-based bonuses
+            if rank == 1:  # 1st place
+                base_gems += 500
+            elif rank == 2:  # 2nd place
+                base_gems += 250
+            elif rank == 3:  # 3rd place
+                base_gems += 125
+            elif rank <= 10:  # Top 10
+                base_gems += 75
+            
+            # Score-based bonus: 10 gems per 100 points
+            score_bonus = (data["score"] // 100) * 10
+            base_gems += score_bonus
+            
+            # Perfect score bonus
+            max_score = len(self.quiz_questions) * 300
+            if data["score"] == max_score:
+                base_gems += 250
+                reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+            else:
+                reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+            
+            # Speed bonus for fast answers
+            speed_bonus = self.calculate_speed_bonus(user_id)
+            if speed_bonus:
+                base_gems += speed_bonus
+                reason += f" + ⚡{speed_bonus} speed bonus"
+            
+            # Add gems using the SHARED currency system
+            transaction = self.currency.add_gems(
+                user_id=user_id,
+                gems=base_gems,
+                reason=reason
+            )
+            
+            rewards[user_id] = {
+                "gems": base_gems,
+                "rank": rank
+            }
+            
+            # Log reward distribution
+            await self.log_reward(user_id, data["name"], base_gems, rank)
+        
+        return rewards
+    
+    def calculate_speed_bonus(self, user_id):
+        """Calculate speed bonus for fast answers"""
+        if user_id not in self.participants:
+            return 0
+        
+        speed_bonus = 0
+        for answer in self.participants[user_id]["answers"]:
+            if answer["correct"] and answer["time"] < 10:
+                # Bonus gems for answering under 10 seconds
+                speed_bonus += max(1, 10 - answer["time"])
+        
+        return min(speed_bonus, 50)  # Cap at 50 gems
+    
+    async def log_reward(self, user_id, username, gems, rank):
+        """Log reward distribution"""
+        if not self.quiz_logs_channel:
+            return
+        
+        embed = discord.Embed(
+            title="💰 **Gems Distributed**",
+            color=discord.Color.gold(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        embed.add_field(name="👤 User", value=username, inline=True)
+        embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
+        embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
+        embed.add_field(name="📊 Total", value=f"{gems} gems", inline=True)
+        
+        await self.quiz_logs_channel.send(embed=embed)
+
+# === CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
+quiz_system = QuizSystem(bot)
+
+# --- ANNOUNCEMENT COMMANDS ---
 @bot.group(name="announce", invoke_without_command=True)
 @commands.has_permissions(manage_messages=True)
 async def announce_group(ctx):
@@ -1238,495 +1548,6 @@ async def announce_urgent(ctx, *, message: str):
     await ctx.send(f"✅ Urgent announcement sent!", delete_after=5)
     await ctx.message.delete(delay=3)
 
-# --- QUIZ SYSTEM CLASS ---
-class QuizSystem:
-    def __init__(self, bot):
-        print("=== QuizSystem.__init__ called ===")
-        
-        self.bot = bot
-        self.db = db  # Use the shared database system
-        self.quiz_questions = []
-        self.current_question = 0
-        self.participants = {}
-        self.question_timer = None
-        self.quiz_channel = None
-        self.quiz_logs_channel = None
-        self.quiz_running = False
-        self.question_start_time = None
-        
-        print(f"✓ Using shared DatabaseSystem instance")
-        
-        # Load 5 questions
-        self.load_questions()
-    
-    def load_questions(self):
-        """Load 5 quiz questions with open-ended answers"""
-        self.quiz_questions = [
-            {
-                "question": "What is the capital city of France?",
-                "correct_answers": ["paris"],
-                "points": 300,
-                "time_limit": 15
-            },
-            {
-                "question": "Which planet is known as the Red Planet?",
-                "correct_answers": ["mars", "planet mars"],
-                "points": 300,
-                "time_limit": 15
-            },
-            {
-                "question": "What is the chemical symbol for gold?",
-                "correct_answers": ["au"],
-                "points": 200,
-                "time_limit": 15
-            },
-            {
-                "question": "Who painted the Mona Lisa?",
-                "correct_answers": ["leonardo da vinci", "da vinci", "leonardo"],
-                "points": 300,
-                "time_limit": 15
-            },
-            {
-                "question": "What is the largest mammal in the world?",
-                "correct_answers": ["blue whale", "whale"],
-                "points": 300,
-                "time_limit": 15
-            }
-        ]
-        print(f"✅ Loaded {len(self.quiz_questions)} questions for testing")
-
-    def calculate_points(self, answer_time, total_time, max_points):
-        """Calculate points based on answer speed"""
-        time_left = total_time - answer_time
-        if time_left <= 0:
-            return 0
-        percentage = time_left / total_time
-        return int(max_points * percentage)
-    
-    async def start_quiz(self, channel, logs_channel):
-        """Start a new quiz in specified channel"""
-        self.quiz_channel = channel
-        self.quiz_logs_channel = logs_channel
-        self.quiz_running = True
-        self.current_question = 0
-        self.participants = {}
-        
-        # Shuffle questions
-        random.shuffle(self.quiz_questions)
-        
-        # Send quiz start message
-        embed = discord.Embed(
-            title="🎯 **QUIZ STARTING!**",
-            description=(
-                "**Open-Ended Quiz**\n"
-                "Think carefully and type your answers!\n\n"
-                "**Rules:**\n"
-                "• Type your answer exactly\n"
-                "• Spelling matters!\n"
-                "• Faster answers = more points!\n"
-                "• You can answer multiple times!\n"
-                "• Max points: 300 per question\n\n"
-                f"First question starts in **10 seconds**!"
-            ),
-            color=discord.Color.gold()
-        )
-        start_msg = await channel.send(embed=embed)
-        
-        # Start countdown
-        for i in range(10, 0, -1):
-            await start_msg.edit(content=f"⏰ **{i}...**")
-            await asyncio.sleep(1)
-        
-        await start_msg.delete()
-        
-        # Start first question
-        await self.send_question()
-    
-    async def send_question(self):
-        """Send current question with countdown bar"""
-        if self.current_question >= len(self.quiz_questions):
-            await self.end_quiz()
-            return
-        
-        # Double-check we have a valid question
-        if self.current_question < 0 or self.current_question >= len(self.quiz_questions):
-            print(f"❌ Invalid current_question: {self.current_question}")
-            await self.end_quiz()
-            return
-        
-        question = self.quiz_questions[self.current_question]
-        self.question_start_time = datetime.now(timezone.utc)
-        
-        # Initial progress bar (full) - GREEN for full time
-        progress_bar = "🟩" * 20
-        
-        # Create question embed
-        embed = discord.Embed(
-            title=f"❓ **Question {self.current_question + 1}/{len(self.quiz_questions)}**",
-            description=question["question"],
-            color=discord.Color.green()
-        )
-        
-        # Add countdown bar field
-        embed.add_field(
-            name=f"⏰ **{question['time_limit']:02d} SECONDS LEFT**",
-            value=f"```\n{progress_bar}\n{question['time_limit']:02d} seconds\n```\n"
-                  f"**Max Points:** {question['points']} ⭐",
-            inline=False
-        )
-        
-        embed.set_footer(text="Type your answer in the chat (multiple attempts allowed)")
-        
-        # Send question
-        self.question_message = await self.quiz_channel.send(embed=embed)
-        
-        # Start the live countdown
-        self.countdown_task.start(question["time_limit"])
-        
-        # Start question timer (for auto-ending)
-        self.start_question_timer(question["time_limit"])
-    
-    @tasks.loop(seconds=1)
-    async def countdown_task(self, total_time):
-        """Update live countdown bar every second"""
-        if not self.quiz_running:
-            self.countdown_task.stop()
-            return
-        
-        # Check if we have a valid current question
-        if self.current_question < 0 or self.current_question >= len(self.quiz_questions):
-            print(f"❌ Invalid current_question in countdown: {self.current_question}")
-            self.countdown_task.stop()
-            return
-        
-        try:
-            elapsed = (datetime.now(timezone.utc) - self.question_start_time).seconds
-            time_left = total_time - elapsed
-            
-            if time_left <= 0:
-                self.countdown_task.stop()
-                return
-            
-            # Calculate progress percentage
-            progress_percentage = time_left / total_time
-            progress = int(progress_percentage * 20)
-            
-            # Determine bar color based on time left
-            if time_left <= 5:  # Last 5 seconds: RED
-                bar_char = "🟥"  # Red square
-                embed_color = discord.Color.red()
-                time_field_name = f"⏰ **⏳ {time_left:02d} SECONDS LEFT - HURRY!**"
-            elif time_left <= total_time * 0.5:  # Below 50%: ORANGE/YELLOW
-                bar_char = "🟨"  # Yellow square
-                embed_color = discord.Color.orange()
-                time_field_name = f"⏰ **⏳ {time_left:02d} SECONDS LEFT**"
-            else:  # Above 50%: GREEN
-                bar_char = "🟩"  # Green square
-                embed_color = discord.Color.green()
-                time_field_name = f"⏰ **{time_left:02d} SECONDS LEFT**"
-            
-            # Create progress bar with appropriate color
-            progress_bar = bar_char * progress + "⬜" * (20 - progress)
-            
-            # Update embed
-            embed = self.question_message.embeds[0]
-            
-            # Update embed color
-            embed.color = embed_color
-            
-            # Find and update the time field
-            for i, field in enumerate(embed.fields):
-                if "⏰" in field.name:
-                    embed.set_field_at(
-                        i,
-                        name=time_field_name,
-                        value=f"```\n{progress_bar}\n{time_left:02d} seconds\n```\n"
-                              f"**Max Points:** {self.quiz_questions[self.current_question]['points']} ⭐",
-                        inline=False
-                    )
-                    break
-            
-            await self.question_message.edit(embed=embed)
-            
-        except Exception as e:
-            print(f"Countdown error: {e}")
-            self.countdown_task.stop()
-    
-    def start_question_timer(self, time_limit):
-        """Start timer for current question"""
-        async def timer():
-            await asyncio.sleep(time_limit)
-            await self.end_question()
-        
-        if self.question_timer:
-            self.question_timer.cancel()
-        
-        self.question_timer = asyncio.create_task(timer())
-    
-    async def process_answer(self, user, answer_text):
-        """Process user's answer - allow multiple attempts"""
-        if not self.quiz_running:
-            print(f"❌ Quiz not running, ignoring answer from {user.name}")
-            return False
-        
-        # Check if we're between questions or quiz has ended
-        if self.current_question >= len(self.quiz_questions):
-            print(f"❌ Quiz has ended, ignoring answer from {user.name}")
-            return False
-        
-        question = self.quiz_questions[self.current_question]
-        answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
-        
-        # Check if time's up
-        if answer_time > question["time_limit"]:
-            print(f"❌ Time's up for {user.name}, answer ignored")
-            return False
-        
-        # Initialize user in participants if not exists
-        user_id = str(user.id)
-        if user_id not in self.participants:
-            self.participants[user_id] = {
-                "name": user.display_name,
-                "score": 0,
-                "answers": [],
-                "total_time": 0,
-                "correct_answers": 0,
-                "answered_current": False
-            }
-            print(f"✅ New participant added: {user.display_name}")
-        
-        # Check if user already got this question right
-        if self.participants[user_id]["answered_current"]:
-            print(f"⚠️ {user.display_name} already answered this question correctly")
-            return False
-        
-        # Check if answer is correct (case-insensitive, trim spaces)
-        user_answer = answer_text.lower().strip()
-        is_correct = any(correct_answer == user_answer 
-                        for correct_answer in question["correct_answers"])
-        
-        print(f"\n=== ANSWER PROCESSING ===")
-        print(f"User: {user.display_name}")
-        print(f"Answer: {user_answer}")
-        print(f"Correct answers: {question['correct_answers']}")
-        print(f"Is correct: {is_correct}")
-        print(f"Answer time: {answer_time}s")
-        
-        # Calculate points (only if correct)
-        points = 0
-        if is_correct:
-            points = self.calculate_points(
-                answer_time,
-                question["time_limit"],
-                question["points"]
-            )
-            self.participants[user_id]["score"] += points
-            self.participants[user_id]["correct_answers"] += 1
-            self.participants[user_id]["answered_current"] = True
-            print(f"✅ Correct! Points awarded: {points}")
-            print(f"Total score: {self.participants[user_id]['score']}")
-        else:
-            print(f"❌ Incorrect answer")
-        
-        # Record ALL attempts (both correct and incorrect)
-        self.participants[user_id]["answers"].append({
-            "question": self.current_question,
-            "question_text": question["question"][:100],
-            "answer": answer_text,
-            "correct": is_correct,
-            "points": points,
-            "time": answer_time
-        })
-        
-        # Log to quiz logs ONLY if correct
-        if is_correct:
-            await self.log_answer(user, question["question"], answer_text, points, answer_time)
-        
-        return True
-    
-    async def log_answer(self, user, question, answer, points, time):
-        """Log ONLY correct answers to quiz logs channel"""
-        if not self.quiz_logs_channel:
-            return
-        
-        embed = discord.Embed(
-            title="✅ **Correct Answer Logged**",
-            color=discord.Color.green(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        
-        embed.add_field(name="👤 User", value=user.mention, inline=True)
-        embed.add_field(name="📋 Question", value=question[:100], inline=False)
-        embed.add_field(name="✏️ Answer", value=answer[:50], inline=True)
-        embed.add_field(name="⭐ Points", value=str(points), inline=True)
-        embed.add_field(name="⏱️ Time", value=f"{time}s", inline=True)
-        embed.add_field(name="Question #", value=str(self.current_question + 1), inline=True)
-        
-        await self.quiz_logs_channel.send(embed=embed)
-    
-    async def end_question(self):
-        """End current question and show live leaderboard"""
-        self.countdown_task.stop()
-        
-        question = self.quiz_questions[self.current_question]
-        
-        # Show correct answer(s)
-        correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
-        
-        embed = discord.Embed(
-            title=f"✅ **Question {self.current_question + 1} Complete**",
-            description=f"**Correct answer(s):** {correct_answers}",
-            color=discord.Color.green()
-        )
-        
-        # Show statistics for this question
-        total_participants = len([p for p in self.participants.values()])
-        total_answered = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
-        correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
-        
-        # Find fastest correct answer
-        fastest_time = None
-        fastest_user = None
-        for user_id, data in self.participants.items():
-            for answer in data["answers"]:
-                if answer["question"] == self.current_question and answer["correct"]:
-                    if fastest_time is None or answer["time"] < fastest_time:
-                        fastest_time = answer["time"]
-                        fastest_user = data["name"]
-        
-        embed.add_field(
-            name="📊 **Question Statistics**",
-            value=f"**Total Participants:** {total_participants}\n"
-                  f"**Attempted This Q:** {total_answered}\n"
-                  f"**Got It Right:** {correct_count}\n"
-                  f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
-                  + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
-            inline=False
-        )
-        
-        await self.quiz_channel.send(embed=embed)
-        
-        # Wait 2 seconds
-        await asyncio.sleep(2)
-        
-        # SHOW LIVE LEADERBOARD WITH ALL USERS
-        leaderboard_embed = await self.create_live_leaderboard()
-        leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
-        
-        # Countdown to next question with leaderboard showing
-        countdown_seconds = 3
-        for i in range(countdown_seconds, 0, -1):
-            # Update leaderboard countdown
-            updated_embed = await self.create_live_leaderboard(countdown=i)
-            await leaderboard_message.edit(embed=updated_embed)
-            await asyncio.sleep(1)
-        
-        await leaderboard_message.delete()
-        
-        # Reset answered_current for all users for next question
-        for user_id in self.participants:
-            self.participants[user_id]["answered_current"] = False
-        
-        # Move to next question
-        self.current_question += 1
-        await self.send_question()
-    
-    async def create_live_leaderboard(self, countdown=None):
-        """Create a live leaderboard embed showing all participants"""
-        if not self.participants:
-            embed = discord.Embed(
-                title="📊 **Current Leaderboard**",
-                description="No participants yet!",
-                color=discord.Color.blue()
-            )
-            return embed
-        
-        # Sort by score (highest first)
-        sorted_participants = sorted(
-            self.participants.items(),
-            key=lambda x: x[1]["score"],
-            reverse=True
-        )
-        
-        # Calculate statistics
-        total_questions = self.current_question + 1
-        max_possible = total_questions * 300
-        
-        embed = discord.Embed(
-            title="📊 **LIVE LEADERBOARD**",
-            color=discord.Color.gold()
-        )
-        
-        # Add countdown if provided
-        if countdown:
-            embed.description = f"**Next question in:** {countdown} seconds\n"
-        
-        # Show question progress
-        embed.add_field(
-            name="📈 **Progress**",
-            value=f"**Question:** {self.current_question + 1}/{len(self.quiz_questions)}\n"
-                  f"**Max Possible:** {max_possible} points",
-            inline=False
-        )
-        
-        # Create leaderboard entries
-        leaderboard_lines = []
-        for i, (user_id, data) in enumerate(sorted_participants):
-            # Check user status for current question
-            q_status = "⏳ Not attempted"
-            current_q_points = 0
-            attempts_count = 0
-            
-            # Count attempts for current question
-            for answer in data["answers"]:
-                if answer["question"] == self.current_question:
-                    attempts_count += 1
-                    if answer["correct"]:
-                        q_status = f"✅ +{answer['points']} pts ({answer['time']}s)"
-                        current_q_points = answer['points']
-                        break
-                    else:
-                        q_status = f"❌ Wrong ({attempts_count} attempt{'s' if attempts_count > 1 else ''})"
-            
-            # Format line with emoji based on rank
-            rank_emoji = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-            emoji = rank_emoji[i] if i < len(rank_emoji) else f"{i+1}."
-            
-            leaderboard_lines.append(
-                f"{emoji} **{data['name']}**\n"
-                f"   Total: **{data['score']}** pts | This Q: {q_status}"
-            )
-        
-        # Split leaderboard into chunks (10 per field)
-        for i in range(0, len(leaderboard_lines), 10):
-            chunk = leaderboard_lines[i:i + 10]
-            embed.add_field(
-                name=f"**Rank {i+1}-{i+len(chunk)}**" if i > 0 else "**🏆 TOP 10**",
-                value="\n".join(chunk),
-                inline=False
-            )
-        
-        # Add statistics
-        total_participants = len(self.participants)
-        attempted_this_q = len([p for p in self.participants.values() 
-                               if any(a["question"] == self.current_question for a in p["answers"])])
-        correct_this_q = len([p for p in self.participants.values() if p.get("answered_current", False)])
-        
-        embed.add_field(
-            name="📊 **Statistics**",
-            value=f"**Participants:** {total_participants}\n"
-                  f"**Attempted Q{self.current_question + 1}:** {attempted_this_q}/{total_participants}\n"
-                  f"**Correct Q{self.current_question + 1}:** {correct_this_q}/{total_participants}",
-            inline=True
-        )
-        
-        embed.set_footer(text=f"Question {self.current_question + 1} of {len(self.quiz_questions)} | Multiple attempts allowed")
-        
-        return embed
-
-# === CREATE QUIZ SYSTEM WITH SHARED DATABASE ===
-quiz_system = QuizSystem(bot)
-
 # --- QUIZ COMMANDS ---
 @bot.group(name="quiz", invoke_without_command=True)
 @commands.has_permissions(manage_messages=True)
@@ -1800,13 +1621,63 @@ async def quiz_stop(ctx):
     
     await ctx.send("✅ Quiz stopped!")
 
+@quiz_group.command(name="leaderboard")
+async def quiz_leaderboard(ctx):
+    """Show current quiz leaderboard"""
+    if not quiz_system.participants:
+        await ctx.send("❌ No quiz data available!", delete_after=5)
+        return
+    
+    # Create leaderboard embed
+    embed = await quiz_system.create_live_leaderboard()
+    await ctx.send(embed=embed)
+
+@quiz_group.command(name="addq")
+@commands.has_permissions(administrator=True)
+async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
+    """
+    Add a new quiz question
+    Format: !!quiz addq 300 60 Question? | correct answer 1 | correct answer 2
+    Example: !!quiz addq 300 60 Capital of France? | paris
+    """
+    try:
+        parts = question_data.split(" | ")
+        if len(parts) < 2:
+            await ctx.send("❌ Format: `Question? | correct answer 1 | correct answer 2`")
+            return
+        
+        new_question = {
+            "question": parts[0],
+            "correct_answers": [ans.lower().strip() for ans in parts[1:]],
+            "points": points,
+            "time_limit": time_limit
+        }
+        
+        quiz_system.quiz_questions.append(new_question)
+        
+        embed = discord.Embed(
+            title="✅ **Question Added!**",
+            description=new_question["question"],
+            color=discord.Color.green()
+        )
+        
+        embed.add_field(name="✅ Correct Answers", 
+                       value=", ".join(new_question["correct_answers"]))
+        embed.add_field(name="⭐ Points", value=str(points))
+        embed.add_field(name="⏱️ Time Limit", value=f"{time_limit}s")
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {str(e)[:100]}")
+
 # CURRENCY COMMANDS -----
 @bot.group(name="currency", invoke_without_command=True)
 async def currency_group(ctx):
     """Currency and rewards commands"""
-    # Get user balance using SHARED database system
+    # Get user balance using SHARED currency system
     user_id = str(ctx.author.id)
-    balance = await db.get_balance(user_id)
+    balance = currency_system.get_balance(user_id)
     
     embed = discord.Embed(
         title="💰 **Your Gems**",
@@ -1816,7 +1687,7 @@ async def currency_group(ctx):
     )
     
     # Check daily streak
-    user_data = await db.get_user(user_id)
+    user_data = currency_system.get_user(user_id)
     if user_data["daily_streak"] > 0:
         embed.add_field(
             name="🔥 Daily Streak",
@@ -1825,137 +1696,219 @@ async def currency_group(ctx):
         )
     
     # Check next daily
-    can_claim = await db.can_claim_daily(user_id)
-    if can_claim:
+    if currency_system.can_claim_daily(user_id):
         embed.add_field(
             name="🎁 Daily Reward",
             value="Available now!",
             inline=True
         )
-    
-    # Show storage type
-    if db.using_database:
-        embed.set_footer(text="💾 Stored in PostgreSQL Database")
     else:
-        embed.set_footer(text="📄 Stored in JSON File (Fallback)")
+        embed.add_field(
+            name="⏰ Next Daily",
+            value="Check back soon",
+            inline=True
+        )
+    
+    embed.set_footer(text="Earn more by participating in quizzes!")
+    await ctx.send(embed=embed)
+
+@currency_group.command(name="leaderboard")
+async def currency_leaderboard(ctx):
+    """Show gems leaderboard"""
+    leaderboard = currency_system.get_leaderboard(limit=10)
+    
+    embed = discord.Embed(
+        title="🏆 **Gems Leaderboard**",
+        color=discord.Color.gold()
+    )
+    
+    if not leaderboard:
+        embed.description = "No data yet! Join a quiz to earn gems!"
+    else:
+        entries = []
+        for i, user in enumerate(leaderboard, 1):
+            try:
+                user_obj = await bot.fetch_user(int(user["user_id"]))
+                username = user_obj.display_name
+            except:
+                username = f"User {user['user_id'][:8]}"
+            
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+            medal = medals[i-1] if i <= len(medals) else f"{i}."
+            
+            entries.append(f"{medal} **{username}** - 💎 {user['gems']:,}")
+        
+        embed.description = "\n".join(entries)
     
     await ctx.send(embed=embed)
 
-# CURRENCY DAILY---------
+@currency_group.command(name="transfer")
+@commands.cooldown(1, 300, commands.BucketType.user)  # 5 minute cooldown
+async def currency_transfer(ctx, member: discord.Member, amount: int):
+    """Transfer gems to another user"""
+    if amount <= 0:
+        await ctx.send("❌ Amount must be positive!", delete_after=5)
+        return
+    
+    if amount > 1000:
+        await ctx.send("❌ Maximum transfer is 1,000 gems!", delete_after=5)
+        return
+    
+    if member.bot:
+        await ctx.send("❌ You can't transfer gems to bots!", delete_after=5)
+        return
+    
+    sender_id = str(ctx.author.id)
+    receiver_id = str(member.id)
+    
+    if sender_id == receiver_id:
+        await ctx.send("❌ You can't transfer gems to yourself!", delete_after=5)
+        return
+    
+    # Check sender's balance
+    sender_balance = currency_system.get_balance(sender_id)
+    
+    if sender_balance["gems"] < amount:
+        await ctx.send(f"❌ You don't have enough gems! You have {sender_balance['gems']} gems.", delete_after=5)
+        return
+    
+    # Transfer gems (5% tax)
+    tax = max(1, amount // 20)  # 5% tax, minimum 1 gem
+    net_amount = amount - tax
+    
+    # Deduct from sender (full amount)
+    currency_system.deduct_gems(
+        sender_id,
+        gems=amount,
+        reason=f"Transfer to {member.display_name}"
+    )
+    
+    # Add to receiver (after tax)
+    currency_system.add_gems(
+        receiver_id,
+        gems=net_amount,
+        reason=f"Received from {ctx.author.display_name}"
+    )
+    
+    embed = discord.Embed(
+        title="✅ **Transfer Successful!**",
+        description=f"Sent {amount} gems to {member.mention}\n"
+                   f"💰 **Tax:** {tax} gems\n"
+                   f"📥 **Net received:** {net_amount} gems",
+        color=discord.Color.green()
+    )
+    
+    await ctx.send(embed=embed)
+
+@currency_transfer.error
+async def currency_transfer_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        minutes = int(error.retry_after // 60)
+        seconds = int(error.retry_after % 60)
+        await ctx.send(f"⏰ Transfer cooldown! Try again in {minutes}m {seconds}s.", delete_after=5)
+
 @currency_group.command(name="daily")
 async def daily_reward(ctx):
-    """Claim daily reward"""
+    """Claim daily reward (1-100 gems + streak bonus)"""
     user_id = str(ctx.author.id)
     
-    # Check if user can claim daily
-    can_claim = await db.can_claim_daily(user_id)
-    
-    if not can_claim:
-        # Show cooldown message
-        user = await db.get_user(user_id)
+    if not currency_system.can_claim_daily(user_id):
+        # Calculate time until next daily
+        user = currency_system.get_user(user_id)
+        last_claim = datetime.fromisoformat(user["last_daily"])
+        now = datetime.now(timezone.utc)
+        hours_left = 24 - ((now - last_claim).seconds // 3600)
+        minutes_left = 60 - ((now - last_claim).seconds % 3600) // 60
         
-        if user["last_daily"]:
-            try:
-                last_claim = user["last_daily"]
-                if isinstance(last_claim, str):
-                    if 'T' in last_claim:
-                        last_claim = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
-                    else:
-                        last_claim = datetime.strptime(last_claim, "%Y-%m-%d %H:%M:%S.%f")
-                
-                # Make timezone-aware
-                if last_claim.tzinfo is None:
-                    last_claim = last_claim.replace(tzinfo=timezone.utc)
-
-                now = datetime.now(timezone.utc)
-                next_claim = last_claim + timedelta(hours=24)
-
-                if next_claim > now:
-                    time_left = next_claim - now
-                    hours_left = time_left.seconds // 3600
-                    minutes_left = (time_left.seconds % 3600) // 60
-                    seconds_left = time_left.seconds % 60
-
-                    embed = discord.Embed(
-                        title="⏰ **Daily Reward Cooldown!**",
-                        description=f"Please wait before claiming your daily reward again.",
-                        color=discord.Color.orange()
-                    )
-                    
-                    embed.add_field(
-                        name="⏳ Time Remaining",
-                        value=f"**{hours_left}h {minutes_left}m {seconds_left}s**",
-                        inline=False
-                    )
-                    
-                    embed.add_field(
-                        name="🔥 Current Streak",
-                        value=f"**{user.get('daily_streak', 0)} days**",
-                        inline=True
-                    )
-                    
-                    embed.set_footer(text="Come back later to continue your streak!")
-                    await ctx.send(embed=embed, delete_after=30)
-                else:
-                    pass
-            except Exception as e:
-                print(f"Error calculating time: {e}")
-        
+        await ctx.send(
+            f"⏰ You can claim your daily reward in {hours_left}h {minutes_left}m!\n"
+            f"Current streak: **{user['daily_streak']} days** 🔥",
+            delete_after=10
+        )
         return
     
-    # Claim daily reward
-    transaction = await db.claim_daily(user_id)
+    # Claim daily reward using currency_system
+    transaction = currency_system.claim_daily(user_id)
+    user = currency_system.get_user(user_id)
     
-    # Check if claim was successful
-    if "error" in transaction:
-        await ctx.send(f"❌ {transaction['error']}", delete_after=10)
-        return
-    
+    # Extract gems from transaction
     gems_earned = transaction["gems"]
-    user = await db.get_user(user_id)
-
+    
     embed = discord.Embed(
         title="🎁 **Daily Reward Claimed!**",
         description=f"Here's your daily reward, {ctx.author.mention}!",
         color=discord.Color.gold()
     )
-
-    # Show detailed breakdown
+    
     embed.add_field(
-        name="💰 Reward Breakdown",
-        value=f"**Base:** {transaction.get('base_gems', '?')} gems\n"
-              f"**Streak Bonus:** +{transaction.get('bonus_gems', '?')} gems",
+        name="💎 Gems Earned",
+        value=f"**+{gems_earned} gems**",
         inline=False
     )
-
-    embed.add_field(
-        name="💎 Total Earned",
-        value=f"**+{gems_earned} gems**",
-        inline=True
-    )
-
+    
     embed.add_field(
         name="🔥 Daily Streak",
         value=f"**{user['daily_streak']} days**",
         inline=True
     )
+    
+    embed.set_footer(text="Come back tomorrow for more gems!")
+    await ctx.send(embed=embed)
 
-    if user['daily_streak'] >= 7:
-        embed.add_field(
-            name="🏆 Weekly Bonus!",
-            value="You've maintained a 7-day streak! 🎉",
-            inline=True
-        )
-
-    # Show next claim time
-    next_claim_time = datetime.now(timezone.utc) + timedelta(hours=24)
+# Add stats command
+@currency_group.command(name="stats")
+async def currency_stats(ctx, member: discord.Member = None):
+    """Show detailed currency statistics"""
+    target = member or ctx.author
+    user_id = str(target.id)
+    
+    balance = currency_system.get_balance(user_id)
+    user_data = currency_system.get_user(user_id)
+    
+    embed = discord.Embed(
+        title=f"📊 **{target.display_name}'s Gem Stats**",
+        color=discord.Color.blue()
+    )
+    
     embed.add_field(
-        name="⏰ Next Daily Available",
-        value=f"<t:{int(next_claim_time.timestamp())}:R>",
+        name="💰 **Current Balance**",
+        value=f"💎 **{balance['gems']:,} gems**",
         inline=False
     )
-
-    embed.set_footer(text="Come back tomorrow for more gems!")
+    
+    embed.add_field(
+        name="📈 **Lifetime Earnings**",
+        value=f"**{balance['total_earned']:,} gems** earned",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🔥 **Daily Streak**",
+        value=f"**{user_data['daily_streak']} days**",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🔄 **Transactions**",
+        value=f"**{len(user_data['transactions'])}** recorded",
+        inline=True
+    )
+    
+    # Recent transactions (last 5)
+    if user_data["transactions"]:
+        recent = user_data["transactions"][-5:]
+        recent_text = []
+        for tx in reversed(recent):
+            sign = "+" if tx["gems"] > 0 else ""
+            reason = tx["reason"][:20] + "..." if len(tx["reason"]) > 20 else tx["reason"]
+            recent_text.append(f"`{sign}{tx['gems']}` gems - {reason}")
+        
+        embed.add_field(
+            name="📝 **Recent Activity**",
+            value="\n".join(recent_text) if recent_text else "No recent activity",
+            inline=False
+        )
+    
     await ctx.send(embed=embed)
 
 # --- ANSWER DETECTION ---
@@ -1966,8 +1919,7 @@ async def on_message(message):
     
     # Check for quiz answers (any text answer)
     if (quiz_system.quiz_running and 
-        message.channel == quiz_system.quiz_channel and
-        quiz_system.current_question < len(quiz_system.quiz_questions)):  # ADD THIS CHECK
+        message.channel == quiz_system.quiz_channel):
         
         # Process the answer silently (NO REACTIONS)
         await quiz_system.process_answer(message.author, message.content)
@@ -1995,12 +1947,19 @@ async def custom_help(ctx, command: str = None):
         embed = discord.Embed(
             title="📚 Bot Commands",
             description="**Announcement System**\n"
-                       "• `!!announce` - Announcement management\n\n"
+                       "• `!!announce` - Announcement management\n"
+                       "• `!!a <message>` - Quick announcement\n\n"
+                       "**Message System**\n"
+                       "• `!!say` - Send messages\n"
+                       "• `!!embed` - Send embed message\n"
+                       "• `!!dm` - DM a user\n"
+                       "• `!!smartreply` - Reply to message\n\n"
                        "**Quiz System**\n"
                        "• `!!quiz` - Quiz management\n\n"
                        "**Currency System**\n"
                        "• `!!currency` - Check your gems\n"
-                       "• `!!currency daily` - Claim daily reward\n\n"
+                       "• `!!currency daily` - Claim daily reward\n"
+                       "• `!!currency leaderboard` - Top earners\n\n"
                        "**Utility**\n"
                        "• `!!ping` - Check bot latency\n"
                        "• `!!help <command>` - Get command help",
@@ -2009,194 +1968,179 @@ async def custom_help(ctx, command: str = None):
         await ctx.send(embed=embed)
 
 # === SIMPLE BOT COMMANDS ===
-@bot.command(name="swswswsw")
+@bot.command(name="ping")
 async def ping(ctx):
     """Check if bot is alive"""
-    await ctx.send("Meooow~")
+    await ctx.send("🏓 Pong!")
 
 @bot.command(name="add")
-@commands.has_permissions(manage_messages=True)  # ONLY STAFF CAN USE THIS
-async def add_gems(ctx, member: discord.Member, amount: int):
-    """Add gems to a user's account (Staff only)"""
-    user_id = str(member.id)
+async def add_gems(ctx, amount: int = 100):
+    """Add gems to your account"""
+    user_id = str(ctx.author.id)
     
-    # Use the shared database system
-    result = await db.add_gems(
+    # Use the shared currency system
+    transaction = currency_system.add_gems(
         user_id=user_id,
         gems=amount,
-        reason=f"Added by staff {ctx.author.name}"
+        reason=f"Command by {ctx.author.name}"
     )
     
-    if result:
-        balance = await db.get_balance(user_id)
-        await ctx.send(f"✅ Added **{amount} gems** to {member.mention}\nNew balance: **{balance['gems']} gems**")
+    if transaction:
+        balance = currency_system.get_balance(user_id)
+        await ctx.send(f"✅ Added **{amount} gems**\nNew balance: **{balance['gems']} gems**")
     else:
         await ctx.send("❌ Failed to add gems")
 
 @bot.command(name="balance")
-async def balance_cmd(ctx, member: discord.Member = None):
-    """Check your balance or another user's balance"""
-    target = member or ctx.author
-    user_id = str(target.id)
-    balance = await db.get_balance(user_id)
+async def balance_cmd(ctx):
+    """Check your balance"""
+    user_id = str(ctx.author.id)
+    balance = currency_system.get_balance(user_id)
     
     embed = discord.Embed(
-        title=f"💰 {target.display_name}'s Balance",
-        description=f"**💎 {balance['gems']} gems**\nTotal earned: **{balance['total_earned']} gems**",
+        title="💰 Your Balance",
+        description=f"**💎 {balance['gems']} gems**",
         color=discord.Color.gold()
     )
     
-    if db.using_database:
-        embed.set_footer(text="💾 Stored in PostgreSQL Database - Persistent")
-    else:
-        embed.set_footer(text="📄 Stored in JSON File - May reset on redeploy")
-    
+    embed.set_footer(text="Stored in user_gems.json")
     await ctx.send(embed=embed)
 
-# === WORKING SETUPSHOP COMMAND ===
-@bot.command(name="setupshop")
-@commands.has_permissions(administrator=True)
-async def setup_shop(ctx):
-    """Setup the visual shop channel (Admin only)"""
-    if not COMPONENTS_AVAILABLE:
-        embed = discord.Embed(
-            title="❌ **MISSING DEPENDENCY**",
-            description=(
-                "**discord-components** is not installed!\n\n"
-                "💡 **Add this to requirements.txt:**\n"
-                "```\ndiscord-components>=2.1.2\n```\n"
-                "Then redeploy your bot on Railway."
-            ),
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=embed)
-        return
+# === EMERGENCY FIX COMMANDS ===
+@bot.command(name="emergencyfix")
+async def emergency_fix(ctx):
+    """Emergency database fix"""
+    import subprocess
     
-    await ctx.send("🛒 Setting up beautiful visual shop...")
+    steps = []
     
-    shop_channel = await visual_shop.setup_shop_channel(ctx.guild)
+    # Step 1: Check asyncpg
+    try:
+        import asyncpg
+        steps.append("✅ asyncpg is installed")
+    except:
+        steps.append("❌ asyncpg not installed")
+        # Try to install it
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "asyncpg"])
+            steps.append("✅ Installed asyncpg")
+        except:
+            steps.append("❌ Failed to install asyncpg")
     
-    if shop_channel:
-        embed = discord.Embed(
-            title="✅ **VISUAL SHOP READY!**",
-            description=(
-                f"The shop is now live in {shop_channel.mention}!\n\n"
-                "**✨ FEATURES:**\n"
-                "• Beautiful button interface\n"
-                "• Click to browse items\n"
-                "• One-click purchases\n"
-                "• No commands needed!\n\n"
-                "**🎯 HOW IT WORKS:**\n"
-                "1. Visit the shop channel\n"
-                "2. Click 📦 to browse\n"
-                "3. Click an item to view\n"
-                "4. Click BUY to purchase\n"
-                "5. Get items instantly!"
-            ),
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=embed)
+    # Step 2: Check DATABASE_URL
+    if DATABASE_URL:
+        steps.append(f"✅ DATABASE_URL exists")
+        # Show first 50 chars
+        masked = DATABASE_URL
+        if '@' in DATABASE_URL:
+            # Mask password
+            parts = DATABASE_URL.split('@')
+            if ':' in parts[0]:
+                user_part = parts[0].split(':')
+                if len(user_part) >= 3:
+                    masked = f"{user_part[0]}:****@{parts[1]}"
+        steps.append(f"   Format: {masked[:80]}...")
     else:
-        await ctx.send("❌ Failed to setup shop channel!")
+        steps.append("❌ DATABASE_URL not found")
+    
+    await ctx.send("**Emergency Fix Report:**\n" + "\n".join(steps))
 
-# ... rest of your bot code ...
+@bot.command(name="railwayhelp")
+async def railway_help(ctx):
+    """Step-by-step Railway help"""
+    help_text = """
+**🎯 STEP-BY-STEP RAILWAY FIX:**
+
+**1. Check Services:**
+   - Go to Railway dashboard
+   - You should see TWO services:
+     • Your Discord bot
+     • A PostgreSQL database
+
+**2. If NO PostgreSQL:**
+   - Click "New" → "Database" → "PostgreSQL" → "Add"
+   - Wait 2 minutes for it to provision
+
+**3. Connect Database to Bot:**
+   - Click on your BOT service
+   - Go to "Variables" tab
+   - Look for `DATABASE_URL`
+   - If NOT there, click "New Variable":
+     • Name: `DATABASE_URL`
+     • Value: Get from PostgreSQL service → "Connect" tab
+     • Click "Add"
+
+**4. Restart Everything:**
+   - Restart BOTH services
+   - Wait 2 minutes
+   - Check logs for "✅ Database connected"
+
+**5. Test:**
+   - Run `!!testdb` in Discord
+   - Should see "✅ Database working!"
+    """
+    await ctx.send(help_text)
+
+@bot.command(name="testdb")
+async def test_db(ctx):
+    """Test database connection"""
+    user_id = str(ctx.author.id)
+    
+    # Add gems using the shared currency system
+    transaction = currency_system.add_gems(
+        user_id=user_id,
+        gems=10,
+        reason="Database test"
+    )
+    
+    if transaction:
+        balance = currency_system.get_balance(user_id)
+        await ctx.send(f"✅ **CURRENCY SYSTEM WORKING!**\nAdded 10 gems\nNew balance: **{balance['gems']} gems**")
+    else:
+        await ctx.send("❌ **Test failed completely**")
+
+@bot.command(name="checkenv")
+async def check_env(ctx):
+    """Check all database environment variables"""
+    import os
+    
+    db_vars = []
+    for key in sorted(os.environ.keys()):
+        if any(word in key.upper() for word in ['DB', 'DATABASE', 'POSTGRES', 'PG', 'SQL', 'URL', 'HOST', 'PORT', 'USER', 'PASS']):
+            value = os.environ[key]
+            if 'PASS' in key.upper() or 'PASSWORD' in key.upper():
+                db_vars.append(f"`{key}`: `*****`")
+            else:
+                db_vars.append(f"`{key}`: `{value}`")
+    
+    if db_vars:
+        await ctx.send("**Database Environment Variables:**\n" + "\n".join(db_vars[:10]))  # First 10
+    else:
+        await ctx.send("❌ No database environment variables found!")
+
 # === BOT STARTUP ===
 @bot.event
 async def on_ready():
     print(f"\n✅ {bot.user} is online!")
     
-    # Connect to PostgreSQL ONLY
-    print("\n🔌 Connecting to PostgreSQL Database...")
+    # Try to connect to database
+    print("\n🔌 Attempting database connection...")
     connected = await db.smart_connect()
     
     if connected:
-        print("🎉 PostgreSQL Database Connected Successfully!")
-        print("✅ All data stored in PostgreSQL")
-        print("🛒 Shop system: READY")
+        print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
+        print("✅ Your data will persist across redeploys")
     else:
-        print("❌ FATAL: Could not connect to PostgreSQL!")
-        return
-    
-    # Setup visual shop in first available guild
-    if bot.guilds and COMPONENTS_AVAILABLE and visual_shop is not None:
-        guild = bot.guilds[0]
-        print(f"\n🛒 Setting up shop in '{guild.name}'...")
-        
-        # Find existing shop channel or create it
-        shop_channel = discord.utils.get(guild.text_channels, name="shops")
-        if not shop_channel:
-            await visual_shop.setup_shop_channel(guild)
-        else:
-            print(f"✅ Shop channel already exists: #{shop_channel.name}")
+        print("⚠️ Using JSON fallback storage")
+        print("❌ Data may reset on redeploy")
     
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
-            name="Visual Shop • Click & Buy!"
+            name="!!help"
         )
     )
     print("\n🤖 Bot is ready!")
-    print("🛒 Visual shop is available in #shops channel")
-    print("📚 Commands:")
-    print("  • !!setupshop - Setup/refresh shop interface")
-    print("  • !!quiz - Quiz system")
-    print("  • !!currency - Gem management")
-
-# === BUTTON INTERACTION HANDLER ===
-@bot.event
-async def on_interaction(interaction):
-    """Handle button interactions"""
-    if not hasattr(interaction, 'custom_id'):
-        return
-    
-    if not UI_AVAILABLE or visual_shop is None:
-        return
-    
-    custom_id = interaction.custom_id
-    
-    # Defer the response (important for buttons)
-    try:
-        await interaction.defer(ephemeral=True)
-    except:
-        pass
-    
-    user = interaction.user
-    
-    try:
-        # Handle different button actions
-        if custom_id == "browse_items":
-            await interaction.send("📦 Browse items feature coming soon!", ephemeral=True)
-            
-        elif custom_id == "check_balance":
-            await interaction.send("💰 Balance check coming soon!", ephemeral=True)
-                
-        elif custom_id == "view_history":
-            await interaction.send("📜 Purchase history coming soon!", ephemeral=True)
-                
-        elif custom_id == "daily_reward":
-            await interaction.send("🎰 Use `!!currency daily` to claim your daily reward!", ephemeral=True)
-            
-        elif custom_id == "shop_help":
-            help_embed = discord.Embed(
-                title="❓ **SHOP HELP**",
-                description="**How to use the shop:**\n\n"
-                           "🛒 **Browse Items** - View all available items\n"
-                           "💰 **My Balance** - Check your gem balance\n"
-                           "📜 **My Purchases** - View purchase history\n"
-                           "🎰 **Daily Reward** - Claim daily gems\n\n"
-                           "**How it works:**\n"
-                           "1. Click 'BROWSE ITEMS'\n"
-                           "2. Select an item number\n"
-                           "3. View item details\n"
-                           "4. Click 'BUY NOW' if you have enough gems\n"
-                           "5. Receive your item instantly!",
-                color=discord.Color.blue()
-            )
-            await interaction.send(embed=help_embed, ephemeral=True)
-            
-    except Exception as e:
-        print(f"Button interaction error: {e}")
-        await interaction.send("❌ An error occurred. Please try again.", ephemeral=True)
 
 # === ERROR HANDLER ===
 @bot.event
