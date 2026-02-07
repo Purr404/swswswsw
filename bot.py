@@ -568,7 +568,18 @@ user_selections = {}
 
 
 # === CREATE VISUAL SHOP UI ===
-visual_shop = VisualShopUI(bot, db, shop_system)
+# === CREATE VISUAL SHOP UI ===
+if UI_AVAILABLE:
+    from discord_ui import Components, Button, LinkButton, View
+    
+    class VisualShopUI:
+        # ... keep the entire VisualShopUI class code from previous response ...
+    
+    visual_shop = VisualShopUI(bot, db, shop_system)
+else:
+    print("❌ discord-ui-components not installed. Visual shop disabled.")
+    print("💡 To enable visual shop, add 'discord-ui-components' to requirements.txt")
+    visual_shop = None
 
 
 # --- VISUAL SHOP UI SYSTEM ---
@@ -995,7 +1006,7 @@ class VisualShopUI:
         
         return embed, components
 
-# VISUAL UI ====≠===========================================
+# VISUAL UI ===============================================
 
 
 
@@ -2871,6 +2882,11 @@ async def shop_history(ctx, limit: int = 10):
 @commands.has_permissions(administrator=True)
 async def setup_shop(ctx):
     """Setup the visual shop channel (Admin only)"""
+    if not UI_AVAILABLE or visual_shop is None:
+        await ctx.send("❌ Visual shop requires `discord-ui-components`!\n"
+                      "💡 Add it to requirements.txt and redeploy.")
+        return
+    
     await ctx.send("🛒 Setting up visual shop interface...")
     
     shop_channel = await visual_shop.setup_shop_channel(ctx.guild)
