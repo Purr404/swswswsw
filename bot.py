@@ -28,18 +28,19 @@ except ImportError:
         print(f"❌ Failed to install asyncpg: {e}")
         print("⚠️ Bot will run with JSON fallback only")
 
-# Add this to your imports at the top
+# === CHECK FOR DISCORD-UI-COMPONENTS ===
 try:
+    import discord_ui
     from discord_ui import Components, Button, LinkButton, View
     UI_AVAILABLE = True
-except:
-    try:
-        from discord_components import Components, Button, Select, SelectOption
-        UI_AVAILABLE = True
-        print("✅ Using discord-components")
-    except:
-        UI_AVAILABLE = False
-# Now continue with the rest of your imports...
+    print("✅ discord-ui-components is installed")
+    print(f"✅ Version: {discord_ui.__version__ if hasattr(discord_ui, '__version__') else 'Unknown'}")
+except ImportError as e:
+    print(f"❌ discord-ui-components import failed: {e}")
+    UI_AVAILABLE = False
+except Exception as e:
+    print(f"⚠️ Other error with discord-ui-components: {e}")
+    UI_AVAILABLE = False
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
