@@ -2118,7 +2118,7 @@ async def on_ready():
         return
     
     # Setup visual shop in first available guild
-    if bot.guilds and UI_AVAILABLE and visual_shop is not None:
+    if bot.guilds and COMPONENTS_AVAILABLE and visual_shop is not None:
         guild = bot.guilds[0]
         print(f"\n🛒 Setting up shop in '{guild.name}'...")
         
