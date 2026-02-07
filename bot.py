@@ -606,13 +606,14 @@ class ShopSystem:
         
         return {"success": False, "message": "Item type not implemented"}
     
+
     async def _process_role_color(self, user, item, guild):
         """Process role color purchase"""
         try:
             # Create or get custom role
             role_name = f"Gem-{user.name[:20]}"
             role = discord.utils.get(guild.roles, name=role_name)
-            
+        
             if not role:
                 # Create new role
                 role = await guild.create_role(
@@ -620,43 +621,30 @@ class ShopSystem:
                     color=discord.Color.random(),
                     reason=f"Gem shop purchase by {user.name}"
                 )
-            
-            # Add role to user
+                print(f"✅ Created new role {role_name} for {user.name}")
+            else:
+                # Update existing role color
+                await role.edit(color=discord.Color.random())
+                print(f"✅ Updated role color for {user.name}")
+        
+            # Add role to user (removing old ones if any)
+            # Remove any existing gem roles first
+            gem_roles = [r for r in user.roles if r.name.startswith("Gem-")]
+            for gem_role in gem_roles:
+                if gem_role != role:
+                    await user.remove_roles(gem_role, reason="Removing old gem role")
+        
+            # Add new role
             await user.add_roles(role, reason="Gem shop purchase")
-            
+        
             return {
                 "success": True,
-                "message": f"🎨 Your custom role **{role.name}** has been set!\nIt will expire in {item['duration_days']} days."
-            }
+                "message": f"🎨 Your custom role **{role.name}** has been set with color **#{role.color.value:06x}**!\nIt will expire in {item['duration_days']} days."
+        }
         except Exception as e:
+            print(f"Error in role color processing: {e}")
             return {"success": False, "message": f"Failed to set role: {str(e)[:100]}"}
-    
-    async def _process_nickname_color(self, user, item, guild):
-        """Process nickname color purchase"""
-        try:
-            # Generate random color
-            color = discord.Color.random()
-            
-            embed = discord.Embed(
-                title="🎨 **Nickname Color Applied!**",
-                description=f"Your nickname now has a custom color for {item['duration_days']} days!",
-                color=color
-            )
-            
-            embed.add_field(
-                name="Color Preview",
-                value=f"Hex: `#{color.value:06x}`",
-                inline=True
-            )
-            
-            return {
-                "success": True,
-                "message": f"🎨 Custom nickname color set for {item['duration_days']} days!",
-                "embed": embed
-            }
-        except Exception as e:
-            return {"success": False, "message": f"Failed to set color: {str(e)[:100]}"}
-    
+  
     async def _process_special_role(self, user, item, guild):
         """Process special role purchase"""
         try:
@@ -2269,6 +2257,212 @@ async def daily_reward(ctx):
     await ctx.send(embed=embed)
 
 # END DAILY CMD--------
+
+# === SHOP COMMANDS ===
+shop_system = ShopSystem(bot, db)  # Create shop system instance
+
+@bot.group(name="shop", invoke_without_command=True)
+async def shop_group(ctx):
+    """Shop system - Buy items with gems"""
+    # Get user balance
+    user_id = str(ctx.author.id)
+    balance = await db.get_balance(user_id)
+    
+    # Get shop items
+    items = await db.shop_get_items()
+    
+    # Create embed
+    embed = discord.Embed(
+        title="🛒 **Gem Shop**",
+        description=f"Your balance: **💎 {balance['gems']:,} gems**\n\n"
+                   "Use `!!shop buy <number>` to purchase an item!",
+        color=discord.Color.gold()
+    )
+    
+    # Add shop items
+    for item in items:
+        # Format item info
+        if item["type"] == "role_color":
+            emoji = "🛡️"
+            duration = f"({item['duration_days']} days)"
+        elif item["type"] == "nickname_color":
+            emoji = "🎨"
+            duration = f"({item['duration_days']} days)"
+        elif item["type"] == "special_role":
+            emoji = "🌟"
+            duration = f"({item['duration_days']} days)"
+        elif item["type"] == "mystery_box":
+            emoji = "🎁"
+            duration = f"(Win {item['min_gems']}-{item['max_gems']} gems)"
+        else:
+            emoji = "🛒"
+            duration = ""
+        
+        embed.add_field(
+            name=f"{emoji} **[{item['id']}] {item['name']}** - 💎 {item['price']:,}",
+            value=f"{item['description']} {duration}",
+            inline=False
+        )
+    
+    # Add tips
+    embed.add_field(
+        name="💡 **How to Buy**",
+        value="`!!shop buy 1` - Buy item #1\n"
+              "`!!shop balance` - Check your gems\n"
+              "`!!shop history` - View purchase history",
+        inline=False
+    )
+    
+    if db.using_database:
+        embed.set_footer(text="💾 PostgreSQL Database | Shop items will expire based on duration")
+    else:
+        embed.set_footer(text="⚠️ JSON Fallback Mode | Some features limited")
+    
+    await ctx.send(embed=embed)
+
+@shop_group.command(name="buy")
+async def shop_buy(ctx, item_id: int):
+    """Buy an item from the shop"""
+    # Get shop items to validate item exists
+    items = await db.shop_get_items()
+    item_exists = any(item["id"] == item_id for item in items)
+    
+    if not item_exists:
+        await ctx.send(f"❌ Item #{item_id} not found in shop!")
+        return
+    
+    # Process purchase
+    result = await shop_system.process_purchase(ctx.author, item_id, ctx.guild)
+    
+    if result["success"]:
+        # Send success message
+        await ctx.send(result["message"])
+        
+        # Send additional embed if present
+        if "embed" in result.get("item_result", {}):
+            await ctx.send(embed=result["item_result"]["embed"])
+    else:
+        await ctx.send(result["message"])
+
+@shop_group.command(name="balance")
+async def shop_balance(ctx):
+    """Check your gem balance for shopping"""
+    user_id = str(ctx.author.id)
+    balance = await db.get_balance(user_id)
+    
+    embed = discord.Embed(
+        title="💰 **Shopping Balance**",
+        description=f"**{ctx.author.mention}, you have:**\n"
+                   f"💎 **{balance['gems']:,} gems**\n\n"
+                   f"*Total earned: {balance['total_earned']:,} gems*",
+        color=discord.Color.gold()
+    )
+    
+    # Add earning tips
+    embed.add_field(
+        name="💎 **Earn More Gems**",
+        value="• `!!currency daily` - Daily reward\n"
+              "• `!!quiz start` - Join quizzes\n"
+              "• `!!shop buy 4` - Mystery box (gamble)",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+
+@shop_group.command(name="history")
+async def shop_history(ctx, limit: int = 10):
+    """View your purchase history"""
+    user_id = str(ctx.author.id)
+    
+    # Get purchases from database
+    purchases = await db.shop_get_user_purchases(user_id, limit)
+    
+    if not purchases:
+        embed = discord.Embed(
+            title="📜 **Purchase History**",
+            description="You haven't purchased anything yet!\n"
+                       "Use `!!shop` to browse available items.",
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
+        return
+    
+    embed = discord.Embed(
+        title=f"📜 **Purchase History for {ctx.author.display_name}**",
+        description=f"Last {len(purchases)} purchases:",
+        color=discord.Color.blue()
+    )
+    
+    # Format purchases
+    for i, purchase in enumerate(purchases[:10], 1):
+        # Format purchase time
+        if purchase["purchased_at"]:
+            try:
+                purchase_time = datetime.fromisoformat(purchase["purchased_at"].replace('Z', '+00:00'))
+                time_str = f"<t:{int(purchase_time.timestamp())}:R>"
+            except:
+                time_str = purchase["purchased_at"][:10]
+        else:
+            time_str = "Unknown"
+        
+        embed.add_field(
+            name=f"{i}. {purchase['item_name']}",
+            value=f"**Type:** {purchase['item_type']}\n"
+                  f"**Price:** 💎 {purchase['price']:,}\n"
+                  f"**When:** {time_str}",
+            inline=True
+        )
+    
+    # Add total spent
+    total_spent = sum(p["price"] for p in purchases)
+    embed.add_field(
+        name="💰 **Total Spent**",
+        value=f"💎 **{total_spent:,} gems**",
+        inline=False
+    )
+    
+    embed.set_footer(text=f"Showing last {len(purchases)} purchases")
+    await ctx.send(embed=embed)
+
+@shop_group.command(name="setup")
+@commands.has_permissions(administrator=True)
+async def shop_setup(ctx):
+    """Setup shop system (Admin only)"""
+    embed = discord.Embed(
+        title="🛒 **Shop System Setup**",
+        description="Shop system is ready to use!",
+        color=discord.Color.green()
+    )
+    
+    embed.add_field(
+        name="✅ **Current Status**",
+        value="Shop system is active and connected to PostgreSQL database.",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🛍️ **Available Items**",
+        value="• Role Color Change (7 days)\n"
+              "• Custom Nickname Color (30 days)\n"
+              "• Special Role (30 days)\n"
+              "• Mystery Box (random gems)",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="💎 **User Commands**",
+        value="• `!!shop` - Browse shop\n"
+              "• `!!shop buy <id>` - Purchase item\n"
+              "• `!!shop balance` - Check gems\n"
+              "• `!!shop history` - View purchases",
+        inline=True
+    )
+    
+    await ctx.send(embed=embed)
+
+# END SHOP CMD ---=========
+
+
 # Add stats command
 @currency_group.command(name="stats")
 async def currency_stats(ctx, member: discord.Member = None):
