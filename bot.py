@@ -557,6 +557,178 @@ db = DatabaseSystem()
 # --- 2. Store user selections ---
 user_selections = {}
 
+
+
+# --- SHOP SYSTEM CLASS ---
+class ShopSystem:
+    def __init__(self, bot, db):
+        self.bot = bot
+        self.db = db
+    
+    async def process_purchase(self, user, item_id, guild):
+        """Process item purchase"""
+        # Get item info
+        items = await self.db.shop_get_items()
+        item = next((i for i in items if i["id"] == item_id), None)
+        
+        if not item:
+            return {"success": False, "message": "❌ Item not found!"}
+        
+        # Purchase item from database
+        result = await self.db.shop_purchase(str(user.id), item_id)
+        
+        if not result["success"]:
+            return {"success": False, "message": f"❌ {result['error']}"}
+        
+        # Process item based on type
+        item_result = await self._process_item_type(user, item, guild)
+        
+        return {
+            "success": True,
+            "message": f"✅ **Purchase Successful!**\nYou bought: **{item['name']}**\n{item_result['message']}\nNew balance: **💎 {result['new_balance']:,} gems**",
+            "item": item,
+            "item_result": item_result
+        }
+    
+    async def _process_item_type(self, user, item, guild):
+        """Process different item types"""
+        if item["type"] == "role_color":
+            return await self._process_role_color(user, item, guild)
+        
+        elif item["type"] == "nickname_color":
+            return await self._process_nickname_color(user, item, guild)
+        
+        elif item["type"] == "special_role":
+            return await self._process_special_role(user, item, guild)
+        
+        elif item["type"] == "mystery_box":
+            return await self._process_mystery_box(user, item)
+        
+        return {"success": False, "message": "Item type not implemented"}
+    
+    async def _process_role_color(self, user, item, guild):
+        """Process role color purchase"""
+        try:
+            # Create or get custom role
+            role_name = f"Gem-{user.name[:20]}"
+            role = discord.utils.get(guild.roles, name=role_name)
+            
+            if not role:
+                # Create new role
+                role = await guild.create_role(
+                    name=role_name,
+                    color=discord.Color.random(),
+                    reason=f"Gem shop purchase by {user.name}"
+                )
+            
+            # Add role to user
+            await user.add_roles(role, reason="Gem shop purchase")
+            
+            return {
+                "success": True,
+                "message": f"🎨 Your custom role **{role.name}** has been set!\nIt will expire in {item['duration_days']} days."
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Failed to set role: {str(e)[:100]}"}
+    
+    async def _process_nickname_color(self, user, item, guild):
+        """Process nickname color purchase"""
+        try:
+            # Generate random color
+            color = discord.Color.random()
+            
+            embed = discord.Embed(
+                title="🎨 **Nickname Color Applied!**",
+                description=f"Your nickname now has a custom color for {item['duration_days']} days!",
+                color=color
+            )
+            
+            embed.add_field(
+                name="Color Preview",
+                value=f"Hex: `#{color.value:06x}`",
+                inline=True
+            )
+            
+            return {
+                "success": True,
+                "message": f"🎨 Custom nickname color set for {item['duration_days']} days!",
+                "embed": embed
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Failed to set color: {str(e)[:100]}"}
+    
+    async def _process_special_role(self, user, item, guild):
+        """Process special role purchase"""
+        try:
+            # Find or create "Gem Master" role
+            role_name = "💎 Gem Master"
+            role = discord.utils.get(guild.roles, name=role_name)
+            
+            if not role:
+                # Create the role
+                role = await guild.create_role(
+                    name=role_name,
+                    color=discord.Color.gold(),
+                    hoist=True,
+                    mentionable=True,
+                    reason="Gem shop special role"
+                )
+            
+            # Add role to user
+            await user.add_roles(role, reason="Gem shop purchase")
+            
+            return {
+                "success": True,
+                "message": f"🌟 You now have the **{role_name}** role for {item['duration_days']} days!"
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Failed to set role: {str(e)[:100]}"}
+    
+    async def _process_mystery_box(self, user, item):
+        """Process mystery box purchase"""
+        try:
+            # Random gems between min and max
+            gems_won = random.randint(item["min_gems"], item["max_gems"])
+            
+            # Add gems to user using database
+            await self.db.add_gems(
+                str(user.id),
+                gems=gems_won,
+                reason="Mystery Box Prize"
+            )
+            
+            # Determine rarity
+            if gems_won >= 400:
+                rarity = "✨ **LEGENDARY!**"
+                color = 0xFFD700  # Gold
+            elif gems_won >= 250:
+                rarity = "⚡ **RARE!**"
+                color = 0x9B59B6  # Purple
+            elif gems_won >= 150:
+                rarity = "🌟 **UNCOMMON!**"
+                color = 0x3498DB  # Blue
+            else:
+                rarity = "🎁 **COMMON**"
+                color = 0x2ECC71  # Green
+            
+            # Create embed for result
+            embed = discord.Embed(
+                title="🎁 **MYSTERY BOX OPENED!**",
+                description=f"{rarity}\nYou won: **💎 {gems_won:,} gems**!",
+                color=color
+            )
+            
+            return {
+                "success": True,
+                "message": f"🎁 **Mystery Box Opened!**\n{rarity}\nYou won: **💎 {gems_won:,} gems**!",
+                "embed": embed
+            }
+        except Exception as e:
+            return {"success": False, "message": f"Failed to open box: {str(e)[:100]}"}
+
+
+#  END SHOPCLASS SYSTEM
+
 # --- 3. ANNOUNCEMENT SYSTEM CLASS ---
 class AnnouncementSystem:
     def __init__(self):
