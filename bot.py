@@ -572,15 +572,6 @@ user_selections = {}
 if UI_AVAILABLE:
     from discord_ui import Components, Button, LinkButton, View
     
-    class VisualShopUI:
-        # ... keep the entire VisualShopUI class code from previous response ...
-    
-    visual_shop = VisualShopUI(bot, db, shop_system)
-else:
-    print("❌ discord-ui-components not installed. Visual shop disabled.")
-    print("💡 To enable visual shop, add 'discord-ui-components' to requirements.txt")
-    visual_shop = None
-
 
 # --- VISUAL SHOP UI SYSTEM ---
 class VisualShopUI:
