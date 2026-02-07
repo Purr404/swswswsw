@@ -1051,53 +1051,7 @@ async def on_button_click(interaction):
         print(f"Button click error: {e}")
         await interaction.send("❌ An error occurred. Please try again.")
 
-# === WORKING SETUPSHOP COMMAND ===
-@bot.command(name="setupshop")
-@commands.has_permissions(administrator=True)
-async def setup_shop(ctx):
-    """Setup the visual shop channel (Admin only)"""
-    if not COMPONENTS_AVAILABLE:
-        embed = discord.Embed(
-            title="❌ **MISSING DEPENDENCY**",
-            description=(
-                "**discord-components** is not installed!\n\n"
-                "💡 **Add this to requirements.txt:**\n"
-                "```\ndiscord-components>=2.1.2\n```\n"
-                "Then redeploy your bot on Railway."
-            ),
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=embed)
-        return
-    
-    await ctx.send("🛒 Setting up beautiful visual shop...")
-    
-    shop_channel = await visual_shop.setup_shop_channel(ctx.guild)
-    
-    if shop_channel:
-        embed = discord.Embed(
-            title="✅ **VISUAL SHOP READY!**",
-            description=(
-                f"The shop is now live in {shop_channel.mention}!\n\n"
-                "**✨ FEATURES:**\n"
-                "• Beautiful button interface\n"
-                "• Click to browse items\n"
-                "• One-click purchases\n"
-                "• No commands needed!\n\n"
-                "**🎯 HOW IT WORKS:**\n"
-                "1. Visit the shop channel\n"
-                "2. Click 📦 to browse\n"
-                "3. Click an item to view\n"
-                "4. Click BUY to purchase\n"
-                "5. Get items instantly!"
-            ),
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=embed)
-    else:
-        await ctx.send("❌ Failed to setup shop channel!")
 
-# ... rest of your bot code ...
 # --- 3. ANNOUNCEMENT SYSTEM CLASS ---
 class AnnouncementSystem:
     def __init__(self):
@@ -2099,36 +2053,53 @@ async def balance_cmd(ctx, member: discord.Member = None):
     
     await ctx.send(embed=embed)
 
-# === SHOP SETUP COMMAND ===
+# === WORKING SETUPSHOP COMMAND ===
 @bot.command(name="setupshop")
 @commands.has_permissions(administrator=True)
 async def setup_shop(ctx):
     """Setup the visual shop channel (Admin only)"""
-    if not UI_AVAILABLE or visual_shop is None:
-        await ctx.send("❌ Visual shop requires `discord-ui-components`!\n"
-                      "💡 Make sure it's in requirements.txt: `discord-ui-components==1.5.0`")
+    if not COMPONENTS_AVAILABLE:
+        embed = discord.Embed(
+            title="❌ **MISSING DEPENDENCY**",
+            description=(
+                "**discord-components** is not installed!\n\n"
+                "💡 **Add this to requirements.txt:**\n"
+                "```\ndiscord-components>=2.1.2\n```\n"
+                "Then redeploy your bot on Railway."
+            ),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
     
-    await ctx.send("🛒 Setting up visual shop interface...")
+    await ctx.send("🛒 Setting up beautiful visual shop...")
     
     shop_channel = await visual_shop.setup_shop_channel(ctx.guild)
     
     if shop_channel:
         embed = discord.Embed(
-            title="✅ **Visual Shop Setup Complete!**",
-            description=f"The interactive shop is now available in {shop_channel.mention}!\n\n"
-                       "**Features:**\n"
-                       "• Browse items with buttons\n"
-                       "• Click to view details\n"
-                       "• One-click purchases\n"
-                       "• No commands needed!\n\n"
-                       "Users can now just visit the shop channel and click buttons!",
+            title="✅ **VISUAL SHOP READY!**",
+            description=(
+                f"The shop is now live in {shop_channel.mention}!\n\n"
+                "**✨ FEATURES:**\n"
+                "• Beautiful button interface\n"
+                "• Click to browse items\n"
+                "• One-click purchases\n"
+                "• No commands needed!\n\n"
+                "**🎯 HOW IT WORKS:**\n"
+                "1. Visit the shop channel\n"
+                "2. Click 📦 to browse\n"
+                "3. Click an item to view\n"
+                "4. Click BUY to purchase\n"
+                "5. Get items instantly!"
+            ),
             color=discord.Color.green()
         )
         await ctx.send(embed=embed)
     else:
         await ctx.send("❌ Failed to setup shop channel!")
 
+# ... rest of your bot code ...
 # === BOT STARTUP ===
 @bot.event
 async def on_ready():
