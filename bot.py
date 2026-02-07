@@ -569,10 +569,6 @@ db = DatabaseSystem()
 # --- 2. Store user selections ---
 user_selections = {}
 
-
-# === CREATE SHOP SYSTEM INSTANCE ===
-shop_system = ShopSystem(bot, db)
-
 # === CHECK FOR DISCORD-UI-COMPONENTS ===
 try:
     import discord_ui
