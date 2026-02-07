@@ -28,6 +28,15 @@ except ImportError:
         print(f"❌ Failed to install asyncpg: {e}")
         print("⚠️ Bot will run with JSON fallback only")
 
+# Add this import after your other imports
+try:
+    from discord_ui import Components, Button, LinkButton, View
+    UI_AVAILABLE = True
+except ImportError:
+    UI_AVAILABLE = False
+    print("⚠️ discord-ui-components not available. Using fallback.")
+
+
 # Now continue with the rest of your imports...
 
 print("=== DEBUG INFO ===")
@@ -557,8 +566,6 @@ db = DatabaseSystem()
 # --- 2. Store user selections ---
 user_selections = {}
 
-# === CREATE SHOP SYSTEM ===
-shop_system = ShopSystem(bot, db)
 
 # === CREATE VISUAL SHOP UI ===
 visual_shop = VisualShopUI(bot, db, shop_system)
@@ -1149,6 +1156,9 @@ class ShopSystem:
 
 
 #  END SHOPCLASS SYSTEM
+
+# === CREATE SHOP SYSTEM ===
+shop_system = ShopSystem(bot, db)
 
 # --- 3. ANNOUNCEMENT SYSTEM CLASS ---
 class AnnouncementSystem:
