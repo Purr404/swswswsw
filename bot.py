@@ -28,19 +28,31 @@ except ImportError:
         print(f"❌ Failed to install asyncpg: {e}")
         print("⚠️ Bot will run with JSON fallback only")
 
-# === CHECK FOR DISCORD-UI-COMPONENTS ===
+# === DEBUG: CHECK DISCORD-UI-COMPONENTS ===
+print("\n=== CHECKING DISCORD-UI-COMPONENTS ===")
 try:
+    import pkg_resources
+    installed = [pkg.key for pkg in pkg_resources.working_set]
+    print(f"Installed packages: {len(installed)}")
+    print(f"Has discord-ui-components: {'discord-ui-components' in installed}")
+    
+    # Try to import
     import discord_ui
+    print(f"✅ Successfully imported discord_ui")
+    print(f"   Version: {discord_ui.__version__ if hasattr(discord_ui, '__version__') else 'Unknown'}")
+    
     from discord_ui import Components, Button, LinkButton, View
+    print(f"✅ Successfully imported Components, Button, etc.")
+    
     UI_AVAILABLE = True
-    print("✅ discord-ui-components is installed")
-    print(f"✅ Version: {discord_ui.__version__ if hasattr(discord_ui, '__version__') else 'Unknown'}")
 except ImportError as e:
-    print(f"❌ discord-ui-components import failed: {e}")
+    print(f"❌ ImportError: {e}")
     UI_AVAILABLE = False
 except Exception as e:
-    print(f"⚠️ Other error with discord-ui-components: {e}")
+    print(f"❌ Other error: {e}")
     UI_AVAILABLE = False
+
+print(f"UI_AVAILABLE = {UI_AVAILABLE}")
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
