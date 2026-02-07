@@ -71,6 +71,337 @@ for key, value in os.environ.items():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 
+
+# === DATABASE SYSTEM (PostgreSQL) ===
+class DatabaseSystem:
+    def __init__(self):
+        self.pool = None
+        self.using_database = False
+
+    async def connect(self):
+        """Connect to PostgreSQL database"""
+        if not DATABASE_URL:
+            raise ValueError("DATABASE_URL is required for PostgreSQL connection")
+
+        if not ASYNCPG_AVAILABLE:
+            raise ImportError("asyncpg is required for database operations")
+
+        print("\n🔌 Attempting database connection...")
+
+        # Try different connection strategies
+        connection_strategies = [
+            ("Standard with SSL", {'ssl': 'require'}),
+            ("Standard without SSL", {'ssl': None}),
+            ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
+        ]
+
+        for strategy_name, strategy_args in connection_strategies:
+            print(f"  Trying: {strategy_name}...")
+            try:
+                self.pool = await asyncpg.create_pool(
+                    DATABASE_URL,
+                    min_size=1,
+                    max_size=3,
+                    **strategy_args
+                )
+
+                # Test connection
+                async with self.pool.acquire() as conn:
+                    result = await conn.fetchval('SELECT 1')
+                    print(f"    ✅ Connection test: {result}")
+
+                    # Create table with all necessary fields
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_gems (
+                            user_id TEXT PRIMARY KEY,
+                            gems INTEGER DEFAULT 0,
+                            total_earned INTEGER DEFAULT 0,
+                            daily_streak INTEGER DEFAULT 0,
+                            last_daily TIMESTAMP,
+                            created_at TIMESTAMP DEFAULT NOW(),
+                            updated_at TIMESTAMP DEFAULT NOW()
+                        )
+                    ''')
+
+                self.using_database = True
+                print(f"🎉 Success with: {strategy_name}")
+                print("✅ Database connected and ready!")
+                return True
+
+            except Exception as e:
+                print(f"    ❌ Failed: {type(e).__name__}: {str(e)[:100]}")
+                continue
+
+        raise ConnectionError("All connection strategies failed. Could not connect to PostgreSQL.")
+
+    async def add_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Add gems to a user"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                # Check if user exists
+                row = await conn.fetchrow(
+                    'SELECT gems FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+
+                if row:
+                    # Update existing user
+                    await conn.execute('''
+                        UPDATE user_gems 
+                        SET gems = gems + $2,
+                            total_earned = total_earned + $2,
+                            updated_at = NOW()
+                        WHERE user_id = $1
+                    ''', user_id, gems)
+
+                    # Get new balance
+                    new_row = await conn.fetchrow(
+                        'SELECT gems FROM user_gems WHERE user_id = $1',
+                        user_id
+                    )
+                    new_balance = new_row['gems']
+                else:
+                    # Create new user
+                    await conn.execute('''
+                        INSERT INTO user_gems (user_id, gems, total_earned)
+                        VALUES ($1, $2, $2)
+                    ''', user_id, gems)
+                    new_balance = gems
+
+                print(f"✅ [DB] Added {gems} gems to {user_id} (Balance: {new_balance}) Reason: {reason}")
+                return {"gems": gems, "balance": new_balance}
+
+        except Exception as e:
+            print(f"❌ Database error in add_gems: {e}")
+            raise
+
+    async def get_balance(self, user_id: str):
+        """Get user balance"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT gems, total_earned FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+
+                if row:
+                    return {"gems": row['gems'], "total_earned": row['total_earned']}
+                else:
+                    return {"gems": 0, "total_earned": 0}
+
+        except Exception as e:
+            print(f"❌ Database error in get_balance: {e}")
+            raise
+
+    async def get_user(self, user_id: str):
+        """Get or create user data"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+
+                if row:
+                    return {
+                        "gems": row['gems'],
+                        "total_earned": row['total_earned'],
+                        "daily_streak": row['daily_streak'] or 0,
+                        "last_daily": row['last_daily'],
+                        "transactions": []
+                    }
+                else:
+                    # Create user if doesn't exist
+                    await conn.execute('''
+                        INSERT INTO user_gems (user_id, gems, total_earned)
+                        VALUES ($1, 0, 0)
+                        RETURNING gems, total_earned, daily_streak, last_daily
+                    ''', user_id)
+                    
+                    # Fetch the newly created user
+                    new_row = await conn.fetchrow(
+                        'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
+                        user_id
+                    )
+                    
+                    return {
+                        "gems": new_row['gems'],
+                        "total_earned": new_row['total_earned'],
+                        "daily_streak": new_row['daily_streak'] or 0,
+                        "last_daily": new_row['last_daily'],
+                        "transactions": []
+                    }
+
+        except Exception as e:
+            print(f"❌ Database error in get_user: {e}")
+            raise
+
+    async def can_claim_daily(self, user_id: str):
+        """Check if user can claim daily reward"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT last_daily FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+
+                if not row or not row['last_daily']:
+                    return True
+
+                last_claim = row['last_daily']
+                now = datetime.now(timezone.utc)
+
+                # Check if 24 hours have passed
+                hours_passed = (now - last_claim).total_seconds() / 3600
+                return hours_passed >= 23.5
+
+        except Exception as e:
+            print(f"❌ Database error in can_claim_daily: {e}")
+            raise
+
+    async def claim_daily(self, user_id: str):
+        """Claim daily reward with streak bonus"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                # Get current streak and last daily
+                row = await conn.fetchrow(
+                    'SELECT daily_streak, last_daily FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+
+                now = datetime.now(timezone.utc)
+
+                # Calculate new streak
+                if not row or not row['last_daily']:
+                    new_streak = 1
+                else:
+                    last_claim = row['last_daily']
+                    days_diff = (now - last_claim).days
+
+                    if days_diff == 1:
+                        new_streak = (row['daily_streak'] or 0) + 1
+                    elif days_diff > 1:
+                        new_streak = 1
+                    else:
+                        new_streak = row['daily_streak'] or 0
+
+                # Base gems (1-100) + streak bonus (up to 100% extra)
+                base_gems = random.randint(1, 100)
+                streak_bonus = min(new_streak * 0.1, 1.0)
+                bonus_gems = int(base_gems * streak_bonus)
+                total_gems = base_gems + bonus_gems
+
+                # Update user with new daily claim
+                await conn.execute('''
+                    INSERT INTO user_gems (user_id, gems, total_earned, daily_streak, last_daily)
+                    VALUES ($1, $2, $2, $3, $4)
+                    ON CONFLICT (user_id) DO UPDATE 
+                    SET gems = user_gems.gems + $2,
+                        total_earned = user_gems.total_earned + $2,
+                        daily_streak = $3,
+                        last_daily = $4,
+                        updated_at = NOW()
+                ''', user_id, total_gems, new_streak, now)
+
+                return {"gems": total_gems, "streak": new_streak}
+
+        except Exception as e:
+            print(f"❌ Database error in claim_daily: {e}")
+            raise
+
+    async def get_leaderboard(self, limit: int = 10):
+        """Get gems leaderboard"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT user_id, gems, total_earned 
+                    FROM user_gems 
+                    ORDER BY gems DESC 
+                    LIMIT $1
+                ''', limit)
+
+                return [
+                    {
+                        "user_id": row['user_id'],
+                        "gems": row['gems'],
+                        "total_earned": row['total_earned']
+                    }
+                    for row in rows
+                ]
+
+        except Exception as e:
+            print(f"❌ Database error in get_leaderboard: {e}")
+            raise
+
+    async def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Deduct gems from a user (for purchases)"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                # Check if user has enough gems
+                row = await conn.fetchrow(
+                    'SELECT gems FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+
+                if not row or row['gems'] < gems:
+                    return False  # Not enough gems
+
+                # Deduct gems
+                await conn.execute('''
+                    UPDATE user_gems 
+                    SET gems = gems - $2,
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                ''', user_id, gems)
+
+                return True
+
+        except Exception as e:
+            print(f"❌ Database error in deduct_gems: {e}")
+            raise
+
+    async def get_user_count(self):
+        """Get total number of users in database"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                count = await conn.fetchval('SELECT COUNT(*) FROM user_gems')
+                return count
+        except Exception as e:
+            print(f"❌ Database error in get_user_count: {e}")
+            raise
+
+    async def close(self):
+        """Close database connection pool"""
+        if self.pool:
+            await self.pool.close()
+            self.using_database = False
+            print("✅ Database connection pool closed")
+
+# CREATE DATABASE INSTANCE=========
 # === CURRENCY SYSTEM CLASS ===
 class CurrencySystem:
     def __init__(self, filename="user_gems.json"):
@@ -247,120 +578,6 @@ class CurrencySystem:
 # === CREATE SHARED CURRENCY SYSTEM INSTANCE ===
 currency_system = CurrencySystem()
 
-# === SIMPLE BUT EFFECTIVE DATABASE SYSTEM ===
-class SmartDatabaseSystem:
-    def __init__(self):
-        self.pool = None
-        self.using_database = False
-        self.json_file = "user_gems.json"
-        self.json_data = {}
-        self.load_json_data()
-        print(f"\n📊 Database System Status:")
-        print(f"  - DATABASE_URL exists: {'YES' if DATABASE_URL else 'NO'}")
-        print(f"  - asyncpg available: {'YES' if ASYNCPG_AVAILABLE else 'NO'}")
-        
-    def load_json_data(self):
-        """Load data from JSON file"""
-        try:
-            if os.path.exists(self.json_file):
-                with open(self.json_file, 'r', encoding='utf-8') as f:
-                    self.json_data = json.load(f)
-                print(f"  - JSON users loaded: {len(self.json_data)}")
-            else:
-                self.json_data = {}
-                print(f"  - JSON file: Not found (will create)")
-        except Exception as e:
-            print(f"  - JSON load error: {e}")
-            self.json_data = {}
-    
-    def save_json_data(self):
-        """Save data to JSON file"""
-        try:
-            with open(self.json_file, 'w', encoding='utf-8') as f:
-                json.dump(self.json_data, f, indent=2, ensure_ascii=False)
-            return True
-        except Exception as e:
-            print(f"❌ Error saving JSON: {e}")
-            return False
-    
-    async def smart_connect(self):
-        """Smart database connection that tries multiple approaches"""
-        if not DATABASE_URL:
-            print("❌ No DATABASE_URL - using JSON only")
-            return False
-        
-        if not ASYNCPG_AVAILABLE:
-            print("❌ asyncpg not available - using JSON only")
-            return False
-        
-        print("\n🔌 Attempting database connection...")
-        
-        # Try different connection strategies
-        connection_strategies = [
-            ("Standard with SSL", {'ssl': 'require'}),
-            ("Standard without SSL", {'ssl': None}),
-            ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
-        ]
-        
-        for strategy_name, strategy_args in connection_strategies:
-            print(f"  Trying: {strategy_name}...")
-            try:
-                self.pool = await asyncpg.create_pool(
-                    DATABASE_URL,
-                    min_size=1,
-                    max_size=3,
-                    **strategy_args
-                )
-                
-                # Test connection
-                async with self.pool.acquire() as conn:
-                    result = await conn.fetchval('SELECT 1')
-                    print(f"    ✅ Connection test: {result}")
-                    
-                    # Create table
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS user_gems (
-                            user_id TEXT PRIMARY KEY,
-                            gems INTEGER DEFAULT 0,
-                            total_earned INTEGER DEFAULT 0,
-                            daily_streak INTEGER DEFAULT 0,
-                            last_daily TIMESTAMP,
-                            created_at TIMESTAMP DEFAULT NOW(),
-                            updated_at TIMESTAMP DEFAULT NOW()
-                        )
-                    ''')
-                
-                self.using_database = True
-                print(f"🎉 Success with: {strategy_name}")
-                print("✅ Database connected and ready!")
-                return True
-                
-            except Exception as e:
-                print(f"    ❌ Failed: {type(e).__name__}: {str(e)[:100]}")
-                continue
-        
-        print("❌ All connection strategies failed")
-        print("💡 Possible solutions:")
-        print("  1. Wait 2 minutes for Railway PostgreSQL to be ready")
-        print("  2. Restart both bot and PostgreSQL services")
-        print("  3. Check DATABASE_URL format in Railway Variables")
-        return False
-    
-    async def add_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Add gems to a user"""
-        # Instead of implementing our own, use the shared currency system
-        transaction = currency_system.add_gems(user_id, gems, reason)
-        balance = currency_system.get_balance(user_id)
-        return {"gems": gems, "balance": balance["gems"]}
-    
-    async def get_balance(self, user_id: str):
-        """Get user balance"""
-        # Use the shared currency system
-        balance = currency_system.get_balance(user_id)
-        return balance
-
-# Create database system
-db = SmartDatabaseSystem()
 
 # --- 2. Store user selections ---
 user_selections = {}
