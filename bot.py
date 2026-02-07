@@ -28,31 +28,20 @@ except ImportError:
         print(f"❌ Failed to install asyncpg: {e}")
         print("⚠️ Bot will run with JSON fallback only")
 
-# === DEBUG: CHECK DISCORD-UI-COMPONENTS ===
-print("\n=== CHECKING DISCORD-UI-COMPONENTS ===")
+# Check for discord-components
+print("\n=== CHECKING DISCORD-COMPONENTS ===")
 try:
-    import pkg_resources
-    installed = [pkg.key for pkg in pkg_resources.working_set]
-    print(f"Installed packages: {len(installed)}")
-    print(f"Has discord-ui-components: {'discord-ui-components' in installed}")
-    
-    # Try to import
-    import discord_ui
-    print(f"✅ Successfully imported discord_ui")
-    print(f"   Version: {discord_ui.__version__ if hasattr(discord_ui, '__version__') else 'Unknown'}")
-    
-    from discord_ui import Components, Button, LinkButton, View
-    print(f"✅ Successfully imported Components, Button, etc.")
-    
-    UI_AVAILABLE = True
+    import discord_components
+    from discord_components import DiscordComponents, Components, Button, Select, SelectOption
+    COMPONENTS_AVAILABLE = True
+    print("✅ discord-components is installed!")
 except ImportError as e:
-    print(f"❌ ImportError: {e}")
-    UI_AVAILABLE = False
-except Exception as e:
-    print(f"❌ Other error: {e}")
-    UI_AVAILABLE = False
+    print(f"❌ discord-components not available: {e}")
+    print("💡 Add 'discord-components>=2.1.2' to requirements.txt")
+    COMPONENTS_AVAILABLE = False
+    discord_components = None
 
-print(f"UI_AVAILABLE = {UI_AVAILABLE}")
+# ... rest of your imports and asyncpg setup ...
 
 print("=== DEBUG INFO ===")
 print("Current working directory:", os.getcwd())
@@ -758,88 +747,357 @@ class ShopSystem:
 shop_system = ShopSystem(bot, db)
 print("✅ ShopSystem instance created")
 
-# === VISUAL SHOP UI WITH BUTTONS ===
-if UI_AVAILABLE:
-    try:
-        from discord_ui import Components, Button, LinkButton, View
-        
-        class VisualShopUI:
-            def __init__(self, bot, db, shop_system):
-                self.bot = bot
-                self.db = db
-                self.shop_system = shop_system
-                self.shop_message_id = None
-                self.shop_channel_id = None
-                print("✅ VisualShopUI class defined")
+
+# === BEAUTIFUL VISUAL SHOP WITH BUTTONS ===
+class VisualShopUI:
+    def __init__(self, bot, db, shop_system):
+        self.bot = bot
+        self.db = db
+        self.shop_system = shop_system
+        print("✅ VisualShopUI created")
+    
+    async def setup_shop_channel(self, guild):
+        """Setup shop channel with beautiful button interface"""
+        try:
+            # Initialize discord-components
+            DiscordComponents(self.bot)
             
-            async def setup_shop_channel(self, guild):
-                """Setup shop channel with button interface"""
-                try:
-                    # Find or create shop channel
-                    shop_channel = discord.utils.get(guild.text_channels, name="shops")
-                    if not shop_channel:
-                        shop_channel = await guild.create_text_channel(
-                            "shops",
-                            topic="🛒 Interactive Gem Shop",
-                            reason="Auto-created shop channel"
-                        )
-                        print(f"✅ Created shop channel: #{shop_channel.name}")
-                    
-                    # Clear channel
-                    try:
-                        await shop_channel.purge(limit=100)
-                    except:
-                        pass
-                    
-                    # Create shop embed
-                    embed = discord.Embed(
-                        title="🛒 **GEM SHOP** 🛒",
-                        description="**Click buttons to shop!**\n\n"
-                                   "📦 **Browse Items** - View all items\n"
-                                   "💰 **My Balance** - Check your gems\n"
-                                   "📜 **My Purchases** - View history\n"
-                                   "🎰 **Daily Reward** - Claim gems\n"
-                                   "❓ **Help** - How to use shop",
-                        color=discord.Color.gold()
+            # Find or create shop channel
+            shop_channel = discord.utils.get(guild.text_channels, name="shops")
+            if not shop_channel:
+                shop_channel = await guild.create_text_channel(
+                    "shops",
+                    topic="🛒 Interactive Gem Shop - Click buttons to shop!",
+                    reason="Auto-created shop channel"
+                )
+                print(f"✅ Created shop channel: #{shop_channel.name}")
+            
+            # Clear channel
+            try:
+                await shop_channel.purge(limit=100)
+            except:
+                pass
+            
+            # Create BEAUTIFUL shop interface
+            embed = discord.Embed(
+                title="🛒 **WELCOME TO THE GEM SHOP!** 🛒",
+                description=(
+                    "**✨ CLICK BUTTONS TO SHOP! ✨**\n\n"
+                    "🌟 **No commands needed!** Just click buttons!\n"
+                    "💎 **Use your gems** to unlock amazing items!\n"
+                    "🎮 **Interactive shopping experience!**\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**🎯 HOW TO USE:**\n"
+                    "1. Click 📦 to browse items\n"
+                    "2. Click buttons to view details\n"
+                    "3. Click BUY to purchase\n"
+                    "4. Get items instantly!\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                ),
+                color=discord.Color.gold()
+            )
+            
+            embed.add_field(
+                name="💎 **EARN MORE GEMS**",
+                value=(
+                    "• Click 🎰 for daily rewards\n"
+                    "• Join quizzes (`!!quiz`)\n"
+                    "• Win events and giveaways\n"
+                    "• Purchase mystery boxes"
+                ),
+                inline=False
+            )
+            
+            embed.set_footer(text="🛒 Interactive Shop • Powered by discord-components")
+            
+            # Create buttons
+            buttons = [
+                Button(style=3, label="📦 BROWSE ITEMS", custom_id="browse_items", emoji="📦"),
+                Button(style=2, label="💰 MY BALANCE", custom_id="check_balance", emoji="💰"),
+                Button(style=2, label="📜 HISTORY", custom_id="view_history", emoji="📜"),
+                Button(style=1, label="🎰 DAILY", custom_id="daily_reward", emoji="🎰"),
+                Button(style=2, label="❓ HELP", custom_id="shop_help", emoji="❓")
+            ]
+            
+            # Send message with buttons
+            message = await shop_channel.send(
+                embed=embed,
+                components=[buttons]
+            )
+            
+            print(f"✅ Beautiful shop setup complete in #{shop_channel.name}")
+            return shop_channel
+            
+        except Exception as e:
+            print(f"❌ Error setting up shop: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    async def show_shop_items(self, user):
+        """Show shop items with buttons"""
+        try:
+            items = await self.db.shop_get_items()
+            user_id = str(user.id)
+            balance = await self.db.get_balance(user_id)
+            
+            embed = discord.Embed(
+                title="📦 **SHOP ITEMS**",
+                description=f"**Your Balance:** 💎 **{balance['gems']:,} gems**\n\n"
+                           "**Click an item to view details:**",
+                color=discord.Color.blue()
+            )
+            
+            # Create item buttons
+            buttons = []
+            for i, item in enumerate(items[:4]):  # Max 4 items per row
+                emoji = "🛒"
+                if item["type"] == "role_color":
+                    emoji = "🎨"
+                elif item["type"] == "nickname_color":
+                    emoji = "🛡️"
+                elif item["type"] == "special_role":
+                    emoji = "🌟"
+                elif item["type"] == "mystery_box":
+                    emoji = "🎁"
+                
+                buttons.append(
+                    Button(
+                        style=2,
+                        label=f"{item['name']} - 💎{item['price']}",
+                        custom_id=f"view_item_{item['id']}",
+                        emoji=emoji
                     )
-                    
-                    # Create buttons
-                    components = Components()
-                    buttons = [
-                        Button.custom("📦 BROWSE ITEMS", "browse_items", style=3),
-                        Button.custom("💰 MY BALANCE", "check_balance", style=2),
-                        Button.custom("📜 MY PURCHASES", "view_history", style=2),
-                        Button.custom("🎰 DAILY", "daily_reward", style=1),
-                        Button.custom("❓ HELP", "shop_help", style=2)
-                    ]
-                    
-                    # Send message
-                    message = await shop_channel.send(
-                        embed=embed,
-                        components=components.add_components(*buttons)
-                    )
-                    
-                    self.shop_channel_id = shop_channel.id
-                    self.shop_message_id = message.id
-                    
-                    print(f"✅ Shop setup complete in #{shop_channel.name}")
-                    return shop_channel
-                    
-                except Exception as e:
-                    print(f"❌ Error setting up shop: {e}")
-                    return None
-        
-        # Create VisualShopUI instance
-        visual_shop = VisualShopUI(bot, db, shop_system)
-        print("✅ VisualShopUI instance created")
-        
-    except Exception as e:
-        print(f"❌ Failed to create VisualShopUI: {e}")
-        visual_shop = None
+                )
+            
+            # Add navigation buttons
+            nav_buttons = [
+                Button(style=1, label="⬅️ BACK", custom_id="back_to_shop", emoji="⬅️"),
+                Button(style=3, label="🛒 MAIN SHOP", custom_id="main_shop", emoji="🛒")
+            ]
+            
+            # Add items to embed
+            for item in items:
+                embed.add_field(
+                    name=f"{item['name']}",
+                    value=f"💎 **{item['price']:,}** • {item['description']}",
+                    inline=False
+                )
+            
+            return embed, [buttons, nav_buttons]
+            
+        except Exception as e:
+            print(f"❌ Error showing items: {e}")
+            return None, None
+    
+    async def show_item_details(self, user, item_id):
+        """Show item details with buy button"""
+        try:
+            items = await self.db.shop_get_items()
+            item = next((i for i in items if i["id"] == item_id), None)
+            
+            if not item:
+                return None, None
+            
+            user_id = str(user.id)
+            balance = await self.db.get_balance(user_id)
+            can_afford = balance["gems"] >= item["price"]
+            
+            embed = discord.Embed(
+                title=f"🛒 **{item['name']}**",
+                color=discord.Color.gold() if can_afford else discord.Color.red()
+            )
+            
+            # Item details
+            embed.description = f"**{item['description']}**\n\n"
+            
+            if item["type"] == "role_color":
+                embed.description += "🎨 **Get a custom role with unique color!**"
+            elif item["type"] == "nickname_color":
+                embed.description += "🛡️ **Custom color for your nickname!**"
+            elif item["type"] == "special_role":
+                embed.description += "🌟 **Exclusive 'Gem Master' role!**"
+            elif item["type"] == "mystery_box":
+                embed.description += f"🎁 **Win {item['min_gems']}-{item['max_gems']} gems!**"
+            
+            # Price and balance
+            embed.add_field(name="💰 **PRICE**", value=f"💎 **{item['price']:,}**", inline=True)
+            embed.add_field(name="💰 **YOUR BALANCE**", value=f"💎 **{balance['gems']:,}**", inline=True)
+            embed.add_field(name="💳 **CAN AFFORD**", value="✅ **YES**" if can_afford else "❌ **NO**", inline=True)
+            
+            # Create buttons
+            buy_button = Button(
+                style=3 if can_afford else 2,
+                label="✅ BUY NOW" if can_afford else "❌ NEED MORE GEMS",
+                custom_id=f"buy_item_{item_id}",
+                emoji="💳",
+                disabled=not can_afford
+            )
+            
+            back_button = Button(style=2, label="⬅️ BACK TO ITEMS", custom_id="back_to_items", emoji="⬅️")
+            shop_button = Button(style=1, label="🛒 MAIN SHOP", custom_id="main_shop", emoji="🛒")
+            
+            return embed, [[buy_button], [back_button, shop_button]]
+            
+        except Exception as e:
+            print(f"❌ Error showing item details: {e}")
+            return None, None
+
+# === CREATE SHOP UI INSTANCE ===
+if COMPONENTS_AVAILABLE:
+    visual_shop = VisualShopUI(bot, db, shop_system)
+    print("✅ VisualShopUI instance created")
 else:
-    print("❌ UI_AVAILABLE is False, using fallback")
+    print("❌ discord-components not available, shop will use commands")
     visual_shop = None
 
+# === BUTTON INTERACTION HANDLER ===
+@bot.event
+async def on_button_click(interaction):
+    """Handle button clicks"""
+    try:
+        user = interaction.user
+        custom_id = interaction.custom_id
+        
+        # Defer response
+        await interaction.respond(type=6)  # Defer
+        
+        if custom_id == "browse_items":
+            embed, components = await visual_shop.show_shop_items(user)
+            if embed and components:
+                await interaction.send(embed=embed, components=components)
+        
+        elif custom_id.startswith("view_item_"):
+            item_id = int(custom_id.split("_")[-1])
+            embed, components = await visual_shop.show_item_details(user, item_id)
+            if embed and components:
+                await interaction.send(embed=embed, components=components)
+        
+        elif custom_id.startswith("buy_item_"):
+            item_id = int(custom_id.split("_")[-1])
+            result = await shop_system.process_purchase(user, item_id, user.guild)
+            
+            if result["success"]:
+                embed = discord.Embed(
+                    title="✅ **PURCHASE SUCCESSFUL!**",
+                    description=f"**{result['item']['name']}** purchased!\n{result['message']}",
+                    color=discord.Color.green()
+                )
+                await interaction.send(embed=embed)
+            else:
+                embed = discord.Embed(
+                    title="❌ **PURCHASE FAILED**",
+                    description=result.get("message", "Unknown error"),
+                    color=discord.Color.red()
+                )
+                await interaction.send(embed=embed)
+        
+        elif custom_id == "check_balance":
+            balance = await db.get_balance(str(user.id))
+            embed = discord.Embed(
+                title="💰 **YOUR BALANCE**",
+                description=f"💎 **{balance['gems']:,} gems**\nTotal earned: **{balance['total_earned']:,}**",
+                color=discord.Color.gold()
+            )
+            await interaction.send(embed=embed)
+        
+        elif custom_id == "daily_reward":
+            embed = discord.Embed(
+                title="🎰 **DAILY REWARD**",
+                description="Use `!!currency daily` to claim your daily reward!",
+                color=discord.Color.blue()
+            )
+            await interaction.send(embed=embed)
+        
+        elif custom_id == "shop_help":
+            embed = discord.Embed(
+                title="❓ **SHOP HELP**",
+                description=(
+                    "**How to use the shop:**\n\n"
+                    "📦 **Browse Items** - View all items\n"
+                    "💰 **My Balance** - Check your gems\n"
+                    "📜 **History** - View purchases\n"
+                    "🎰 **Daily** - Claim daily reward\n\n"
+                    "**To buy:** Click an item, then click BUY!"
+                ),
+                color=discord.Color.blue()
+            )
+            await interaction.send(embed=embed)
+        
+        elif custom_id in ["back_to_shop", "main_shop"]:
+            # Recreate main shop
+            channel = interaction.channel
+            embed = discord.Embed(
+                title="🛒 **BACK TO SHOP** 🛒",
+                description="Welcome back to the gem shop!",
+                color=discord.Color.gold()
+            )
+            
+            buttons = [
+                Button(style=3, label="📦 BROWSE ITEMS", custom_id="browse_items", emoji="📦"),
+                Button(style=2, label="💰 MY BALANCE", custom_id="check_balance", emoji="💰"),
+                Button(style=1, label="🎰 DAILY", custom_id="daily_reward", emoji="🎰"),
+                Button(style=2, label="❓ HELP", custom_id="shop_help", emoji="❓")
+            ]
+            
+            await interaction.send(embed=embed, components=[buttons])
+        
+        elif custom_id == "back_to_items":
+            embed, components = await visual_shop.show_shop_items(user)
+            if embed and components:
+                await interaction.send(embed=embed, components=components)
+    
+    except Exception as e:
+        print(f"Button click error: {e}")
+        await interaction.send("❌ An error occurred. Please try again.")
+
+# === WORKING SETUPSHOP COMMAND ===
+@bot.command(name="setupshop")
+@commands.has_permissions(administrator=True)
+async def setup_shop(ctx):
+    """Setup the visual shop channel (Admin only)"""
+    if not COMPONENTS_AVAILABLE:
+        embed = discord.Embed(
+            title="❌ **MISSING DEPENDENCY**",
+            description=(
+                "**discord-components** is not installed!\n\n"
+                "💡 **Add this to requirements.txt:**\n"
+                "```\ndiscord-components>=2.1.2\n```\n"
+                "Then redeploy your bot on Railway."
+            ),
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+        return
+    
+    await ctx.send("🛒 Setting up beautiful visual shop...")
+    
+    shop_channel = await visual_shop.setup_shop_channel(ctx.guild)
+    
+    if shop_channel:
+        embed = discord.Embed(
+            title="✅ **VISUAL SHOP READY!**",
+            description=(
+                f"The shop is now live in {shop_channel.mention}!\n\n"
+                "**✨ FEATURES:**\n"
+                "• Beautiful button interface\n"
+                "• Click to browse items\n"
+                "• One-click purchases\n"
+                "• No commands needed!\n\n"
+                "**🎯 HOW IT WORKS:**\n"
+                "1. Visit the shop channel\n"
+                "2. Click 📦 to browse\n"
+                "3. Click an item to view\n"
+                "4. Click BUY to purchase\n"
+                "5. Get items instantly!"
+            ),
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send("❌ Failed to setup shop channel!")
+
+# ... rest of your bot code ...
 # --- 3. ANNOUNCEMENT SYSTEM CLASS ---
 class AnnouncementSystem:
     def __init__(self):
