@@ -2153,7 +2153,7 @@ async def currency_transfer_error(ctx, error):
 
 # CURRENCY DAILY---------
 
-@@currency_group.command(name="daily")
+@currency_group.command(name="daily")
 async def daily_reward(ctx):
     """Claim daily reward"""
     user_id = str(ctx.author.id)
