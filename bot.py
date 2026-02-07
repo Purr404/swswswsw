@@ -71,114 +71,114 @@ for key, value in os.environ.items():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 
-# === DATABASE SYSTEM (PostgreSQL) ===
+# === DATABASE SYSTEM (PostgreSQL ONLY) ===
 class DatabaseSystem:
     def __init__(self):
         self.pool = None
         self.using_database = False
-        self.json_file = "user_gems.json"
-        self.json_data = {}
-        self.load_json_data()
         print(f"\n📊 Database System Status:")
         print(f"  - DATABASE_URL exists: {'YES' if DATABASE_URL else 'NO'}")
         print(f"  - asyncpg available: {'YES' if ASYNCPG_AVAILABLE else 'NO'}")
         
-    def load_json_data(self):
-        """Load data from JSON file"""
-        try:
-            if os.path.exists(self.json_file):
-                with open(self.json_file, 'r', encoding='utf-8') as f:
-                    self.json_data = json.load(f)
-                print(f"  - JSON users loaded: {len(self.json_data)}")
-            else:
-                self.json_data = {}
-                print(f"  - JSON file: Not found (will create)")
-        except Exception as e:
-            print(f"  - JSON load error: {e}")
-            self.json_data = {}
-    
-    def save_json_data(self):
-        """Save data to JSON file"""
-        try:
-            with open(self.json_file, 'w', encoding='utf-8') as f:
-                json.dump(self.json_data, f, indent=2, ensure_ascii=False)
-            return True
-        except Exception as e:
-            print(f"❌ Error saving JSON: {e}")
-            return False
-    
     async def smart_connect(self):
-        """Smart database connection that tries multiple approaches"""
+        """Connect to PostgreSQL database"""
         if not DATABASE_URL:
-            print("❌ No DATABASE_URL - using JSON only")
+            print("❌ No DATABASE_URL found!")
+            print("💡 Set DATABASE_URL environment variable in Railway")
             return False
         
         if not ASYNCPG_AVAILABLE:
-            print("❌ asyncpg not available - using JSON only")
+            print("❌ asyncpg not available!")
+            print("💡 Add asyncpg to requirements.txt: asyncpg>=0.29.0")
             return False
         
-        print("\n🔌 Attempting database connection...")
+        print("\n🔌 Connecting to PostgreSQL...")
         
-        # Try different connection strategies
-        connection_strategies = [
-            ("Standard with SSL", {'ssl': 'require'}),
-            ("Standard without SSL", {'ssl': None}),
-            ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
-        ]
-        
-        for strategy_name, strategy_args in connection_strategies:
-            print(f"  Trying: {strategy_name}...")
-            try:
-                self.pool = await asyncpg.create_pool(
-                    DATABASE_URL,
-                    min_size=1,
-                    max_size=3,
-                    **strategy_args
-                )
+        try:
+            self.pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                min_size=1,
+                max_size=3,
+                ssl='require',
+                command_timeout=30
+            )
+            
+            # Test connection
+            async with self.pool.acquire() as conn:
+                result = await conn.fetchval('SELECT 1')
+                print(f"    ✅ Connection test: {result}")
                 
-                # Test connection
-                async with self.pool.acquire() as conn:
-                    result = await conn.fetchval('SELECT 1')
-                    print(f"    ✅ Connection test: {result}")
-                    
-                    # Create table
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS user_gems (
-                            user_id TEXT PRIMARY KEY,
-                            gems INTEGER DEFAULT 0,
-                            total_earned INTEGER DEFAULT 0,
-                            daily_streak INTEGER DEFAULT 0,
-                            last_daily TIMESTAMP WITH TIME ZONE,
-                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                        )
-                    ''')
+                # Create main gems table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS user_gems (
+                        user_id TEXT PRIMARY KEY,
+                        gems INTEGER DEFAULT 0,
+                        total_earned INTEGER DEFAULT 0,
+                        daily_streak INTEGER DEFAULT 0,
+                        last_daily TIMESTAMP WITH TIME ZONE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                ''')
                 
-                self.using_database = True
-                print(f"🎉 Success with: {strategy_name}")
-                print("✅ Database connected and ready!")
+                # Create shop tables
+                await self.create_shop_tables()
+            
+            self.using_database = True
+            print("🎉 PostgreSQL Database Connected Successfully!")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Database connection failed: {type(e).__name__}: {str(e)[:200]}")
+            print("💡 Check your DATABASE_URL in Railway Variables")
+            return False
+    
+    async def create_shop_tables(self):
+        """Create shop tables in PostgreSQL"""
+        try:
+            async with self.pool.acquire() as conn:
+                # Create shop_purchases table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS shop_purchases (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        item_id INTEGER NOT NULL,
+                        item_name TEXT NOT NULL,
+                        item_type TEXT NOT NULL,
+                        price INTEGER NOT NULL,
+                        purchased_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                ''')
+                
+                # Create shop_active_items table
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS shop_active_items (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        item_id INTEGER NOT NULL,
+                        item_type TEXT NOT NULL,
+                        role_id TEXT,
+                        expires_at TIMESTAMP WITH TIME ZONE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                ''')
+                
+                # Create indexes
+                await conn.execute('CREATE INDEX IF NOT EXISTS idx_shop_purchases_user ON shop_purchases(user_id)')
+                await conn.execute('CREATE INDEX IF NOT EXISTS idx_shop_purchases_time ON shop_purchases(purchased_at DESC)')
+                await conn.execute('CREATE INDEX IF NOT EXISTS idx_shop_active_items_user ON shop_active_items(user_id)')
+                await conn.execute('CREATE INDEX IF NOT EXISTS idx_shop_active_items_expires ON shop_active_items(expires_at)')
+                
+                print("✅ Shop tables created successfully!")
                 return True
                 
-            except Exception as e:
-                print(f"    ❌ Failed: {type(e).__name__}: {str(e)[:100]}")
-                continue
-        
-        print("❌ All connection strategies failed")
-        print("💡 Possible solutions:")
-        print("  1. Wait 2 minutes for Railway PostgreSQL to be ready")
-        print("  2. Restart both bot and PostgreSQL services")
-        print("  3. Check DATABASE_URL format in Railway Variables")
-        return False
+        except Exception as e:
+            print(f"❌ Error creating shop tables: {e}")
+            return False
     
+    # === GEM MANAGEMENT ===
     async def add_gems(self, user_id: str, gems: int, reason: str = ""):
         """Add gems to a user"""
-        if self.using_database:
-            return await self._db_add_gems(user_id, gems, reason)
-        else:
-            return await self._json_add_gems(user_id, gems, reason)
-    
-    async def _db_add_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Database version"""
         try:
             async with self.pool.acquire() as conn:
                 # Try to update existing user
@@ -199,82 +199,68 @@ class DatabaseSystem:
                     ''', user_id, gems)
                     new_balance = gems
                 else:
-                    # Parse the new balance from result
-                    # Result format: "UPDATE 1"
-                    new_balance = gems  # We'll fetch it properly
-                    
-                    # Fetch actual balance
-                    balance = await conn.fetchval(
+                    # Get new balance
+                    row = await conn.fetchrow(
                         'SELECT gems FROM user_gems WHERE user_id = $1',
                         user_id
                     )
-                    new_balance = balance
+                    new_balance = row['gems'] if row else gems
                 
                 print(f"✅ [DB] Added {gems} gems to {user_id} (Balance: {new_balance})")
                 return {"gems": gems, "balance": new_balance}
                 
         except Exception as e:
             print(f"❌ Database error in add_gems: {e}")
-            print("🔄 Falling back to JSON...")
-            return await self._json_add_gems(user_id, gems, reason)
-    
-    async def _json_add_gems(self, user_id: str, gems: int, reason: str = ""):
-        """JSON version"""
-        if user_id not in self.json_data:
-            self.json_data[user_id] = {
-                "gems": gems,
-                "total_earned": gems,
-                "daily_streak": 0,
-                "last_daily": None
-            }
-        else:
-            self.json_data[user_id]["gems"] += gems
-            self.json_data[user_id]["total_earned"] += gems
-        
-        self.save_json_data()
-        balance = self.json_data[user_id]["gems"]
-        print(f"✅ [JSON] Added {gems} gems to {user_id} (Balance: {balance})")
-        return {"gems": gems, "balance": balance}
+            raise
     
     async def get_balance(self, user_id: str):
         """Get user balance"""
-        if self.using_database:
-            try:
-                async with self.pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        'SELECT gems, total_earned FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT gems, total_earned FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+                
+                if row:
+                    return {"gems": row['gems'], "total_earned": row['total_earned']}
+                else:
+                    return {"gems": 0, "total_earned": 0}
                     
-                    if row:
-                        return {"gems": row['gems'], "total_earned": row['total_earned']}
-                    else:
-                        return {"gems": 0, "total_earned": 0}
-                        
-            except Exception as e:
-                print(f"❌ Database error in get_balance: {e}")
-                return await self._json_get_balance(user_id)
-        else:
-            return await self._json_get_balance(user_id)
+        except Exception as e:
+            print(f"❌ Database error in get_balance: {e}")
+            return {"gems": 0, "total_earned": 0}
     
-    async def _json_get_balance(self, user_id: str):
-        """JSON version"""
-        if user_id in self.json_data:
-            return {
-                "gems": self.json_data[user_id].get("gems", 0),
-                "total_earned": self.json_data[user_id].get("total_earned", 0)
-            }
-        return {"gems": 0, "total_earned": 0}
+    async def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Deduct gems from a user"""
+        try:
+            async with self.pool.acquire() as conn:
+                # Check if user has enough gems
+                row = await conn.fetchrow(
+                    'SELECT gems FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+                
+                if not row or row['gems'] < gems:
+                    return False
+                
+                # Deduct gems
+                await conn.execute('''
+                    UPDATE user_gems 
+                    SET gems = gems - $2,
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                ''', user_id, gems)
+                
+                return True
+                
+        except Exception as e:
+            print(f"❌ Database error in deduct_gems: {e}")
+            return False
     
+    # === DAILY REWARD SYSTEM ===
     async def can_claim_daily(self, user_id: str):
-        """Check if user can claim daily reward (24-hour cooldown)"""
-        if self.using_database:
-            return await self._db_can_claim_daily(user_id)
-        else:
-            return await self._json_can_claim_daily(user_id)
-    
-    async def _db_can_claim_daily(self, user_id: str):
-        """Database version of can_claim_daily"""
+        """Check if user can claim daily reward"""
         try:
             async with self.pool.acquire() as conn:
                 row = await conn.fetchrow(
@@ -290,102 +276,53 @@ class DatabaseSystem:
                 
                 # Check if 24 hours have passed
                 time_diff = now - last_claim
-                return time_diff.total_seconds() >= 86400  # 24 hours in seconds
+                return time_diff.total_seconds() >= 86400
                 
         except Exception as e:
             print(f"❌ Database error in can_claim_daily: {e}")
-            return await self._json_can_claim_daily(user_id)
-    
-    async def _json_can_claim_daily(self, user_id: str):
-        """JSON version of can_claim_daily"""
-        if user_id not in self.json_data or not self.json_data[user_id].get("last_daily"):
-            return True
-        
-        try:
-            last_claim_str = self.json_data[user_id]["last_daily"]
-            # Parse the date string
-            if isinstance(last_claim_str, str):
-                if 'T' in last_claim_str:
-                    last_claim = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
-                else:
-                    last_claim = datetime.strptime(last_claim_str, "%Y-%m-%d %H:%M:%S.%f")
-            else:
-                return True
-                
-            # Make timezone-aware if not already
-            if last_claim.tzinfo is None:
-                last_claim = last_claim.replace(tzinfo=timezone.utc)
-                
-            now = datetime.now(timezone.utc)
-            time_diff = now - last_claim
-            return time_diff.total_seconds() >= 86400  # 24 hours in seconds
-        except Exception as e:
-            print(f"JSON can_claim_daily error: {e}")
             return True
     
     async def get_user(self, user_id: str):
-        """Get user data including daily streak"""
-        if self.using_database:
-            try:
-                async with self.pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
+        """Get user data"""
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
+                    user_id
+                )
+                
+                if row:
+                    return {
+                        "gems": row['gems'],
+                        "total_earned": row['total_earned'],
+                        "daily_streak": row['daily_streak'] or 0,
+                        "last_daily": row['last_daily']
+                    }
+                else:
+                    return {
+                        "gems": 0,
+                        "total_earned": 0,
+                        "daily_streak": 0,
+                        "last_daily": None
+                    }
                     
-                    if row:
-                        return {
-                            "gems": row['gems'],
-                            "total_earned": row['total_earned'],
-                            "daily_streak": row['daily_streak'] or 0,
-                            "last_daily": row['last_daily']
-                        }
-                    else:
-                        return {
-                            "gems": 0,
-                            "total_earned": 0,
-                            "daily_streak": 0,
-                            "last_daily": None
-                        }
-                        
-            except Exception as e:
-                print(f"❌ Database error in get_user: {e}")
-                return await self._json_get_user(user_id)
-        else:
-            return await self._json_get_user(user_id)
-    
-    async def _json_get_user(self, user_id: str):
-        """JSON version of get_user"""
-        if user_id not in self.json_data:
+        except Exception as e:
+            print(f"❌ Database error in get_user: {e}")
             return {
                 "gems": 0,
                 "total_earned": 0,
                 "daily_streak": 0,
                 "last_daily": None
             }
-        return {
-            "gems": self.json_data[user_id].get("gems", 0),
-            "total_earned": self.json_data[user_id].get("total_earned", 0),
-            "daily_streak": self.json_data[user_id].get("daily_streak", 0),
-            "last_daily": self.json_data[user_id].get("last_daily")
-        }
     
     async def claim_daily(self, user_id: str):
-        """Claim daily reward with streak bonus - FIXED VERSION"""
+        """Claim daily reward"""
         now = datetime.now(timezone.utc)
         
-        if self.using_database:
-            return await self._db_claim_daily(user_id, now)
-        else:
-            return await self._json_claim_daily(user_id, now)
-    
-    async def _db_claim_daily(self, user_id: str, now: datetime):
-        """Database version of claim_daily - FIXED"""
         try:
             async with self.pool.acquire() as conn:
-                # Get current user data in a transaction
                 async with conn.transaction():
-                    # Get or create user with locking
+                    # Get user data with lock
                     row = await conn.fetchrow('''
                         SELECT gems, daily_streak, last_daily 
                         FROM user_gems 
@@ -398,14 +335,11 @@ class DatabaseSystem:
                         new_streak = 1
                     else:
                         last_claim = row['last_daily']
-                        # Check if claimed today (within last 24 hours)
                         time_diff = now - last_claim
                         
-                        if time_diff.total_seconds() < 86400:  # Less than 24 hours
-                            # Shouldn't happen if can_claim_daily was called, but double-check
+                        if time_diff.total_seconds() < 86400:
                             return {"gems": 0, "streak": row['daily_streak'] or 0, "error": "Already claimed today"}
                         
-                        # Check if claimed yesterday (streak continues)
                         days_diff = (now.date() - last_claim.date()).days
                         
                         if days_diff == 1:
@@ -415,19 +349,17 @@ class DatabaseSystem:
                     
                     # Calculate daily reward
                     base_gems = random.randint(1, 100)
-                    streak_bonus = min(new_streak * 0.1, 1.0)  # Max 100% bonus
+                    streak_bonus = min(new_streak * 0.1, 1.0)
                     bonus_gems = int(base_gems * streak_bonus)
                     total_gems = base_gems + bonus_gems
                     
                     # Update user
                     if not row:
-                        # New user
                         await conn.execute('''
                             INSERT INTO user_gems (user_id, gems, total_earned, daily_streak, last_daily)
                             VALUES ($1, $2, $2, $3, $4)
                         ''', user_id, total_gems, new_streak, now)
                     else:
-                        # Existing user
                         await conn.execute('''
                             UPDATE user_gems 
                             SET gems = gems + $2,
@@ -438,136 +370,102 @@ class DatabaseSystem:
                             WHERE user_id = $1
                         ''', user_id, total_gems, new_streak, now)
                     
-                    return {"gems": total_gems, "streak": new_streak}
+                    return {
+                        "gems": total_gems, 
+                        "streak": new_streak,
+                        "base_gems": base_gems,
+                        "bonus_gems": bonus_gems
+                    }
                     
         except Exception as e:
             print(f"❌ Database error in claim_daily: {e}")
-            return await self._json_claim_daily(user_id, now)
+            return {"gems": 0, "streak": 0, "error": "Database error"}
     
-    async def _json_claim_daily(self, user_id: str, now: datetime):
-        """JSON version of claim_daily - FIXED"""
-        # Get user data
-        if user_id not in self.json_data:
-            user_data = {
-                "gems": 0,
-                "total_earned": 0,
-                "daily_streak": 0,
-                "last_daily": None
-            }
-        else:
-            user_data = self.json_data[user_id].copy()
-        
-        # Calculate streak
-        if not user_data.get("last_daily"):
-            new_streak = 1
-        else:
-            try:
-                last_claim_str = user_data["last_daily"]
-                if isinstance(last_claim_str, str):
-                    if 'T' in last_claim_str:
-                        last_claim = datetime.fromisoformat(last_claim_str.replace('Z', '+00:00'))
-                    else:
-                        last_claim = datetime.strptime(last_claim_str, "%Y-%m-%d %H:%M:%S.%f")
-                else:
-                    last_claim = last_claim_str
-                
-                # Make timezone-aware
-                if last_claim.tzinfo is None:
-                    last_claim = last_claim.replace(tzinfo=timezone.utc)
-                
-                # Check if claimed within 24 hours (shouldn't happen but double-check)
-                time_diff = now - last_claim
-                if time_diff.total_seconds() < 86400:
-                    return {"gems": 0, "streak": user_data.get("daily_streak", 0), "error": "Already claimed today"}
-                
-                # Check days difference for streak
-                days_diff = (now.date() - last_claim.date()).days
-                
-                if days_diff == 1:
-                    new_streak = user_data.get("daily_streak", 0) + 1
-                else:
-                    new_streak = 1
-            except:
-                new_streak = 1
-        
-        # Calculate daily reward
-        base_gems = random.randint(1, 100)
-        streak_bonus = min(new_streak * 0.1, 1.0)  # Max 100% bonus
-        bonus_gems = int(base_gems * streak_bonus)
-        total_gems = base_gems + bonus_gems
-        
-        # Update user data
-        if user_id not in self.json_data:
-            self.json_data[user_id] = {}
-        
-        self.json_data[user_id].update({
-            "gems": user_data.get("gems", 0) + total_gems,
-            "total_earned": user_data.get("total_earned", 0) + total_gems,
-            "daily_streak": new_streak,
-            "last_daily": now.isoformat()
-        })
-        
-        self.save_json_data()
-        
-        return {"gems": total_gems, "streak": new_streak}
-    
+    # === LEADERBOARD ===
     async def get_leaderboard(self, limit: int = 10):
         """Get gems leaderboard"""
-        if self.using_database:
-            try:
-                async with self.pool.acquire() as conn:
-                    rows = await conn.fetch('''
-                        SELECT user_id, gems, total_earned 
-                        FROM user_gems 
-                        ORDER BY gems DESC 
-                        LIMIT $1
-                    ''', limit)
-                    
-                    return [
-                        {
-                            "user_id": row['user_id'],
-                            "gems": row['gems'],
-                            "total_earned": row['total_earned']
-                        }
-                        for row in rows
-                    ]
-                    
-            except Exception as e:
-                print(f"❌ Database error in get_leaderboard: {e}")
-                return self._json_get_leaderboard(limit)
-        else:
-            return self._json_get_leaderboard(limit)
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT user_id, gems, total_earned 
+                    FROM user_gems 
+                    ORDER BY gems DESC 
+                    LIMIT $1
+                ''', limit)
+                
+                return [
+                    {
+                        "user_id": row['user_id'],
+                        "gems": row['gems'],
+                        "total_earned": row['total_earned']
+                    }
+                    for row in rows
+                ]
+                
+        except Exception as e:
+            print(f"❌ Database error in get_leaderboard: {e}")
+            return []
     
-    def _json_get_leaderboard(self, limit: int = 10):
-        """JSON version of get_leaderboard"""
-        sorted_users = sorted(
-            self.json_data.items(),
-            key=lambda x: x[1].get("gems", 0),
-            reverse=True
-        )[:limit]
-        
-        return [
+    # === SHOP SYSTEM ===
+    async def shop_get_items(self):
+        """Get all shop items (SIMPLIFIED - no boosters)"""
+        shop_items = [
             {
-                "user_id": user_id,
-                "gems": data.get("gems", 0),
-                "total_earned": data.get("total_earned", 0)
+                "id": 1,
+                "name": "🛡️ Role Color Change",
+                "description": "Change your role color for 7 days",
+                "price": 500,
+                "type": "role_color",
+                "duration_days": 7
+            },
+            {
+                "id": 2,
+                "name": "🎨 Custom Nickname Color",
+                "description": "Set a custom color for your nickname",
+                "price": 300,
+                "type": "nickname_color",
+                "duration_days": 30
+            },
+            {
+                "id": 3,
+                "name": "🌟 Special Role",
+                "description": "Get a special 'Gem Master' role",
+                "price": 1000,
+                "type": "special_role",
+                "duration_days": 30
+            },
+            {
+                "id": 4,
+                "name": "🎁 Mystery Box",
+                "description": "Random reward between 50-500 gems",
+                "price": 250,
+                "type": "mystery_box",
+                "min_gems": 50,
+                "max_gems": 500
             }
-            for user_id, data in sorted_users
+            # Removed: streak_booster and transfer_pass
         ]
+        return shop_items
     
-    async def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Deduct gems from a user"""
-        if self.using_database:
-            try:
-                async with self.pool.acquire() as conn:
-                    # Check if user has enough gems
+    async def shop_purchase(self, user_id: str, item_id: int):
+        """Purchase an item"""
+        items = await self.shop_get_items()
+        item = next((i for i in items if i["id"] == item_id), None)
+        
+        if not item:
+            return {"success": False, "error": "Item not found"}
+        
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.transaction():
+                    # Check balance
                     row = await conn.fetchrow(
                         'SELECT gems FROM user_gems WHERE user_id = $1',
                         user_id
                     )
                     
-                    if not row or row['gems'] < gems:
-                        return False
+                    if not row or row['gems'] < item["price"]:
+                        return {"success": False, "error": "Not enough gems"}
                     
                     # Deduct gems
                     await conn.execute('''
@@ -575,24 +473,83 @@ class DatabaseSystem:
                         SET gems = gems - $2,
                             updated_at = NOW()
                         WHERE user_id = $1
-                    ''', user_id, gems)
+                    ''', user_id, item["price"])
                     
-                    return True
+                    # Get new balance
+                    new_balance_row = await conn.fetchrow(
+                        'SELECT gems FROM user_gems WHERE user_id = $1',
+                        user_id
+                    )
+                    new_balance = new_balance_row['gems'] if new_balance_row else 0
                     
-            except Exception as e:
-                print(f"❌ Database error in deduct_gems: {e}")
-                return await self._json_deduct_gems(user_id, gems)
-        else:
-            return await self._json_deduct_gems(user_id, gems)
+                    # Record purchase
+                    await conn.execute('''
+                        INSERT INTO shop_purchases 
+                        (user_id, item_id, item_name, item_type, price)
+                        VALUES ($1, $2, $3, $4, $5)
+                    ''', user_id, item["id"], item["name"], item["type"], item["price"])
+                    
+                    # For timed items, add to active_items
+                    if "duration_days" in item:
+                        expires_at = datetime.now(timezone.utc) + timedelta(days=item["duration_days"])
+                        await conn.execute('''
+                            INSERT INTO shop_active_items 
+                            (user_id, item_id, item_type, expires_at)
+                            VALUES ($1, $2, $3, $4)
+                        ''', user_id, item["id"], item["type"], expires_at)
+                    
+                    return {
+                        "success": True, 
+                        "item": item,
+                        "new_balance": new_balance
+                    }
+                    
+        except Exception as e:
+            print(f"❌ Database error in shop_purchase: {e}")
+            return {"success": False, "error": "Database error"}
     
-    async def _json_deduct_gems(self, user_id: str, gems: int, reason: str = ""):
-        """JSON version of deduct_gems"""
-        if user_id not in self.json_data or self.json_data[user_id].get("gems", 0) < gems:
-            return False
-        
-        self.json_data[user_id]["gems"] -= gems
-        self.save_json_data()
-        return True
+    async def shop_get_user_purchases(self, user_id: str, limit: int = 20):
+        """Get user's purchase history"""
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT item_id, item_name, item_type, price, purchased_at
+                    FROM shop_purchases
+                    WHERE user_id = $1
+                    ORDER BY purchased_at DESC
+                    LIMIT $2
+                ''', user_id, limit)
+                
+                purchases = []
+                for row in rows:
+                    purchases.append({
+                        "item_id": row['item_id'],
+                        "item_name": row['item_name'],
+                        "item_type": row['item_type'],
+                        "price": row['price'],
+                        "purchased_at": row['purchased_at'].isoformat() if row['purchased_at'] else None
+                    })
+                
+                return purchases
+                
+        except Exception as e:
+            print(f"❌ Database error getting purchases: {e}")
+            return []
+    
+    async def shop_cleanup_expired(self):
+        """Clean up expired items"""
+        try:
+            async with self.pool.acquire() as conn:
+                # Delete expired active items
+                deleted = await conn.execute('''
+                    DELETE FROM shop_active_items 
+                    WHERE expires_at < NOW()
+                ''')
+                
+                if deleted != 'DELETE 0':
+                    print(f"✅ Cleaned up {deleted.split()[1]} expired shop items")
+        except Exception as e:
+            print(f"❌ Error cleaning up shop items: {e}")
 
 # === CREATE SHARED DATABASE SYSTEM INSTANCE ===
 db = DatabaseSystem()
