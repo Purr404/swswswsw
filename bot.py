@@ -30,13 +30,15 @@ except ImportError:
 
 # Add this to your imports at the top
 try:
-    import discord_ui
+    from discord_ui import Components, Button, LinkButton, View
     UI_AVAILABLE = True
-    print("✅ discord-ui-components is installed")
-except ImportError:
-    UI_AVAILABLE = False
-    print("⚠️ discord-ui-components not available")
-
+except:
+    try:
+        from discord_components import Components, Button, Select, SelectOption
+        UI_AVAILABLE = True
+        print("✅ Using discord-components")
+    except:
+        UI_AVAILABLE = False
 # Now continue with the rest of your imports...
 
 print("=== DEBUG INFO ===")
