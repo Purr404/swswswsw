@@ -1533,8 +1533,8 @@ async def distribute_quiz_rewards(self, sorted_participants):
         await self.quiz_logs_channel.send(embed=embed)
    
 
-# === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
-quiz_system = QuizSystem(bot)
+# === CREATE QUIZ SYSTEM LATER (after database connection) ===
+quiz_system = None  # We'll create it in on_ready()
 
 # --- ANNOUNCEMENT COMMANDS ---
 @bot.group(name="announce", invoke_without_command=True)
@@ -2135,42 +2135,69 @@ async def railway_help(ctx):
     """
     await ctx.send(help_text)
 
-@bot.command(name="testdb")
-async def test_db(ctx):
-    """Test database connection"""
-    user_id = str(ctx.author.id)
+@bot.command(name="quizlink")
+async def quiz_link_check(ctx):
+    """Check if quiz system is properly linked to PostgreSQL"""
+    if quiz_system is None:
+        await ctx.send("❌ Quiz system not initialized yet!")
+        return
     
-    # Add gems using the shared currency system
-    transaction = currency_system.add_gems(
-        user_id=user_id,
-        gems=10,
-        reason="Database test"
+    embed = discord.Embed(
+        title="🔗 **Quiz System Link Check**",
+        color=discord.Color.blue()
     )
     
-    if transaction:
-        balance = currency_system.get_balance(user_id)
-        await ctx.send(f"✅ **CURRENCY SYSTEM WORKING!**\nAdded 10 gems\nNew balance: **{balance['gems']} gems**")
-    else:
-        await ctx.send("❌ **Test failed completely**")
+    # Check database connection
+    embed.add_field(
+        name="1. Database Connection",
+        value=f"Connected: **{db.using_database}**",
+        inline=False
+    )
+    
+    # Check currency system
+    embed.add_field(
+        name="2. Currency System",
+        value=f"Type: `{type(currency_system).__name__}`",
+        inline=False
+    )
+    
+    # Check quiz system
+    embed.add_field(
+        name="3. Quiz System",
+        value=f"Initialized: **{quiz_system is not None}**",
+        inline=False
+    )
+    
+    if quiz_system:
+        embed.add_field(
+            name="4. Quiz Currency Link",
+            value=f"Has currency: **{hasattr(quiz_system, 'currency')}**",
+            inline=False
+        )
+        
+        if hasattr(quiz_system, 'currency'):
+            # Test if it can actually add gems
+            try:
+                test_result = await quiz_system.currency.add_gems(
+                    user_id=str(ctx.author.id),
+                    gems=1,
+                    reason="Link test"
+                )
+                embed.add_field(
+                    name="5. Test Transaction",
+                    value=f"✅ **SUCCESS!**\nResult: {test_result}",
+                    inline=False
+                )
+            except Exception as e:
+                embed.add_field(
+                    name="5. Test Transaction",
+                    value=f"❌ **FAILED:** {type(e).__name__}: {str(e)[:100]}",
+                    inline=False
+                )
+    
+    await ctx.send(embed=embed)
 
-@bot.command(name="checkenv")
-async def check_env(ctx):
-    """Check all database environment variables"""
-    import os
-    
-    db_vars = []
-    for key in sorted(os.environ.keys()):
-        if any(word in key.upper() for word in ['DB', 'DATABASE', 'POSTGRES', 'PG', 'SQL', 'URL', 'HOST', 'PORT', 'USER', 'PASS']):
-            value = os.environ[key]
-            if 'PASS' in key.upper() or 'PASSWORD' in key.upper():
-                db_vars.append(f"`{key}`: `*****`")
-            else:
-                db_vars.append(f"`{key}`: `{value}`")
-    
-    if db_vars:
-        await ctx.send("**Database Environment Variables:**\n" + "\n".join(db_vars[:10]))  # First 10
-    else:
-        await ctx.send("❌ No database environment variables found!")
+
 
 # === BOT STARTUP ===
 @bot.event
@@ -2185,8 +2212,21 @@ async def on_ready():
         print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         print("✅ Your data will persist across redeploys")
     else:
-        print("⚠️ Using JSON fallback storage")
-        print("❌ Data may reset on redeploy")
+        print("⚠️ Database connection failed")
+    
+    # NOW CREATE THE QUIZ SYSTEM AFTER DATABASE IS CONNECTED
+    global quiz_system
+    quiz_system = QuizSystem(bot)
+    
+    # Verify the link
+    print(f"\n🔗 SYSTEM LINK VERIFICATION:")
+    print(f"  • Database connected: {db.using_database}")
+    print(f"  • Currency system exists: {currency_system is not None}")
+    print(f"  • Quiz system exists: {quiz_system is not None}")
+    if quiz_system:
+        print(f"  • Quiz linked to currency: {hasattr(quiz_system, 'currency')}")
+        if hasattr(quiz_system, 'currency'):
+            print(f"  • Quiz currency is PostgreSQL: {quiz_system.currency is currency_system}")
     
     await bot.change_presence(
         activity=discord.Activity(
