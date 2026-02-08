@@ -1457,9 +1457,9 @@ class QuizSystem:
             max_score = len(self.quiz_questions) * 300
             if data["score"] == max_score:
                 base_gems += 250
-            reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+                reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
             else:
-            reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+                reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
         
             # Speed bonus for fast answers
             speed_bonus = self.calculate_speed_bonus(user_id)
