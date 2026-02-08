@@ -72,13 +72,13 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 
 
-# === DATABASE SYSTEM (PostgreSQL) ===
+# === DATABASE SYSTEM (PostgreSQL ONLY) ===
 class DatabaseSystem:
     def __init__(self):
         self.pool = None
         self.using_database = False
 
-    async def connect(self):
+    async def smart_connect(self):
         """Connect to PostgreSQL database"""
         if not DATABASE_URL:
             raise ValueError("DATABASE_URL is required for PostgreSQL connection")
@@ -123,6 +123,20 @@ class DatabaseSystem:
                         )
                     ''')
 
+                    # Create transactions table for history
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_transactions (
+                            id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            timestamp TIMESTAMP DEFAULT NOW(),
+                            type VARCHAR(20),
+                            gems INTEGER,
+                            reason TEXT,
+                            balance_after INTEGER,
+                            FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
+                        )
+                    ''')
+
                 self.using_database = True
                 print(f"🎉 Success with: {strategy_name}")
                 print("✅ Database connected and ready!")
@@ -141,38 +155,47 @@ class DatabaseSystem:
             
         try:
             async with self.pool.acquire() as conn:
-                # Check if user exists
-                row = await conn.fetchrow(
-                    'SELECT gems FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
-
-                if row:
-                    # Update existing user
-                    await conn.execute('''
-                        UPDATE user_gems 
-                        SET gems = gems + $2,
-                            total_earned = total_earned + $2,
-                            updated_at = NOW()
-                        WHERE user_id = $1
-                    ''', user_id, gems)
-
-                    # Get new balance
-                    new_row = await conn.fetchrow(
+                async with conn.transaction():
+                    # Check if user exists
+                    row = await conn.fetchrow(
                         'SELECT gems FROM user_gems WHERE user_id = $1',
                         user_id
                     )
-                    new_balance = new_row['gems']
-                else:
-                    # Create new user
-                    await conn.execute('''
-                        INSERT INTO user_gems (user_id, gems, total_earned)
-                        VALUES ($1, $2, $2)
-                    ''', user_id, gems)
-                    new_balance = gems
 
-                print(f"✅ [DB] Added {gems} gems to {user_id} (Balance: {new_balance}) Reason: {reason}")
-                return {"gems": gems, "balance": new_balance}
+                    if row:
+                        # Update existing user
+                        await conn.execute('''
+                            UPDATE user_gems 
+                            SET gems = gems + $2,
+                                total_earned = total_earned + $2,
+                                updated_at = NOW()
+                            WHERE user_id = $1
+                            RETURNING gems
+                        ''', user_id, gems)
+                        
+                        # Get new balance
+                        new_row = await conn.fetchrow(
+                            'SELECT gems FROM user_gems WHERE user_id = $1',
+                            user_id
+                        )
+                        new_balance = new_row['gems']
+                    else:
+                        # Create new user
+                        await conn.execute('''
+                            INSERT INTO user_gems (user_id, gems, total_earned)
+                            VALUES ($1, $2, $2)
+                            RETURNING gems
+                        ''', user_id, gems)
+                        new_balance = gems
+
+                    # Record transaction
+                    await conn.execute('''
+                        INSERT INTO user_transactions (user_id, type, gems, reason, balance_after)
+                        VALUES ($1, 'reward', $2, $3, $4)
+                    ''', user_id, gems, reason, new_balance)
+
+                    print(f"✅ [DB] Added {gems} gems to {user_id} (Balance: {new_balance}) Reason: {reason}")
+                    return {"gems": gems, "balance": new_balance}
 
         except Exception as e:
             print(f"❌ Database error in add_gems: {e}")
@@ -193,6 +216,12 @@ class DatabaseSystem:
                 if row:
                     return {"gems": row['gems'], "total_earned": row['total_earned']}
                 else:
+                    # Create user if doesn't exist
+                    await conn.execute('''
+                        INSERT INTO user_gems (user_id, gems, total_earned)
+                        VALUES ($1, 0, 0)
+                        ON CONFLICT (user_id) DO NOTHING
+                    ''', user_id)
                     return {"gems": 0, "total_earned": 0}
 
         except Exception as e:
@@ -206,40 +235,45 @@ class DatabaseSystem:
             
         try:
             async with self.pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
+                # Get or create user
+                await conn.execute('''
+                    INSERT INTO user_gems (user_id, gems, total_earned)
+                    VALUES ($1, 0, 0)
+                    ON CONFLICT (user_id) DO NOTHING
+                ''', user_id)
 
-                if row:
-                    return {
-                        "gems": row['gems'],
-                        "total_earned": row['total_earned'],
-                        "daily_streak": row['daily_streak'] or 0,
-                        "last_daily": row['last_daily'],
-                        "transactions": []
-                    }
-                else:
-                    # Create user if doesn't exist
-                    await conn.execute('''
-                        INSERT INTO user_gems (user_id, gems, total_earned)
-                        VALUES ($1, 0, 0)
-                        RETURNING gems, total_earned, daily_streak, last_daily
-                    ''', user_id)
-                    
-                    # Fetch the newly created user
-                    new_row = await conn.fetchrow(
-                        'SELECT gems, total_earned, daily_streak, last_daily FROM user_gems WHERE user_id = $1',
-                        user_id
-                    )
-                    
-                    return {
-                        "gems": new_row['gems'],
-                        "total_earned": new_row['total_earned'],
-                        "daily_streak": new_row['daily_streak'] or 0,
-                        "last_daily": new_row['last_daily'],
-                        "transactions": []
-                    }
+                # Fetch user data
+                row = await conn.fetchrow('''
+                    SELECT gems, total_earned, daily_streak, last_daily 
+                    FROM user_gems 
+                    WHERE user_id = $1
+                ''', user_id)
+
+                # Get recent transactions
+                transactions = await conn.fetch('''
+                    SELECT timestamp, type, gems, reason, balance_after
+                    FROM user_transactions
+                    WHERE user_id = $1
+                    ORDER BY timestamp DESC
+                    LIMIT 10
+                ''', user_id)
+
+                return {
+                    "gems": row['gems'],
+                    "total_earned": row['total_earned'],
+                    "daily_streak": row['daily_streak'] or 0,
+                    "last_daily": row['last_daily'],
+                    "transactions": [
+                        {
+                            "timestamp": tx['timestamp'].isoformat(),
+                            "type": tx['type'],
+                            "gems": tx['gems'],
+                            "reason": tx['reason'],
+                            "balance": tx['balance_after']
+                        }
+                        for tx in transactions
+                    ]
+                }
 
         except Exception as e:
             print(f"❌ Database error in get_user: {e}")
@@ -278,47 +312,62 @@ class DatabaseSystem:
             
         try:
             async with self.pool.acquire() as conn:
-                # Get current streak and last daily
-                row = await conn.fetchrow(
-                    'SELECT daily_streak, last_daily FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
+                async with conn.transaction():
+                    # Get current streak and last daily
+                    row = await conn.fetchrow(
+                        'SELECT daily_streak, last_daily FROM user_gems WHERE user_id = $1',
+                        user_id
+                    )
 
-                now = datetime.now(timezone.utc)
+                    now = datetime.now(timezone.utc)
 
-                # Calculate new streak
-                if not row or not row['last_daily']:
-                    new_streak = 1
-                else:
-                    last_claim = row['last_daily']
-                    days_diff = (now - last_claim).days
-
-                    if days_diff == 1:
-                        new_streak = (row['daily_streak'] or 0) + 1
-                    elif days_diff > 1:
+                    # Calculate new streak
+                    if not row or not row['last_daily']:
                         new_streak = 1
                     else:
-                        new_streak = row['daily_streak'] or 0
+                        last_claim = row['last_daily']
+                        days_diff = (now - last_claim).days
 
-                # Base gems (1-100) + streak bonus (up to 100% extra)
-                base_gems = random.randint(1, 100)
-                streak_bonus = min(new_streak * 0.1, 1.0)
-                bonus_gems = int(base_gems * streak_bonus)
-                total_gems = base_gems + bonus_gems
+                        if days_diff == 1:
+                            new_streak = (row['daily_streak'] or 0) + 1
+                        elif days_diff > 1:
+                            new_streak = 1
+                        else:
+                            new_streak = row['daily_streak'] or 0
 
-                # Update user with new daily claim
-                await conn.execute('''
-                    INSERT INTO user_gems (user_id, gems, total_earned, daily_streak, last_daily)
-                    VALUES ($1, $2, $2, $3, $4)
-                    ON CONFLICT (user_id) DO UPDATE 
-                    SET gems = user_gems.gems + $2,
-                        total_earned = user_gems.total_earned + $2,
-                        daily_streak = $3,
-                        last_daily = $4,
-                        updated_at = NOW()
-                ''', user_id, total_gems, new_streak, now)
+                    # Base gems (1-100) + streak bonus (up to 100% extra)
+                    base_gems = random.randint(1, 100)
+                    streak_bonus = min(new_streak * 0.1, 1.0)
+                    bonus_gems = int(base_gems * streak_bonus)
+                    total_gems = base_gems + bonus_gems
 
-                return {"gems": total_gems, "streak": new_streak}
+                    # Update user with new daily claim
+                    await conn.execute('''
+                        INSERT INTO user_gems (user_id, gems, total_earned, daily_streak, last_daily)
+                        VALUES ($1, $2, $2, $3, $4)
+                        ON CONFLICT (user_id) DO UPDATE 
+                        SET gems = user_gems.gems + $2,
+                            total_earned = user_gems.total_earned + $2,
+                            daily_streak = $3,
+                            last_daily = $4,
+                            updated_at = NOW()
+                        RETURNING gems
+                    ''', user_id, total_gems, new_streak, now)
+
+                    # Get new balance
+                    new_row = await conn.fetchrow(
+                        'SELECT gems FROM user_gems WHERE user_id = $1',
+                        user_id
+                    )
+                    new_balance = new_row['gems']
+
+                    # Record transaction
+                    await conn.execute('''
+                        INSERT INTO user_transactions (user_id, type, gems, reason, balance_after)
+                        VALUES ($1, 'daily', $2, $3, $4)
+                    ''', user_id, total_gems, f"🎁 Daily Reward (Streak: {new_streak} days)", new_balance)
+
+                    return {"gems": total_gems, "streak": new_streak, "balance": new_balance}
 
         except Exception as e:
             print(f"❌ Database error in claim_daily: {e}")
@@ -358,24 +407,39 @@ class DatabaseSystem:
             
         try:
             async with self.pool.acquire() as conn:
-                # Check if user has enough gems
-                row = await conn.fetchrow(
-                    'SELECT gems FROM user_gems WHERE user_id = $1',
-                    user_id
-                )
+                async with conn.transaction():
+                    # Check if user has enough gems
+                    row = await conn.fetchrow(
+                        'SELECT gems FROM user_gems WHERE user_id = $1',
+                        user_id
+                    )
 
-                if not row or row['gems'] < gems:
-                    return False  # Not enough gems
+                    if not row or row['gems'] < gems:
+                        return False  # Not enough gems
 
-                # Deduct gems
-                await conn.execute('''
-                    UPDATE user_gems 
-                    SET gems = gems - $2,
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                ''', user_id, gems)
+                    # Deduct gems
+                    await conn.execute('''
+                        UPDATE user_gems 
+                        SET gems = gems - $2,
+                            updated_at = NOW()
+                        WHERE user_id = $1
+                        RETURNING gems
+                    ''', user_id, gems)
 
-                return True
+                    # Get new balance
+                    new_row = await conn.fetchrow(
+                        'SELECT gems FROM user_gems WHERE user_id = $1',
+                        user_id
+                    )
+                    new_balance = new_row['gems']
+
+                    # Record transaction
+                    await conn.execute('''
+                        INSERT INTO user_transactions (user_id, type, gems, reason, balance_after)
+                        VALUES ($1, 'purchase', $2, $3, $4)
+                    ''', user_id, -gems, reason, new_balance)
+
+                    return True
 
         except Exception as e:
             print(f"❌ Database error in deduct_gems: {e}")
@@ -394,6 +458,35 @@ class DatabaseSystem:
             print(f"❌ Database error in get_user_count: {e}")
             raise
 
+    async def get_transactions(self, user_id: str, limit: int = 10):
+        """Get user's recent transactions"""
+        if not self.using_database:
+            raise RuntimeError("Database not connected")
+            
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT timestamp, type, gems, reason, balance_after
+                    FROM user_transactions
+                    WHERE user_id = $1
+                    ORDER BY timestamp DESC
+                    LIMIT $2
+                ''', user_id, limit)
+
+                return [
+                    {
+                        "timestamp": row['timestamp'].isoformat(),
+                        "type": row['type'],
+                        "gems": row['gems'],
+                        "reason": row['reason'],
+                        "balance": row['balance_after']
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            print(f"❌ Database error in get_transactions: {e}")
+            return []
+
     async def close(self):
         """Close database connection pool"""
         if self.pool:
@@ -401,188 +494,51 @@ class DatabaseSystem:
             self.using_database = False
             print("✅ Database connection pool closed")
 
-# CREATE DATABASE INSTANCE=========
+# CREATE DATABASE INSTANCE
 db = DatabaseSystem()
 
 # --- 2. Store user selections ---
 user_selections = {}
 
-# === CURRENCY SYSTEM CLASS ===
+# === POSTGRESQL CURRENCY SYSTEM ===
 class CurrencySystem:
-    def __init__(self, filename="user_gems.json"):
-        self.filename = filename
-        self.data = self.load_data()
+    def __init__(self, database):
+        self.db = database
     
-    def load_data(self):
-        """Load gems data from JSON file"""
-        if os.path.exists(self.filename):
-            try:
-                with open(self.filename, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except:
-                return {}
-        return {}
+    async def get_balance(self, user_id: str):
+        """Get user balance from PostgreSQL"""
+        return await self.db.get_balance(user_id)
     
-    def save_data(self):
-        """Save gems data to JSON file"""
-        try:
-            with open(self.filename, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, indent=2, ensure_ascii=False)
-            return True
-        except Exception as e:
-            print(f"Error saving gems data: {e}")
-            return False
+    async def add_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Add gems to user in PostgreSQL"""
+        return await self.db.add_gems(user_id, gems, reason)
     
-    def get_user(self, user_id: str):
-        """Get or create user gems data"""
-        if user_id not in self.data:
-            self.data[user_id] = {
-                "gems": 0,
-                "total_earned": 0,
-                "last_updated": datetime.now(timezone.utc).isoformat(),
-                "daily_streak": 0,
-                "last_daily": None,
-                "transactions": []
-            }
-        return self.data[user_id]
+    async def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
+        """Deduct gems from user in PostgreSQL"""
+        return await self.db.deduct_gems(user_id, gems, reason)
     
-    def add_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Add gems to a user with transaction history"""
-        user = self.get_user(user_id)
-        
-        # Add gems
-        user["gems"] += gems
-        user["total_earned"] += gems
-        user["last_updated"] = datetime.now(timezone.utc).isoformat()
-        
-        # Record transaction
-        transaction = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "type": "reward",
-            "gems": gems,
-            "reason": reason,
-            "balance": user["gems"]
-        }
-        user["transactions"].append(transaction)
-        
-        # Keep only last 50 transactions
-        if len(user["transactions"]) > 50:
-            user["transactions"] = user["transactions"][-50:]
-        
-        self.save_data()
-        return transaction
+    async def get_user(self, user_id: str):
+        """Get or create user data from PostgreSQL"""
+        return await self.db.get_user(user_id)
     
-    def deduct_gems(self, user_id: str, gems: int, reason: str = ""):
-        """Deduct gems from a user (for purchases)"""
-        user = self.get_user(user_id)
-        
-        if user["gems"] < gems:
-            return False  # Not enough gems
-        
-        # Deduct gems
-        user["gems"] -= gems
-        user["last_updated"] = datetime.now(timezone.utc).isoformat()
-        
-        # Record transaction
-        transaction = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "type": "purchase",
-            "gems": -gems,
-            "reason": reason,
-            "balance": user["gems"]
-        }
-        user["transactions"].append(transaction)
-        
-        self.save_data()
-        return transaction
-    
-    def get_balance(self, user_id: str):
-        """Get user's current gems balance"""
-        user = self.get_user(user_id)
-        return {
-            "gems": user["gems"],
-            "total_earned": user["total_earned"]
-        }
-    
-    def get_leaderboard(self, limit: int = 10):
-        """Get gems leaderboard"""
-        if not self.data:
-            return []
-        
-        sorted_users = sorted(
-            self.data.items(),
-            key=lambda x: x[1]["gems"],
-            reverse=True
-        )[:limit]
-        
-        return [
-            {
-                "user_id": user_id,
-                "gems": data["gems"],
-                "total_earned": data["total_earned"]
-            }
-            for user_id, data in sorted_users
-        ]
-    
-    def can_claim_daily(self, user_id: str):
+    async def can_claim_daily(self, user_id: str):
         """Check if user can claim daily reward"""
-        user = self.get_user(user_id)
-        
-        if not user["last_daily"]:
-            return True
-        
-        try:
-            last_claim = datetime.fromisoformat(user["last_daily"])
-            now = datetime.now(timezone.utc)
-            
-            # Check if 24 hours have passed
-            hours_passed = (now - last_claim).total_seconds() / 3600
-            return hours_passed >= 23.5
-        except:
-            return True
+        return await self.db.can_claim_daily(user_id)
     
-    def claim_daily(self, user_id: str):
+    async def claim_daily(self, user_id: str):
         """Claim daily reward with streak bonus"""
-        user = self.get_user(user_id)
-        now = datetime.now(timezone.utc)
-        
-        # Check streak
-        if user["last_daily"]:
-            try:
-                last_claim = datetime.fromisoformat(user["last_daily"])
-                days_diff = (now - last_claim).days
-                
-                if days_diff == 1:
-                    user["daily_streak"] += 1
-                elif days_diff > 1:
-                    user["daily_streak"] = 1
-            except:
-                user["daily_streak"] = 1
-        else:
-            user["daily_streak"] = 1
-        
-        # Base daily reward (1-100 gems)
-        base_gems = random.randint(1, 100)
-        
-        # Streak bonus (extra 10% per day, max 100% bonus)
-        streak_bonus = min(user["daily_streak"] * 0.1, 1.0)
-        bonus_gems = int(base_gems * streak_bonus)
-        
-        total_gems = base_gems + bonus_gems
-        
-        # Update last claim
-        user["last_daily"] = now.isoformat()
-        
-        # Add gems
-        return self.add_gems(
-            user_id=user_id,
-            gems=total_gems,
-            reason=f"🎁 Daily Reward (Streak: {user['daily_streak']} days)"
-        )
+        return await self.db.claim_daily(user_id)
+    
+    async def get_leaderboard(self, limit: int = 10):
+        """Get gems leaderboard from PostgreSQL"""
+        return await self.db.get_leaderboard(limit)
+    
+    async def get_transactions(self, user_id: str, limit: int = 10):
+        """Get user's recent transactions"""
+        return await self.db.get_transactions(user_id, limit)
 
 # === CREATE SHARED CURRENCY SYSTEM INSTANCE ===
-currency_system = CurrencySystem()
-
+currency_system = CurrencySystem(db)
 
 # --- 2. Store user selections ---
 user_selections = {}
@@ -1795,7 +1751,7 @@ async def currency_group(ctx):
     """Currency and rewards commands"""
     # Get user balance using SHARED currency system
     user_id = str(ctx.author.id)
-    balance = currency_system.get_balance(user_id)
+    balance = await currency_system.get_balance(user_id)
     
     embed = discord.Embed(
         title="💰 **Your Gems**",
@@ -1805,7 +1761,7 @@ async def currency_group(ctx):
     )
     
     # Check daily streak
-    user_data = currency_system.get_user(user_id)
+    user_data = await currency_system.get_user(user_id)
     if user_data["daily_streak"] > 0:
         embed.add_field(
             name="🔥 Daily Streak",
@@ -1814,7 +1770,7 @@ async def currency_group(ctx):
         )
     
     # Check next daily
-    if currency_system.can_claim_daily(user_id):
+    if await currency_system.can_claim_daily(user_id):
         embed.add_field(
             name="🎁 Daily Reward",
             value="Available now!",
@@ -1833,7 +1789,7 @@ async def currency_group(ctx):
 @currency_group.command(name="leaderboard")
 async def currency_leaderboard(ctx):
     """Show gems leaderboard"""
-    leaderboard = currency_system.get_leaderboard(limit=10)
+    leaderboard = await currency_system.get_leaderboard(limit=10)
     
     embed = discord.Embed(
         title="🏆 **Gems Leaderboard**",
@@ -1860,97 +1816,32 @@ async def currency_leaderboard(ctx):
     
     await ctx.send(embed=embed)
 
-@currency_group.command(name="transfer")
-@commands.cooldown(1, 300, commands.BucketType.user)  # 5 minute cooldown
-async def currency_transfer(ctx, member: discord.Member, amount: int):
-    """Transfer gems to another user"""
-    if amount <= 0:
-        await ctx.send("❌ Amount must be positive!", delete_after=5)
-        return
-    
-    if amount > 1000:
-        await ctx.send("❌ Maximum transfer is 1,000 gems!", delete_after=5)
-        return
-    
-    if member.bot:
-        await ctx.send("❌ You can't transfer gems to bots!", delete_after=5)
-        return
-    
-    sender_id = str(ctx.author.id)
-    receiver_id = str(member.id)
-    
-    if sender_id == receiver_id:
-        await ctx.send("❌ You can't transfer gems to yourself!", delete_after=5)
-        return
-    
-    # Check sender's balance
-    sender_balance = currency_system.get_balance(sender_id)
-    
-    if sender_balance["gems"] < amount:
-        await ctx.send(f"❌ You don't have enough gems! You have {sender_balance['gems']} gems.", delete_after=5)
-        return
-    
-    # Transfer gems (5% tax)
-    tax = max(1, amount // 20)  # 5% tax, minimum 1 gem
-    net_amount = amount - tax
-    
-    # Deduct from sender (full amount)
-    currency_system.deduct_gems(
-        sender_id,
-        gems=amount,
-        reason=f"Transfer to {member.display_name}"
-    )
-    
-    # Add to receiver (after tax)
-    currency_system.add_gems(
-        receiver_id,
-        gems=net_amount,
-        reason=f"Received from {ctx.author.display_name}"
-    )
-    
-    embed = discord.Embed(
-        title="✅ **Transfer Successful!**",
-        description=f"Sent {amount} gems to {member.mention}\n"
-                   f"💰 **Tax:** {tax} gems\n"
-                   f"📥 **Net received:** {net_amount} gems",
-        color=discord.Color.green()
-    )
-    
-    await ctx.send(embed=embed)
-
-@currency_transfer.error
-async def currency_transfer_error(ctx, error):
-    if isinstance(error, commands.CommandOnCooldown):
-        minutes = int(error.retry_after // 60)
-        seconds = int(error.retry_after % 60)
-        await ctx.send(f"⏰ Transfer cooldown! Try again in {minutes}m {seconds}s.", delete_after=5)
-
 @currency_group.command(name="daily")
 async def daily_reward(ctx):
     """Claim daily reward (1-100 gems + streak bonus)"""
     user_id = str(ctx.author.id)
     
-    if not currency_system.can_claim_daily(user_id):
+    if not await currency_system.can_claim_daily(user_id):
         # Calculate time until next daily
-        user = currency_system.get_user(user_id)
-        last_claim = datetime.fromisoformat(user["last_daily"])
-        now = datetime.now(timezone.utc)
-        hours_left = 24 - ((now - last_claim).seconds // 3600)
-        minutes_left = 60 - ((now - last_claim).seconds % 3600) // 60
+        user = await currency_system.get_user(user_id)
+        last_claim = datetime.fromisoformat(user["last_daily"]) if user["last_daily"] else None
         
-        await ctx.send(
-            f"⏰ You can claim your daily reward in {hours_left}h {minutes_left}m!\n"
-            f"Current streak: **{user['daily_streak']} days** 🔥",
-            delete_after=10
-        )
+        if last_claim:
+            now = datetime.now(timezone.utc)
+            hours_left = 24 - ((now - last_claim).seconds // 3600)
+            minutes_left = 60 - ((now - last_claim).seconds % 3600) // 60
+            
+            await ctx.send(
+                f"⏰ You can claim your daily reward in {hours_left}h {minutes_left}m!\n"
+                f"Current streak: **{user['daily_streak']} days** 🔥",
+                delete_after=10
+            )
+        else:
+            await ctx.send("⚠️ You should be able to claim daily. Try again!")
         return
     
     # Claim daily reward using currency_system
-    transaction = currency_system.claim_daily(user_id)
-    user = currency_system.get_user(user_id)
-    
-    # Extract gems from transaction
-    gems_earned = transaction["gems"]
+    result = await currency_system.claim_daily(user_id)
     
     embed = discord.Embed(
         title="🎁 **Daily Reward Claimed!**",
@@ -1960,13 +1851,19 @@ async def daily_reward(ctx):
     
     embed.add_field(
         name="💎 Gems Earned",
-        value=f"**+{gems_earned} gems**",
+        value=f"**+{result['gems']} gems**",
         inline=False
     )
     
     embed.add_field(
         name="🔥 Daily Streak",
-        value=f"**{user['daily_streak']} days**",
+        value=f"**{result['streak']} days**",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="💰 New Balance",
+        value=f"**{result['balance']} gems**",
         inline=True
     )
     
@@ -1980,8 +1877,8 @@ async def currency_stats(ctx, member: discord.Member = None):
     target = member or ctx.author
     user_id = str(target.id)
     
-    balance = currency_system.get_balance(user_id)
-    user_data = currency_system.get_user(user_id)
+    balance = await currency_system.get_balance(user_id)
+    user_data = await currency_system.get_user(user_id)
     
     embed = discord.Embed(
         title=f"📊 **{target.display_name}'s Gem Stats**",
@@ -2006,12 +1903,6 @@ async def currency_stats(ctx, member: discord.Member = None):
         inline=True
     )
     
-    embed.add_field(
-        name="🔄 **Transactions**",
-        value=f"**{len(user_data['transactions'])}** recorded",
-        inline=True
-    )
-    
     # Recent transactions (last 5)
     if user_data["transactions"]:
         recent = user_data["transactions"][-5:]
@@ -2028,6 +1919,41 @@ async def currency_stats(ctx, member: discord.Member = None):
         )
     
     await ctx.send(embed=embed)
+
+# Update the add command to use PostgreSQL
+@bot.command(name="add")
+async def add_gems(ctx, amount: int = 100):
+    """Add gems to your account"""
+    user_id = str(ctx.author.id)
+    
+    # Use the shared currency system
+    result = await currency_system.add_gems(
+        user_id=user_id,
+        gems=amount,
+        reason=f"Command by {ctx.author.name}"
+    )
+    
+    if result:
+        balance = await currency_system.get_balance(user_id)
+        await ctx.send(f"✅ Added **{amount} gems**\nNew balance: **{balance['gems']} gems**")
+    else:
+        await ctx.send("❌ Failed to add gems")
+
+@bot.command(name="balance")
+async def balance_cmd(ctx):
+    """Check your balance"""
+    user_id = str(ctx.author.id)
+    balance = await currency_system.get_balance(user_id)
+    
+    embed = discord.Embed(
+        title="💰 Your Balance",
+        description=f"**💎 {balance['gems']} gems**",
+        color=discord.Color.gold()
+    )
+    
+    embed.set_footer(text="Stored in PostgreSQL database")
+    await ctx.send(embed=embed)
+
 
 # --- ANSWER DETECTION ---
 @bot.event
