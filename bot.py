@@ -2099,6 +2099,67 @@ async def ping(ctx):
     """Check if bot is alive"""
     await ctx.send("🏓 Pong!")
 
+@bot.command(name="quizdebug")
+async def quiz_debug(ctx):
+    """Debug quiz participants"""
+    if not quiz_system.participants:
+        await ctx.send("❌ No quiz participants")
+        return
+    
+    embed = discord.Embed(
+        title="🔍 **Quiz Debug**",
+        color=discord.Color.orange()
+    )
+    
+    # Show all participants
+    participants_info = []
+    for user_id, data in quiz_system.participants.items():
+        participants_info.append(
+            f"**{data['name']}** (ID: {user_id}):\n"
+            f"  Score: {data['score']} pts\n"
+            f"  Correct: {data['correct_answers']}/{len(quiz_system.quiz_questions)}\n"
+            f"  Answers: {len(data['answers'])}"
+        )
+    
+    embed.add_field(
+        name="📊 Participants",
+        value="\n".join(participants_info),
+        inline=False
+    )
+    
+    # Show what rewards would be calculated
+    sorted_participants = sorted(
+        quiz_system.participants.items(),
+        key=lambda x: x[1]["score"],
+        reverse=True
+    )
+    
+    reward_calc = []
+    for rank, (user_id, data) in enumerate(sorted_participants[:5], 1):
+        base_gems = 50
+        if rank == 1: base_gems += 500
+        elif rank == 2: base_gems += 250
+        elif rank == 3: base_gems += 125
+        elif rank <= 10: base_gems += 75
+        
+        score_bonus = (data["score"] // 100) * 10
+        base_gems += score_bonus
+        
+        reward_calc.append(
+            f"**Rank {rank} ({data['name']})**:\n"
+            f"Score: {data['score']} → {base_gems} gems\n"
+            f"(50 base + rank bonus + {score_bonus} score bonus)"
+        )
+    
+    if reward_calc:
+        embed.add_field(
+            name="🧮 Reward Calculation",
+            value="\n\n".join(reward_calc),
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
 
 # === EMERGENCY FIX COMMANDS ===
 @bot.command(name="emergencyfix")
