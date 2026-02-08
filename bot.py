@@ -1432,48 +1432,80 @@ class QuizSystem:
     
     
     async def distribute_quiz_rewards(self, sorted_participants):
+        
         """Distribute gems based on quiz performance - ASYNC VERSION"""
+        print(f"🎯 DEBUG distribute_quiz_rewards CALLED!")
+        print(f"🎯 DEBUG Participants count: {len(sorted_participants)}")
+    
         rewards = {}
         total_participants = len(sorted_participants)
-    
+
         for rank, (user_id, data) in enumerate(sorted_participants, 1):
-            base_gems = 50  # Participation reward
+            print(f"\n🎯 DEBUG Processing user {user_id} (rank {rank})")
+            print(f"🎯 DEBUG User data: {data}")
         
+            base_gems = 50  # Participation reward
+            print(f"🎯 DEBUG Base gems: {base_gems}")
+
             # Rank-based bonuses
             if rank == 1:  # 1st place
                 base_gems += 500
+                print(f"🎯 DEBUG Added 1st place bonus: +500")
             elif rank == 2:  # 2nd place
                 base_gems += 250
+                print(f"🎯 DEBUG Added 2nd place bonus: +250")
             elif rank == 3:  # 3rd place
                 base_gems += 125
+                print(f"🎯 DEBUG Added 3rd place bonus: +125")
             elif rank <= 10:  # Top 10
                 base_gems += 75
-        
+                print(f"🎯 DEBUG Added top 10 bonus: +75")
+
             # Score-based bonus: 10 gems per 100 points
             score_bonus = (data["score"] // 100) * 10
             base_gems += score_bonus
-        
+            print(f"🎯 DEBUG Score {data['score']} -> bonus: +{score_bonus}")
+
             # Perfect score bonus
             max_score = len(self.quiz_questions) * 300
+            print(f"🎯 DEBUG Max possible score: {max_score}, User score: {data['score']}")
             if data["score"] == max_score:
                 base_gems += 250
                 reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+                print(f"🎯 DEBUG Added perfect score bonus: +250")
             else:
                 reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
-        
+                print(f"🎯 DEBUG No perfect score bonus")
+
             # Speed bonus for fast answers
             speed_bonus = self.calculate_speed_bonus(user_id)
             if speed_bonus:
                 base_gems += speed_bonus
                 reason += f" + ⚡{speed_bonus} speed bonus"
-        
+                print(f"🎯 DEBUG Added speed bonus: +{speed_bonus}")
+
+            print(f"🎯 DEBUG Final total gems: {base_gems}")
+            print(f"🎯 DEBUG Reason: {reason}")
+
             # Add gems using the SHARED currency system (ASYNC NOW)
-            try:  # <--- ADD THIS LINE
+            try:
+                print(f"🎯 DEBUG Calling currency.add_gems({user_id}, {base_gems}, '{reason}')")
                 result = await self.currency.add_gems(
                     user_id=user_id,
                     gems=base_gems,
                     reason=reason
                 )
+            
+                print(f"✅ DEBUG currency.add_gems returned: {result}")
+            
+                if result is None:
+                    print(f"❌ DEBUG currency.add_gems returned None!")
+                elif isinstance(result, dict):
+                    print(f"✅ DEBUG Result has keys: {result.keys()}")
+                    if 'balance' in result:
+                        print(f"✅ DEBUG New balance: {result['balance']}")
+                else:
+                    print(f"⚠️ DEBUG Unexpected result type: {type(result)}")
 
                 rewards[user_id] = {
                     "gems": base_gems,
@@ -1482,15 +1514,23 @@ class QuizSystem:
                 }
 
                 # Log reward distribution
+                print(f"🎯 DEBUG Calling log_reward for user {user_id}")
                 await self.log_reward(user_id, data["name"], base_gems, rank)
-            except Exception as e:  # <--- NOW THIS WILL WORK
-                print(f"❌ Failed to add gems for user {user_id}: {e}")
+                print(f"✅ DEBUG Successfully logged reward")
+            
+            except Exception as e:
+                print(f"❌ DEBUG Exception in add_gems: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
+            
                 rewards[user_id] = {
                     "gems": 0,
                     "rank": rank,
                     "error": str(e)
                 }
     
+        print(f"\n🎯 DEBUG Finished distributing rewards")
+        print(f"🎯 DEBUG Rewards dict: {rewards}")
         return rewards
     
     def calculate_speed_bonus(self, user_id):
