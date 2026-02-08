@@ -249,6 +249,15 @@ class DatabaseSystem:
                     WHERE user_id = $1
                 ''', user_id)
 
+                # Format last_daily for output
+                last_daily_str = None
+                if row['last_daily']:
+                    # Ensure timezone info
+                    last_daily = row['last_daily']
+                    if last_daily.tzinfo is None:
+                        last_daily = last_daily.replace(tzinfo=timezone.utc)
+                last_daily_str = last_daily.isoformat()
+
                 # Get recent transactions
                 transactions = await conn.fetch('''
                     SELECT timestamp, type, gems, reason, balance_after
@@ -262,7 +271,7 @@ class DatabaseSystem:
                     "gems": row['gems'],
                     "total_earned": row['total_earned'],
                     "daily_streak": row['daily_streak'] or 0,
-                    "last_daily": row['last_daily'],
+                    "last_daily": last_daily_str,
                     "transactions": [
                         {
                             "timestamp": tx['timestamp'].isoformat(),
