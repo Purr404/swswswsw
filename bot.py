@@ -1156,7 +1156,6 @@ class QuizSystem:
         return embed
     
     async def end_quiz(self):
-    async def end_quiz(self):
         """End the entire quiz with improved leaderboard"""
         print(f"🔥 CRITICAL: end_quiz STARTED - Participants: {len(self.participants)}")
     
