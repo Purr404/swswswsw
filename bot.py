@@ -2018,38 +2018,6 @@ async def ping(ctx):
     """Check if bot is alive"""
     await ctx.send("🏓 Pong!")
 
-@bot.command(name="add")
-async def add_gems(ctx, amount: int = 100):
-    """Add gems to your account"""
-    user_id = str(ctx.author.id)
-    
-    # Use the shared currency system
-    transaction = currency_system.add_gems(
-        user_id=user_id,
-        gems=amount,
-        reason=f"Command by {ctx.author.name}"
-    )
-    
-    if transaction:
-        balance = currency_system.get_balance(user_id)
-        await ctx.send(f"✅ Added **{amount} gems**\nNew balance: **{balance['gems']} gems**")
-    else:
-        await ctx.send("❌ Failed to add gems")
-
-@bot.command(name="balance")
-async def balance_cmd(ctx):
-    """Check your balance"""
-    user_id = str(ctx.author.id)
-    balance = currency_system.get_balance(user_id)
-    
-    embed = discord.Embed(
-        title="💰 Your Balance",
-        description=f"**💎 {balance['gems']} gems**",
-        color=discord.Color.gold()
-    )
-    
-    embed.set_footer(text="Stored in user_gems.json")
-    await ctx.send(embed=embed)
 
 # === EMERGENCY FIX COMMANDS ===
 @bot.command(name="emergencyfix")
