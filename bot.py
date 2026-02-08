@@ -1430,67 +1430,68 @@ class QuizSystem:
         }
         return rank_emojis.get(rank, f"{rank}.")
     
-    async def distribute_quiz_rewards(self, sorted_participants):
-        """Distribute gems based on quiz performance"""
-        rewards = {}
-        total_participants = len(sorted_participants)
     
-        for rank, (user_id, data) in enumerate(sorted_participants, 1):
-            base_gems = 50  # Participation reward
+async def distribute_quiz_rewards(self, sorted_participants):
+    """Distribute gems based on quiz performance - ASYNC VERSION"""
+    rewards = {}
+    total_participants = len(sorted_participants)
+    
+    for rank, (user_id, data) in enumerate(sorted_participants, 1):
+        base_gems = 50  # Participation reward
         
-            # Rank-based bonuses
-            if rank == 1:  # 1st place
-                base_gems += 500
-            elif rank == 2:  # 2nd place
-                base_gems += 250
-            elif rank == 3:  # 3rd place
-                base_gems += 125
-            elif rank <= 10:  # Top 10
-                base_gems += 75
+        # Rank-based bonuses
+        if rank == 1:  # 1st place
+            base_gems += 500
+        elif rank == 2:  # 2nd place
+            base_gems += 250
+        elif rank == 3:  # 3rd place
+            base_gems += 125
+        elif rank <= 10:  # Top 10
+            base_gems += 75
         
-            # Score-based bonus: 10 gems per 100 points
-            score_bonus = (data["score"] // 100) * 10
-            base_gems += score_bonus
+        # Score-based bonus: 10 gems per 100 points
+        score_bonus = (data["score"] // 100) * 10
+        base_gems += score_bonus
         
-            # Perfect score bonus
-            max_score = len(self.quiz_questions) * 300
-            if data["score"] == max_score:
-                base_gems += 250
-                reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
-            else:
-                reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+        # Perfect score bonus
+        max_score = len(self.quiz_questions) * 300
+        if data["score"] == max_score:
+            base_gems += 250
+            reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+        else:
+            reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
         
-            # Speed bonus for fast answers
-            speed_bonus = self.calculate_speed_bonus(user_id)
-            if speed_bonus:
-                base_gems += speed_bonus
-                reason += f" + ⚡{speed_bonus} speed bonus"
+        # Speed bonus for fast answers
+        speed_bonus = self.calculate_speed_bonus(user_id)
+        if speed_bonus:
+            base_gems += speed_bonus
+            reason += f" + ⚡{speed_bonus} speed bonus"
         
-            # Add gems using the SHARED currency system (ASYNC NOW)
+        # Add gems using the SHARED currency system (ASYNC NOW)
+        try:  # <--- ADD THIS LINE
             result = await self.currency.add_gems(
                 user_id=user_id,
                 gems=base_gems,
                 reason=reason
             )
-        
+
             rewards[user_id] = {
                 "gems": base_gems,
                 "rank": rank,
                 "result": result
             }
-        
-            #
-                # Log reward distribution
-                await self.log_reward(user_id, data["name"], base_gems, rank)
-            except Exception as e:  # <--- NOW THIS WILL WORK
-                print(f"❌ Failed to add gems for user {user_id}: {e}")
-                rewards[user_id] = {
-                    "gems": 0,
-                    "rank": rank,
-                    "error": str(e)
-                }
-        
-        return rewards
+
+            # Log reward distribution
+            await self.log_reward(user_id, data["name"], base_gems, rank)
+        except Exception as e:  # <--- NOW THIS WILL WORK
+            print(f"❌ Failed to add gems for user {user_id}: {e}")
+            rewards[user_id] = {
+                "gems": 0,
+                "rank": rank,
+                "error": str(e)
+            }
+    
+    return rewards
     
     def calculate_speed_bonus(self, user_id):
         """Calculate speed bonus for fast answers"""
