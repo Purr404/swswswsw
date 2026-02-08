@@ -1475,8 +1475,15 @@ class QuizSystem:
         
             # Log reward distribution
             await self.log_reward(user_id, data["name"], base_gems, rank)
-    
-        return rewards
+        except Exception as e:
+            print(f"❌ Failed to add gems for user {user_id}: {e}")
+            rewards[user_id] = {
+                "gems": 0,
+                "rank": rank,
+                "error": str(e)
+            }
+        
+    return rewards
     
     def calculate_speed_bonus(self, user_id):
         """Calculate speed bonus for fast answers"""
@@ -1505,9 +1512,18 @@ class QuizSystem:
         embed.add_field(name="👤 User", value=username, inline=True)
         embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
         embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
-        embed.add_field(name="📊 Total", value=f"{gems} gems", inline=True)
+       
+        # Get user's new balance
+        try:
+            balance = await self.currency.get_balance(user_id)
+            embed.add_field(name="📊 New Balance", value=f"{balance['gems']} gems", inline=True)
+        except:
+            embed.add_field(name="📊 Status", value="Balance update failed", inline=True)
+        
+        embed.set_footer(text=f"Quiz completed • {len(self.participants)} participants")
         
         await self.quiz_logs_channel.send(embed=embed)
+   
 
 # === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
 quiz_system = QuizSystem(bot)
