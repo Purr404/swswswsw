@@ -1434,7 +1434,7 @@ class QuizSystem:
             if data["score"] == max_score:
                 base_gems += 250
                 reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
-        else:
+            else:
                 reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
         
             # Speed bonus for fast answers
@@ -1448,13 +1448,13 @@ class QuizSystem:
                 user_id=user_id,
                 gems=base_gems,
                 reason=reason
-        )
+            )
         
             rewards[user_id] = {
                 "gems": base_gems,
                 "rank": rank,
                 "result": result
-        }
+            }
         
             # Log reward distribution
             await self.log_reward(user_id, data["name"], base_gems, rank)
