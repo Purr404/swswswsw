@@ -1433,7 +1433,7 @@ class QuizSystem:
     
     async def distribute_quiz_rewards(self, sorted_participants):
         """Distribute gems based on quiz performance - ASYNC VERSION"""
-    rewards = {}
+        rewards = {}
         total_participants = len(sorted_participants)
     
         for rank, (user_id, data) in enumerate(sorted_participants, 1):
