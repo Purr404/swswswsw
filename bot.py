@@ -1156,7 +1156,10 @@ class QuizSystem:
         return embed
     
     async def end_quiz(self):
+    async def end_quiz(self):
         """End the entire quiz with improved leaderboard"""
+        print(f"🔥 CRITICAL: end_quiz STARTED - Participants: {len(self.participants)}")
+    
         self.quiz_running = False
         self.countdown_task.stop()
 
@@ -1180,7 +1183,7 @@ class QuizSystem:
 
         # Add quiz statistics
         total_questions = len(self.quiz_questions)
-        total_correct = sum(p['correct_answers'] for p in self.participants.values())
+        total_correct = sum(p['correct_answers'] for p in   self.participants.values())
         total_attempts = sum(len(p['answers']) for p in self.participants.values())
         total_participants = len(self.participants)
 
@@ -1203,7 +1206,15 @@ class QuizSystem:
         await asyncio.sleep(2)
 
         # DISTRIBUTE REWARDS FIRST
-        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+        print(f"🔥 CRITICAL: About to call distribute_quiz_rewards...")
+        try:
+            rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+            print(f"🔥 CRITICAL: Rewards distributed to {len(rewards_distributed)} users")
+        except Exception as e:
+            print(f"❌ CRITICAL ERROR in distribute_quiz_rewards: {e}")
+            import traceback
+            traceback.print_exc()
+            rewards_distributed = {}
 
         # Send TOP 3 WINNERS with avatars
         if len(sorted_participants) >= 3:
@@ -1230,7 +1241,7 @@ class QuizSystem:
             medals = ["🥇", "🥈", "🥉"]
             colors = [0xFFD700, 0xC0C0C0, 0xCD7F32]  # Gold, Silver, Bronze
 
-            # Create top 3 display - FIXED SYNTAX
+            # Create top 3 display
             top3_text = ""
             for i, (user, data) in enumerate(top3_users):
                 medal = medals[i]
@@ -1240,20 +1251,19 @@ class QuizSystem:
                 # Calculate accuracy
                 user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
 
-                # Format user mention or name - FIXED TYPO
+                # Format user mention or name
                 if user:
                     user_display = user.mention 
                 else:
-                    user_display = f"**{data['name']}**"  # Fixed typo: was user_diplay
+                    user_display = f"**{data['name']}**"
 
-                # FIXED: Proper string concatenation without syntax error
                 top3_text += f"{medal} {user_display}\n"
                 top3_text += f"   ⭐ **{data['score']}** points\n"
                 top3_text += f"   💎 **{gems} gems** earned\n"
                 top3_text += f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n\n"
 
             top3_embed.description = top3_text
-            top3_embed.color = colors[0]  # Gold color for winner
+            top3_embed.color = colors[0]
 
             # Set winner's avatar as thumbnail
             if top3_users[0][0] and top3_users[0][0].avatar:
@@ -1326,12 +1336,15 @@ class QuizSystem:
 
             await self.quiz_channel.send(embed=leaderboard_embed)
 
-        # Send rewards summary - REMOVED DUPLICATE REWARDS DISTRIBUTION
+        # Send rewards summary
+        total_distributed_gems = sum(reward.get("gems", 0) for reward in rewards_distributed.values())
+        successful_rewards = sum(1 for reward in rewards_distributed.values() if reward.get("gems", 0) > 0)
+    
         rewards_embed = discord.Embed(
             title="💰 **Quiz Rewards Distributed!**",
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc)
-        )
+    )
 
         # Show top 3 with rewards
         top_3 = []
@@ -1355,20 +1368,28 @@ class QuizSystem:
         # Show participation rewards
         if len(sorted_participants) > 3:
             rewards_embed.add_field(
-                name="🎁 **Participation Rewards**",
-                value=f"All {len(sorted_participants)} participants received:\n"
-                      f"• 💎 50 gems for joining\n"
-                      f"• +10 gems per 100 points scored\n"
-                      f"• Speed bonuses for fast answers!",
-                inline=False
-            )
+                name="🎁 **Rewards Summary**",
+                value=f"**Participants Rewarded:** {successful_rewards}/{len(sorted_participants)}\n"
+                      f"**Total Gems Distributed:** {total_distributed_gems} 💎\n"
+                      f"**Reward Formula:**\n"
+                      f"• Base: 50 gems participation\n"
+                      f"• 1st: +500 gems\n"
+                      f"• 2nd: +250 gems\n"
+                      f"• 3rd: +125 gems\n"
+                      f"• Top 10: +75 gems\n"
+                      f"• Score bonus: +10 gems per 100 points",
+            inline=False
+        )
 
         await self.quiz_channel.send(embed=rewards_embed)
 
         # Send individual DMs with rewards
+        dm_count = 0
         for user_id, data in self.participants.items():
             reward = rewards_distributed.get(user_id, {})
-            if reward:
+            gems = reward.get("gems", 0)
+        
+            if gems > 0:
                 user_obj = self.bot.get_user(int(user_id))
                 if user_obj:
                     try:
@@ -1382,11 +1403,10 @@ class QuizSystem:
 
                         dm_embed.add_field(
                             name="💰 **Rewards Earned**",
-                            value=f"💎 **{reward['gems']} Gems**",
+                            value=f"💎 **{gems} Gems**",
                             inline=False
                         )
 
-                        # FIXED: Use async method to get balance
                         balance = await self.currency.get_balance(user_id)
                         dm_embed.add_field(
                             name="📊 **New Balance**",
@@ -1396,8 +1416,12 @@ class QuizSystem:
 
                         dm_embed.set_footer(text="Use !!currency to check your gems!")
                         await user_obj.send(embed=dm_embed)
+                        dm_count += 1
+                        print(f"✅ Sent DM to user {user_id} - {gems} gems")
                     except:
-                        pass  # User has DMs disabled
+                        print(f"⚠️ Could not send DM to user {user_id}")
+
+        print(f"🔥 CRITICAL: Sent {dm_count} reward DMs")
 
         # Wait 2 seconds
         await asyncio.sleep(2)
@@ -1416,7 +1440,7 @@ class QuizSystem:
         self.quiz_logs_channel = None
         self.current_question = 0
         self.participants = {}
-
+        print(f"🔥 CRITICAL: end_quiz COMPLETED successfully")
 
     def calculate_average_time(self, user_data):
         """Calculate average time for correct answers"""
@@ -1424,7 +1448,7 @@ class QuizSystem:
         if not correct_times:
             return 0
         return sum(correct_times) / len(correct_times)
-    
+
     def get_rank_emoji(self, rank):
         """Get appropriate emoji for rank position"""
         rank_emojis = {
@@ -1440,83 +1464,61 @@ class QuizSystem:
             10: "🔟"
         }
         return rank_emojis.get(rank, f"{rank}.")
-    
-    
+
     async def distribute_quiz_rewards(self, sorted_participants):
-        
         """Distribute gems based on quiz performance - ASYNC VERSION"""
-        print(f"🎯 DEBUG distribute_quiz_rewards CALLED!")
-        print(f"🎯 DEBUG Participants count: {len(sorted_participants)}")
+        print(f"🔥 CRITICAL: distribute_quiz_rewards CALLED!")
+        print(f"🔥 CRITICAL: Participants count: {len(sorted_participants)}")
     
         rewards = {}
         total_participants = len(sorted_participants)
 
         for rank, (user_id, data) in enumerate(sorted_participants, 1):
-            print(f"\n🎯 DEBUG Processing user {user_id} (rank {rank})")
-            print(f"🎯 DEBUG User data: {data}")
+            print(f"\n🔥 CRITICAL: Processing user {user_id} (rank {rank})")
+            print(f"🔥 CRITICAL: User data - Score: {data['score']}, Name: {data['name']}")
         
             base_gems = 50  # Participation reward
-            print(f"🎯 DEBUG Base gems: {base_gems}")
 
             # Rank-based bonuses
             if rank == 1:  # 1st place
                 base_gems += 500
-                print(f"🎯 DEBUG Added 1st place bonus: +500")
             elif rank == 2:  # 2nd place
                 base_gems += 250
-                print(f"🎯 DEBUG Added 2nd place bonus: +250")
             elif rank == 3:  # 3rd place
                 base_gems += 125
-                print(f"🎯 DEBUG Added 3rd place bonus: +125")
             elif rank <= 10:  # Top 10
                 base_gems += 75
-                print(f"🎯 DEBUG Added top 10 bonus: +75")
 
             # Score-based bonus: 10 gems per 100 points
             score_bonus = (data["score"] // 100) * 10
             base_gems += score_bonus
-            print(f"🎯 DEBUG Score {data['score']} -> bonus: +{score_bonus}")
 
             # Perfect score bonus
             max_score = len(self.quiz_questions) * 300
-            print(f"🎯 DEBUG Max possible score: {max_score}, User score: {data['score']}")
             if data["score"] == max_score:
                 base_gems += 250
                 reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
-                print(f"🎯 DEBUG Added perfect score bonus: +250")
             else:
                 reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
-                print(f"🎯 DEBUG No perfect score bonus")
 
             # Speed bonus for fast answers
             speed_bonus = self.calculate_speed_bonus(user_id)
             if speed_bonus:
                 base_gems += speed_bonus
                 reason += f" + ⚡{speed_bonus} speed bonus"
-                print(f"🎯 DEBUG Added speed bonus: +{speed_bonus}")
 
-            print(f"🎯 DEBUG Final total gems: {base_gems}")
-            print(f"🎯 DEBUG Reason: {reason}")
+            print(f"🔥 CRITICAL: Calculated {base_gems} gems for {data['name']}")
 
             # Add gems using the SHARED currency system (ASYNC NOW)
             try:
-                print(f"🎯 DEBUG Calling currency.add_gems({user_id}, {base_gems}, '{reason}')")
+                print(f"🔥 CRITICAL: Calling currency.add_gems for {user_id}")
                 result = await self.currency.add_gems(
                     user_id=user_id,
                     gems=base_gems,
                     reason=reason
                 )
-            
-                print(f"✅ DEBUG currency.add_gems returned: {result}")
-            
-                if result is None:
-                    print(f"❌ DEBUG currency.add_gems returned None!")
-                elif isinstance(result, dict):
-                    print(f"✅ DEBUG Result has keys: {result.keys()}")
-                    if 'balance' in result:
-                        print(f"✅ DEBUG New balance: {result['balance']}")
-                else:
-                    print(f"⚠️ DEBUG Unexpected result type: {type(result)}")
+
+                print(f"✅ CRITICAL: currency.add_gems returned: {result}")
 
                 rewards[user_id] = {
                     "gems": base_gems,
@@ -1525,12 +1527,10 @@ class QuizSystem:
                 }
 
                 # Log reward distribution
-                print(f"🎯 DEBUG Calling log_reward for user {user_id}")
                 await self.log_reward(user_id, data["name"], base_gems, rank)
-                print(f"✅ DEBUG Successfully logged reward")
             
             except Exception as e:
-                print(f"❌ DEBUG Exception in add_gems: {type(e).__name__}: {e}")
+                print(f"❌ CRITICAL: Exception in add_gems: {type(e).__name__}: {e}")
                 import traceback
                 traceback.print_exc()
             
@@ -1540,49 +1540,49 @@ class QuizSystem:
                     "error": str(e)
                 }
     
-        print(f"\n🎯 DEBUG Finished distributing rewards")
-        print(f"🎯 DEBUG Rewards dict: {rewards}")
+        print(f"\n🔥 CRITICAL: Finished distributing rewards")
+        print(f"🔥 CRITICAL: Rewards dict: {rewards}")
         return rewards
-    
+
     def calculate_speed_bonus(self, user_id):
         """Calculate speed bonus for fast answers"""
         if user_id not in self.participants:
             return 0
-        
+    
         speed_bonus = 0
         for answer in self.participants[user_id]["answers"]:
             if answer["correct"] and answer["time"] < 10:
                 # Bonus gems for answering under 10 seconds
                 speed_bonus += max(1, 10 - answer["time"])
-        
-        return min(speed_bonus, 50)  # Cap at 50 gems
     
+        return min(speed_bonus, 50)  # Cap at 50 gems
+
     async def log_reward(self, user_id, username, gems, rank):
         """Log reward distribution"""
         if not self.quiz_logs_channel:
             return
-        
+    
         embed = discord.Embed(
             title="💰 **Gems Distributed**",
             color=discord.Color.gold(),
             timestamp=datetime.now(timezone.utc)
         )
-        
+    
         embed.add_field(name="👤 User", value=username, inline=True)
         embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
         embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
-       
+    
         # Get user's new balance
         try:
             balance = await self.currency.get_balance(user_id)
             embed.add_field(name="📊 New Balance", value=f"{balance['gems']} gems", inline=True)
         except:
             embed.add_field(name="📊 Status", value="Balance update failed", inline=True)
-        
+    
         embed.set_footer(text=f"Quiz completed • {len(self.participants)} participants")
-        
+    
         await self.quiz_logs_channel.send(embed=embed)
-   
+
 
 # === CREATE QUIZ SYSTEM LATER (after database connection) ===
 quiz_system = None  # We'll create it in on_ready()
