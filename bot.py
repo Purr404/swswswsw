@@ -152,7 +152,9 @@ class DatabaseSystem:
         """Add gems to a user"""
         if not self.using_database:
             raise RuntimeError("Database not connected")
-            
+        
+        print(f"🔍 DB DEBUG: add_gems called with user_id={user_id}, gems={gems}, reason='{reason}'")
+    
         try:
             async with self.pool.acquire() as conn:
                 async with conn.transaction():
@@ -161,9 +163,11 @@ class DatabaseSystem:
                         'SELECT gems FROM user_gems WHERE user_id = $1',
                         user_id
                     )
+                
+                    print(f"🔍 DB DEBUG: User exists check: {row is not None}")
 
                     if row:
-                        # Update existing user
+                       # Update existing user
                         await conn.execute('''
                             UPDATE user_gems 
                             SET gems = gems + $2,
@@ -172,13 +176,14 @@ class DatabaseSystem:
                             WHERE user_id = $1
                             RETURNING gems
                         ''', user_id, gems)
-                        
+                    
                         # Get new balance
                         new_row = await conn.fetchrow(
                             'SELECT gems FROM user_gems WHERE user_id = $1',
                             user_id
                         )
                         new_balance = new_row['gems']
+                        print(f"🔍 DB DEBUG: Updated existing user. New balance: {new_balance}")
                     else:
                         # Create new user
                         await conn.execute('''
@@ -187,19 +192,25 @@ class DatabaseSystem:
                             RETURNING gems
                         ''', user_id, gems)
                         new_balance = gems
+                        print(f"🔍 DB DEBUG: Created new user. Balance: {new_balance}")
 
                     # Record transaction
                     await conn.execute('''
                         INSERT INTO user_transactions (user_id, type, gems, reason, balance_after)
                         VALUES ($1, 'reward', $2, $3, $4)
                     ''', user_id, gems, reason, new_balance)
+                
+                    print(f"🔍 DB DEBUG: Transaction recorded successfully")
+                    print(f"✅ DB DEBUG: Added {gems} gems to {user_id} (Balance: {new_balance})")
 
-                    print(f"✅ [DB] Added {gems} gems to {user_id} (Balance: {new_balance}) Reason: {reason}")
                     return {"gems": gems, "balance": new_balance}
 
         except Exception as e:
-            print(f"❌ Database error in add_gems: {e}")
+            print(f"❌ DB DEBUG: Database error in add_gems: {e}")
+            import traceback
+            traceback.print_exc()
             raise
+
 
     async def get_balance(self, user_id: str):
         """Get user balance"""
