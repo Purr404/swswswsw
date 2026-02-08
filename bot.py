@@ -2310,6 +2310,41 @@ async def quiz_link_check(ctx):
     await ctx.send(embed=embed)
 
 
+@bot.command(name="dbtestadd")
+async def db_test_add(ctx, user_id: str = None, gems: int = 100):
+    """Direct database add_gems test"""
+    target_id = user_id or str(ctx.author.id)
+    
+    try:
+        print(f"\n🔍 DB TEST: Direct database test for user {target_id}")
+        print(f"🔍 DB TEST: db.using_database = {db.using_database}")
+        print(f"🔍 DB TEST: db.pool = {db.pool}")
+        
+        if not db.using_database:
+            await ctx.send("❌ Database not connected")
+            return
+        
+        # Test directly with database
+        result = await db.add_gems(
+            user_id=target_id,
+            gems=gems,
+            reason=f"Direct database test by {ctx.author.name}"
+        )
+        
+        await ctx.send(f"✅ **Direct Database Test:**\nAdded {gems} gems\nResult: {result}")
+        
+        # Verify with get_balance
+        balance = await db.get_balance(target_id)
+        await ctx.send(f"✅ **Verified Balance:** {balance['gems']} gems")
+        
+    except Exception as e:
+        await ctx.send(f"❌ **Database Error:** {type(e).__name__}: {str(e)[:200]}")
+        print(f"❌ DB TEST ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+
 
 # === BOT STARTUP ===
 @bot.event
