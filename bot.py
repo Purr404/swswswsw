@@ -1190,6 +1190,10 @@ class QuizSystem:
         
         # Wait 2 seconds
         await asyncio.sleep(2)
+
+
+        # DISTRIBUTE REWARDS FIRST
+        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
         
         # Send TOP 3 WINNERS with avatars
         if len(sorted_participants) >= 3:
@@ -1220,20 +1224,24 @@ class QuizSystem:
             top3_text = ""
             for i, (user, data) in enumerate(top3_users):
                 medal = medals[i]
+                reward = rewards_distributed.get(str(user.id if user else sorted_participants[i][0]), {})
+                gems = reward.get("gems", 0)
                 
                 # Calculate accuracy
                 user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
                 
                 # Format user mention or name
-                user_display = user.mention if user else f"**{data['name']}**"
+                if user:
+                    user_display = user.mention 
+                else:
+                    user_diplay = f"**{data['name']}**"
                 
                 top3_text += (
                     f"{medal} **{user_display}**\n"
                     f"   ⭐ **{data['score']}** points\n"
+                    f"   💎 **{gems} gems** earned\n"
                     f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n"
-                    f"   ⏱️ Avg time per correct answer: {self.calculate_average_time(data):.1f}s\n\n"
-                )
-            
+                    
             top3_embed.description = top3_text
             top3_embed.color = colors[0]  # Gold color for winner
             
@@ -1245,7 +1253,8 @@ class QuizSystem:
         
         # Wait 2 seconds
         await asyncio.sleep(2)
-        
+       
+
         # Send FULL LEADERBOARD with pagination if many participants
         if sorted_participants:
             # Create main leaderboard embed
