@@ -1481,17 +1481,17 @@ class QuizSystem:
                     "result": result
                 }
 
-            # Log reward distribution
-            await self.log_reward(user_id, data["name"], base_gems, rank)
-        except Exception as e:  # <--- NOW THIS WILL WORK
-            print(f"❌ Failed to add gems for user {user_id}: {e}")
-            rewards[user_id] = {
-                "gems": 0,
-                "rank": rank,
-                "error": str(e)
-            }
+                # Log reward distribution
+                await self.log_reward(user_id, data["name"], base_gems, rank)
+            except Exception as e:  # <--- NOW THIS WILL WORK
+                print(f"❌ Failed to add gems for user {user_id}: {e}")
+                rewards[user_id] = {
+                    "gems": 0,
+                    "rank": rank,
+                    "error": str(e)
+                }
     
-    return rewards
+        return rewards
     
     def calculate_speed_bonus(self, user_id):
         """Calculate speed bonus for fast answers"""
