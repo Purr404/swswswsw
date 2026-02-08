@@ -1411,10 +1411,10 @@ class QuizSystem:
         """Distribute gems based on quiz performance"""
         rewards = {}
         total_participants = len(sorted_participants)
-        
+    
         for rank, (user_id, data) in enumerate(sorted_participants, 1):
             base_gems = 50  # Participation reward
-            
+        
             # Rank-based bonuses
             if rank == 1:  # 1st place
                 base_gems += 500
@@ -1424,40 +1424,41 @@ class QuizSystem:
                 base_gems += 125
             elif rank <= 10:  # Top 10
                 base_gems += 75
-            
+        
             # Score-based bonus: 10 gems per 100 points
             score_bonus = (data["score"] // 100) * 10
             base_gems += score_bonus
-            
+        
             # Perfect score bonus
             max_score = len(self.quiz_questions) * 300
             if data["score"] == max_score:
                 base_gems += 250
                 reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
-            else:
+        else:
                 reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
-            
+        
             # Speed bonus for fast answers
             speed_bonus = self.calculate_speed_bonus(user_id)
             if speed_bonus:
                 base_gems += speed_bonus
                 reason += f" + ⚡{speed_bonus} speed bonus"
-            
-            # Add gems using the SHARED currency system
-            transaction = self.currency.add_gems(
+        
+            # Add gems using the SHARED currency system (ASYNC NOW)
+            result = await self.currency.add_gems(
                 user_id=user_id,
                 gems=base_gems,
                 reason=reason
-            )
-            
+        )
+        
             rewards[user_id] = {
                 "gems": base_gems,
-                "rank": rank
-            }
-            
+                "rank": rank,
+                "result": result
+        }
+        
             # Log reward distribution
             await self.log_reward(user_id, data["name"], base_gems, rank)
-        
+    
         return rewards
     
     def calculate_speed_bonus(self, user_id):
