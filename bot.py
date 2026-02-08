@@ -320,6 +320,7 @@ class DatabaseSystem:
                     )
 
                     now = datetime.now(timezone.utc)
+                    postgres_now = now.replace(tzinfo=None)  # Remove timezone for PostgreSQL
 
                     # Calculate new streak
                     if not row or not row['last_daily']:
@@ -352,7 +353,7 @@ class DatabaseSystem:
                             last_daily = $4,
                             updated_at = NOW()
                         RETURNING gems
-                    ''', user_id, total_gems, new_streak, now)
+                    ''', user_id, total_gems, new_streak, postgres_now)  # Use postgres_now
 
                     # Get new balance
                     new_row = await conn.fetchrow(
