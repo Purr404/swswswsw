@@ -1144,272 +1144,268 @@ class QuizSystem:
         
         return embed
     
-    async def end_quiz(self):
-        """End the entire quiz with improved leaderboard"""
-        self.quiz_running = False
-        self.countdown_task.stop()
-        
-        if self.question_timer:
-            self.question_timer.cancel()
-        
-        # Sort participants by score
-        sorted_participants = sorted(
-            self.participants.items(),
-            key=lambda x: x[1]["score"],
-            reverse=True
+async def end_quiz(self):
+    """End the entire quiz with improved leaderboard"""
+    self.quiz_running = False
+    self.countdown_task.stop()
+
+    if self.question_timer:
+        self.question_timer.cancel()
+
+    # Sort participants by score
+    sorted_participants = sorted(
+        self.participants.items(),
+        key=lambda x: x[1]["score"],
+        reverse=True
+    )
+
+    # First, send a congratulations embed
+    embed = discord.Embed(
+        title="🏆 **QUIZ FINISHED!** 🏆",
+        description="Congratulations to all participants!\nHere are the final results:",
+        color=discord.Color.gold(),
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    # Add quiz statistics
+    total_questions = len(self.quiz_questions)
+    total_correct = sum(p['correct_answers'] for p in self.participants.values())
+    total_attempts = sum(len(p['answers']) for p in self.participants.values())
+    total_participants = len(self.participants)
+
+    embed.add_field(
+        name="📊 **Quiz Statistics**",
+        value=(
+            f"**• Participants:** {total_participants}\n"
+            f"**• Questions:** {total_questions}\n"
+            f"**• Total Attempts:** {total_attempts}\n"
+            f"**• Correct Answers:** {total_correct}\n"
+            f"**• Overall Accuracy:** {round(total_correct/total_attempts*100 if total_attempts > 0 else 0, 1)}%\n"
+            f"**• Max Possible:** {total_questions * 300} pts"
+        ),
+        inline=False
+    )
+
+    await self.quiz_channel.send(embed=embed)
+
+    # Wait 2 seconds
+    await asyncio.sleep(2)
+
+    # DISTRIBUTE REWARDS FIRST
+    rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+
+    # Send TOP 3 WINNERS with avatars
+    if len(sorted_participants) >= 3:
+        # Get top 3 users
+        top3_embed = discord.Embed(
+            title="🎉 **TOP 3 WINNERS** 🎉",
+            color=discord.Color.nitro_pink()
         )
-        
-        # First, send a congratulations embed
-        embed = discord.Embed(
-            title="🏆 **QUIZ FINISHED!** 🏆",
-            description="Congratulations to all participants!\nHere are the final results:",
-            color=discord.Color.gold(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        
-        # Add quiz statistics
-        total_questions = len(self.quiz_questions)
-        total_correct = sum(p['correct_answers'] for p in self.participants.values())
-        total_attempts = sum(len(p['answers']) for p in self.participants.values())
-        total_participants = len(self.participants)
-        
-        embed.add_field(
-            name="📊 **Quiz Statistics**",
-            value=(
-                f"**• Participants:** {total_participants}\n"
-                f"**• Questions:** {total_questions}\n"
-                f"**• Total Attempts:** {total_attempts}\n"
-                f"**• Correct Answers:** {total_correct}\n"
-                f"**• Overall Accuracy:** {round(total_correct/total_attempts*100 if total_attempts > 0 else 0, 1)}%\n"
-                f"**• Max Possible:** {total_questions * 300} pts"
-            ),
-            inline=False
-        )
-        
-        await self.quiz_channel.send(embed=embed)
-        
-        # Wait 2 seconds
-        await asyncio.sleep(2)
 
+        # Fetch user objects for top 3
+        top3_users = []
+        for i in range(min(3, len(sorted_participants))):
+            user_id = int(sorted_participants[i][0])
+            user_data = sorted_participants[i][1]
 
-        # DISTRIBUTE REWARDS FIRST
-        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
-        
-        # Send TOP 3 WINNERS with avatars
-        if len(sorted_participants) >= 3:
-            # Get top 3 users
-            top3_embed = discord.Embed(
-                title="🎉 **TOP 3 WINNERS** 🎉",
-                color=discord.Color.nitro_pink()
-            )
-            
-            # Fetch user objects for top 3
-            top3_users = []
-            for i in range(min(3, len(sorted_participants))):
-                user_id = int(sorted_participants[i][0])
-                user_data = sorted_participants[i][1]
-                
-                try:
-                    user = await self.bot.fetch_user(user_id)
-                    top3_users.append((user, user_data))
-                except:
-                    # Fallback if can't fetch user
-                    top3_users.append((None, user_data))
-            
-            # Define medals and colors
-            medals = ["🥇", "🥈", "🥉"]
-            colors = [0xFFD700, 0xC0C0C0, 0xCD7F32]  # Gold, Silver, Bronze
-            
-            # Create top 3 display
-            top3_text = ""
-            for i, (user, data) in enumerate(top3_users):
-                medal = medals[i]
-                reward = rewards_distributed.get(str(user.id if user else sorted_participants[i][0]), {})
-                gems = reward.get("gems", 0)
-                
-                # Calculate accuracy
-                user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
-                
-                # Format user mention or name
-                if user:
-                    user_display = user.mention 
-                else:
-                    user_diplay = f"**{data['name']}**"
-                
-                top3_text += (
-                    f"{medal} **{user_display}**\n"
-                    f"   ⭐ **{data['score']}** points\n"
-                    f"   💎 **{gems} gems** earned\n"
-                    f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n"
-                    
-            top3_embed.description = top3_text
-            top3_embed.color = colors[0]  # Gold color for winner
-            
-            # Set winner's avatar as thumbnail
-            if top3_users[0][0] and top3_users[0][0].avatar:
-                top3_embed.set_thumbnail(url=top3_users[0][0].avatar.url)
-            
-            await self.quiz_channel.send(embed=top3_embed)
-        
-        # Wait 2 seconds
-        await asyncio.sleep(2)
-       
+            try:
+                user = await self.bot.fetch_user(user_id)
+                top3_users.append((user, user_data))
+            except:
+                # Fallback if can't fetch user
+                top3_users.append((None, user_data))
 
-        # Send FULL LEADERBOARD with pagination if many participants
-        if sorted_participants:
-            # Create main leaderboard embed
-            leaderboard_embed = discord.Embed(
-                title="📋 **FINAL LEADERBOARD**",
-                description="All participants ranked by score:",
-                color=discord.Color.blue(),
-                timestamp=datetime.now(timezone.utc)
-            )
-            
-            # Split participants into chunks of 15 for readability
-            chunk_size = 15
-            chunks = [sorted_participants[i:i + chunk_size] 
-                     for i in range(0, len(sorted_participants), chunk_size)]
-            
-            for chunk_idx, chunk in enumerate(chunks):
-                leaderboard_text = ""
-                
-                for rank, (user_id, data) in enumerate(chunk, start=chunk_idx * chunk_size + 1):
-                    # Get rank emoji
-                    rank_emoji = self.get_rank_emoji(rank)
-                    
-                    # Try to fetch user for avatar in field
-                    try:
-                        user = await self.bot.fetch_user(int(user_id))
-                        user_display = user.display_name
-                    except:
-                        user_display = data['name']
-                    
-                    # Calculate user stats
-                    user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
-                    avg_time = self.calculate_average_time(data)
-                    
-                    leaderboard_text += (
-                        f"{rank_emoji} **{user_display}**\n"
-                        f"   ⭐ {data['score']} pts | 📊 {data['correct_answers']}/{total_questions} ({user_accuracy}%)\n"
-                        f"   ⏱️ Avg: {avg_time:.1f}s | 📈 Rank: #{rank}\n"
-                    )
-                    
-                    # Add separator between entries
-                    if rank < len(chunk) + chunk_idx * chunk_size:
-                        leaderboard_text += "━━━━━━━━━━━━━━━━━━━━\n"
-                
-                # Add chunk as a field
-                field_name = f"🏆 **Rank {chunk_idx * chunk_size + 1}-{chunk_idx * chunk_size + len(chunk)}**"
-                if chunk_idx == 0:
-                    field_name = "🏆 **TOP CONTENDERS**"
-                
-                leaderboard_embed.add_field(
-                    name=field_name,
-                    value=leaderboard_text if leaderboard_text else "No participants",
-                    inline=False
-                )
-            
-            # Add footer with quiz completion time
-            leaderboard_embed.set_footer(
-                text=f"Quiz completed • {total_participants} participants",
-                icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None
-            )
-            
-            await self.quiz_channel.send(embed=leaderboard_embed)
+        # Define medals and colors
+        medals = ["🥇", "🥈", "🥉"]
+        colors = [0xFFD700, 0xC0C0C0, 0xCD7F32]  # Gold, Silver, Bronze
 
-        # DISTRIBUTE REWARDS
-        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
-
-        # Send rewards summary
-        rewards_embed = discord.Embed(
-            title="💰 **Quiz Rewards Distributed!**",
-            color=discord.Color.green(),
-            timestamp=datetime.now(timezone.utc)
-        )
-        
-        # Show top 3 with rewards
-        top_3 = []
-        for i, (user_id, data) in enumerate(sorted_participants[:3]):
-            reward = rewards_distributed.get(user_id, {})
+        # Create top 3 display - FIXED SYNTAX
+        top3_text = ""
+        for i, (user, data) in enumerate(top3_users):
+            medal = medals[i]
+            reward = rewards_distributed.get(str(user.id if user else sorted_participants[i][0]), {})
             gems = reward.get("gems", 0)
 
-            medal = ["🥇", "🥈", "🥉"][i]
-            top_3.append(
-                f"{medal} **{data['name']}** - {data['score']} pts\n"
-                f"   Reward: 💎 {gems} gems"
-            )
-        
-        if top_3:
-            rewards_embed.add_field(
-                name="🏆 **TOP 3 WINNERS**",
-                value="\n".join(top_3),
-                inline=False
-            )
-        
-        # Show participation rewards
-        if len(sorted_participants) > 3:
-            rewards_embed.add_field(
-                name="🎁 **Participation Rewards**",
-                value=f"All {len(sorted_participants)} participants received:\n"
-                      f"• 💎 50 gems for joining\n"
-                      f"• +10 gems per 100 points scored\n"
-                      f"• Speed bonuses for fast answers!",
+            # Calculate accuracy
+            user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
+
+            # Format user mention or name - FIXED TYPO
+            if user:
+                user_display = user.mention 
+            else:
+                user_display = f"**{data['name']}**"  # Fixed typo: was user_diplay
+
+            # FIXED: Proper string concatenation without syntax error
+            top3_text += f"{medal} {user_display}\n"
+            top3_text += f"   ⭐ **{data['score']}** points\n"
+            top3_text += f"   💎 **{gems} gems** earned\n"
+            top3_text += f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n\n"
+
+        top3_embed.description = top3_text
+        top3_embed.color = colors[0]  # Gold color for winner
+
+        # Set winner's avatar as thumbnail
+        if top3_users[0][0] and top3_users[0][0].avatar:
+            top3_embed.set_thumbnail(url=top3_users[0][0].avatar.url)
+
+        await self.quiz_channel.send(embed=top3_embed)
+
+    # Wait 2 seconds
+    await asyncio.sleep(2)
+
+    # Send FULL LEADERBOARD with pagination if many participants
+    if sorted_participants:
+        # Create main leaderboard embed
+        leaderboard_embed = discord.Embed(
+            title="📋 **FINAL LEADERBOARD**",
+            description="All participants ranked by score:",
+            color=discord.Color.blue(),
+            timestamp=datetime.now(timezone.utc)
+        )
+
+        # Split participants into chunks of 15 for readability
+        chunk_size = 15
+        chunks = [sorted_participants[i:i + chunk_size] 
+                 for i in range(0, len(sorted_participants), chunk_size)]
+
+        for chunk_idx, chunk in enumerate(chunks):
+            leaderboard_text = ""
+
+            for rank, (user_id, data) in enumerate(chunk, start=chunk_idx * chunk_size + 1):
+                # Get rank emoji
+                rank_emoji = self.get_rank_emoji(rank)
+
+                # Try to fetch user for avatar in field
+                try:
+                    user = await self.bot.fetch_user(int(user_id))
+                    user_display = user.display_name
+                except:
+                    user_display = data['name']
+
+                # Calculate user stats
+                user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
+                avg_time = self.calculate_average_time(data)
+
+                leaderboard_text += (
+                    f"{rank_emoji} **{user_display}**\n"
+                    f"   ⭐ {data['score']} pts | 📊 {data['correct_answers']}/{total_questions} ({user_accuracy}%)\n"
+                    f"   ⏱️ Avg: {avg_time:.1f}s | 📈 Rank: #{rank}\n"
+                )
+
+                # Add separator between entries
+                if rank < len(chunk) + chunk_idx * chunk_size:
+                    leaderboard_text += "━━━━━━━━━━━━━━━━━━━━\n"
+
+            # Add chunk as a field
+            field_name = f"🏆 **Rank {chunk_idx * chunk_size + 1}-{chunk_idx * chunk_size + len(chunk)}**"
+            if chunk_idx == 0:
+                field_name = "🏆 **TOP CONTENDERS**"
+
+            leaderboard_embed.add_field(
+                name=field_name,
+                value=leaderboard_text if leaderboard_text else "No participants",
                 inline=False
             )
 
-        await self.quiz_channel.send(embed=rewards_embed)
-        
-        # Send individual DMs with rewards
-        for user_id, data in self.participants.items():
-            reward = rewards_distributed.get(user_id, {})
-            if reward:
-                user_obj = self.bot.get_user(int(user_id))
-                if user_obj:
-                    try:
-                        dm_embed = discord.Embed(
-                            title="🎁 **Quiz Rewards Claimed!**",
-                            description=f"**Quiz Results:**\n"
-                                      f"Final Score: **{data['score']}** points\n"
-                                      f"Rank: **#{list(self.participants.keys()).index(user_id) + 1}**",
-                            color=discord.Color.gold()
-                        )
-                        
-                        dm_embed.add_field(
-                            name="💰 **Rewards Earned**",
-                            value=f"💎 **{reward['gems']} Gems**",
-                            inline=False
-                        )
-                        
-                        balance = self.currency.get_balance(user_id)
-                        dm_embed.add_field(
-                            name="📊 **New Balance**",
-                            value=f"💎 Total Gems: **{balance['gems']}**",
-                            inline=False
-                        )
-                        
-                        dm_embed.set_footer(text="Use !!currency to check your gems!")
-                        await user_obj.send(embed=dm_embed)
-                    except:
-                        pass  # User has DMs disabled
-        
-        # Wait 2 seconds
-        await asyncio.sleep(2)
-        
-        # Final message
-        final_embed = discord.Embed(
-            description="🎉 **Thank you for participating!** 🎉\n\nUse `!!quiz start` to play again!",
-            color=discord.Color.green()
+        # Add footer with quiz completion time
+        leaderboard_embed.set_footer(
+            text=f"Quiz completed • {total_participants} participants",
+            icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None
         )
-        final_embed.set_footer(text="Quiz System • Powered by 558 Discord Server")
-        
-        await self.quiz_channel.send(embed=final_embed)
-        
-        # Reset for next quiz
-        self.quiz_channel = None
-        self.quiz_logs_channel = None
-        self.current_question = 0
-        self.participants = {}
-    
+
+        await self.quiz_channel.send(embed=leaderboard_embed)
+
+    # Send rewards summary - REMOVED DUPLICATE REWARDS DISTRIBUTION
+    rewards_embed = discord.Embed(
+        title="💰 **Quiz Rewards Distributed!**",
+        color=discord.Color.green(),
+        timestamp=datetime.now(timezone.utc)
+    )
+
+    # Show top 3 with rewards
+    top_3 = []
+    for i, (user_id, data) in enumerate(sorted_participants[:3]):
+        reward = rewards_distributed.get(user_id, {})
+        gems = reward.get("gems", 0)
+
+        medal = ["🥇", "🥈", "🥉"][i]
+        top_3.append(
+            f"{medal} **{data['name']}** - {data['score']} pts\n"
+            f"   Reward: 💎 {gems} gems"
+        )
+
+    if top_3:
+        rewards_embed.add_field(
+            name="🏆 **TOP 3 WINNERS**",
+            value="\n".join(top_3),
+            inline=False
+        )
+
+    # Show participation rewards
+    if len(sorted_participants) > 3:
+        rewards_embed.add_field(
+            name="🎁 **Participation Rewards**",
+            value=f"All {len(sorted_participants)} participants received:\n"
+                  f"• 💎 50 gems for joining\n"
+                  f"• +10 gems per 100 points scored\n"
+                  f"• Speed bonuses for fast answers!",
+            inline=False
+        )
+
+    await self.quiz_channel.send(embed=rewards_embed)
+
+    # Send individual DMs with rewards
+    for user_id, data in self.participants.items():
+        reward = rewards_distributed.get(user_id, {})
+        if reward:
+            user_obj = self.bot.get_user(int(user_id))
+            if user_obj:
+                try:
+                    dm_embed = discord.Embed(
+                        title="🎁 **Quiz Rewards Claimed!**",
+                        description=f"**Quiz Results:**\n"
+                                  f"Final Score: **{data['score']}** points\n"
+                                  f"Rank: **#{list(self.participants.keys()).index(user_id) + 1}**",
+                        color=discord.Color.gold()
+                    )
+
+                    dm_embed.add_field(
+                        name="💰 **Rewards Earned**",
+                        value=f"💎 **{reward['gems']} Gems**",
+                        inline=False
+                    )
+
+                    # FIXED: Use async method to get balance
+                    balance = await self.currency.get_balance(user_id)
+                    dm_embed.add_field(
+                        name="📊 **New Balance**",
+                        value=f"💎 Total Gems: **{balance['gems']}**",
+                        inline=False
+                    )
+
+                    dm_embed.set_footer(text="Use !!currency to check your gems!")
+                    await user_obj.send(embed=dm_embed)
+                except:
+                    pass  # User has DMs disabled
+
+    # Wait 2 seconds
+    await asyncio.sleep(2)
+
+    # Final message
+    final_embed = discord.Embed(
+        description="🎉 **Thank you for participating!** 🎉\n\nUse `!!quiz start` to play again!",
+        color=discord.Color.green()
+    )
+    final_embed.set_footer(text="Quiz System • Powered by 558 Discord Server")
+
+    await self.quiz_channel.send(embed=final_embed)
+
+    # Reset for next quiz
+    self.quiz_channel = None
+    self.quiz_logs_channel = None
+    self.current_question = 0
+    self.participants = {}
+
     def calculate_average_time(self, user_data):
         """Calculate average time for correct answers"""
         correct_times = [a['time'] for a in user_data['answers'] if a['correct']]
