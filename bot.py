@@ -297,6 +297,13 @@ class DatabaseSystem:
                 last_claim = row['last_daily']
                 now = datetime.now(timezone.utc)
 
+                # Ensure last_claim has timezone info for comparison
+                if last_claim.tzinfo is None:
+                    last_claim = last_claim.replace(tzinfo=timezone.utc)
+                else:
+                    # Convert to UTC if it has timezone
+                    last_claim = last_claim.astimezone(timezone.utc)
+
                 # Check if 24 hours have passed
                 hours_passed = (now - last_claim).total_seconds() / 3600
                 return hours_passed >= 23.5
