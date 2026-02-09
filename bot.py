@@ -1464,7 +1464,7 @@ class QuizSystem:
         }
         return rank_emojis.get(rank, f"{rank}.")
 
-    async def distribute_quiz_rewards(self, sorted_participants):
+    
     async def distribute_quiz_rewards(self, sorted_participants):
         """Distribute gems based on quiz performance - GUARANTEED WORKING VERSION"""
         print(f"\n" + "="*80)
