@@ -819,16 +819,38 @@ class QuizSystem:
     
     async def send_question(self):
         """Send current question with countdown bar"""
+        print(f"\n" + "="*80)
+        print(f"❓❓❓ SEND_QUESTION DEBUG START ❓❓❓")
+        print(f"❓ Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
+        print(f"❓ current_question: {self.current_question}")
+        print(f"❓ total_questions: {len(self.quiz_questions)}")
+        print(f"❓ Quiz running: {self.quiz_running}")
         print(f"\n🔥 send_question called - Current: {self.current_question}, Total: {len(self.quiz_questions)}")
+
+        # SAFETY CHECK: If somehow we're at or past the last question
+        if self.current_question is None:
+            print(f"❌❌❌ ERROR: current_question is None!")
+            return
         
         # CHECK IF NO MORE QUESTIONS
         if self.current_question >= len(self.quiz_questions):
+            print(f"🚨🚨🚨 CRITICAL: current_question ({self.current_question}) >= total_questions ({len(self.quiz_questions)})")
+            print(f"🚨🚨🚨 Quiz should have ended already!")
+            print(f"🚨🚨🚨 Calling end_quiz() directly...")
+            await self.end_quiz()
             print(f"🔥🔥🔥 NO MORE QUESTIONS! Calling end_quiz()")
             await self.end_quiz()
             return
 
+        print(f"❓ This is Question {self.current_question + 1} of {len(self.quiz_questions)}")
+
         
-        question = self.quiz_questions[self.current_question]
+        try:
+            question = self.quiz_questions[self.current_question]
+            print(f"❓ Question text: {question['question'][:50]}...")
+            print(f"❓ Time limit: {question['time_limit']}s")
+            print(f"❓ Max points: {question['points']}")
+
         self.question_start_time = datetime.now(timezone.utc)  # FIXED
         
         # Initial progress bar (full)
@@ -904,9 +926,14 @@ class QuizSystem:
             
             await self.question_message.edit(embed=embed)
             
+            print(f"\n✅ SEND_QUESTION DEBUG COMPLETE - Question sent successfully")
+            print("="*80)
+            
         except Exception as e:
-            print(f"Countdown error: {e}")
-            self.countdown_task.stop()
+            print(f"\n❌❌❌ ERROR in send_question: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            await self.end_quiz()
     
     def start_question_timer(self, time_limit):
         """Start timer for current question"""
@@ -1003,43 +1030,68 @@ class QuizSystem:
     
     async def end_question(self):
         """End current question and show live leaderboard"""
+        print(f"\n" + "="*80)
+        print(f"🚨🚨🚨 END_QUESTION DEBUG START 🚨🚨🚨")
+        print(f"🚨 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
+        print(f"🚨 current_question BEFORE: {self.current_question}")
+        print(f"🚨 Total questions: {len(self.quiz_questions)}")
+        print(f"🚨 Quiz running: {self.quiz_running}")
+        print(f"🚨 Participants count: {len(self.participants)}")
         print(f"\n🔥 end_question called - Question {self.current_question + 1}/{len(self.quiz_questions)}")
-    
-        self.countdown_task.stop()
 
-        question = self.quiz_questions[self.current_question]
+        # Log all participants for debugging
+        for user_id, data in self.participants.items():
+            print(f"🚨 Participant: {data['name']} - Score: {data['score']}, Answered current: {data.get('answered_current', False)}")
+        
+        try:
+            self.countdown_task.stop()
 
-        # Show correct answer(s)
-        correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
 
-        embed = discord.Embed(
-            title=f"✅ **Question {self.current_question + 1} Complete**",
-            description=f"**Correct answer(s):** {correct_answers}",
-            color=discord.Color.green()
+            # Validate current_question
+            if self.current_question is None:
+                print(f"❌❌❌ ERROR: current_question is None!")
+                return
+                
+            if self.current_question < 0 or self.current_question >= len(self.quiz_questions):
+                print(f"❌❌❌ ERROR: Invalid current_question: {self.current_question}")
+                print(f"❌❌❌ Should be between 0 and {len(self.quiz_questions)-1}")
+                return
+
+
+            question = self.quiz_questions[self.current_question]
+            print(f"🚨 Processing question: {question['question'][:50]}...")
+
+            # Show correct answer(s)
+            correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
+
+            embed = discord.Embed(
+                title=f"✅ **Question {self.current_question + 1} Complete**",
+                description=f"**Correct answer(s):** {correct_answers}",
+                color=discord.Color.green()
         )
 
-        # Show statistics for this question
-        total_participants = len([p for p in self.participants.values()])
-        total_answered = len([p for p in self.participants.values() if  any(a["question"] == self.current_question for a in p["answers"])])
-        correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
+            # Show statistics for this question
+            total_participants = len([p for p in self.participants.values()])
+            total_answered = len([p for p in self.participants.values() if  any(a["question"] == self.current_question for a in p["answers"])])
+            correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
 
-        # Find fastest correct answer
-        fastest_time = None
-        fastest_user = None
-        for user_id, data in self.participants.items():
-            for answer in data["answers"]:
-                if answer["question"] == self.current_question and answer["correct"]:
+            # Find fastest correct answer
+            fastest_time = None
+            fastest_user = None
+            for user_id, data in self.participants.items():
+                for answer in data["answers"]:
+                    if answer["question"] == self.current_question and answer["correct"]:
                     if fastest_time is None or answer["time"] < fastest_time:
                         fastest_time = answer["time"]
                         fastest_user = data["name"]
 
-        embed.add_field(
-            name="📊 **Question Statistics**",
-            value=f"**Total Participants:** {total_participants}\n"
-                  f"**Attempted This Q:** {total_answered}\n"
-                  f"**Got It Right:** {correct_count}\n"
-                  f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
-                  + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
+            embed.add_field(
+                name="📊 **Question Statistics**",
+                value=f"**Total Participants:** {total_participants}\n"
+                      f"**Attempted This Q:** {total_answered}\n"
+                      f"**Got It Right:** {correct_count}\n"
+                      f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
+                      + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
         inline=False
         )
 
@@ -1065,21 +1117,50 @@ class QuizSystem:
         # Reset answered_current for all users for next question
         for user_id in self.participants:
             self.participants[user_id]["answered_current"] = False
+        print(f"🚨 Reset answered_current for {reset_count} users")
 
         # Move to next question - THIS IS THE FIX!
         old_index = self.current_question
         self.current_question += 1
+print(f"\n" + "➡️"*80)
+        print(f"➡️ AFTER INCREMENT:")
+        print(f"➡️ Changed from index {old_index} to {self.current_question}")
+        print(f"➡️ This was Question {old_index + 1} of {len(self.quiz_questions)}")
+        print(f"➡️ Total questions: {len(self.quiz_questions)}")
+        print(f"➡️ New index: {self.current_question}")
+        print(f"➡️ Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
     
         print(f"🔥 New question index: {self.current_question}")
         print(f"🔥 Total questions: {len(self.quiz_questions)}")
     
         # CHECK IF QUIZ IS FINISHED
         if self.current_question == len(self.quiz_questions):
+            print(f"\n" + "🎯"*80)
+            print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
+            print(f"🎯 current_question: {self.current_question}")
+            print(f"🎯 total_questions: {len(self.quiz_questions)}")
+            print(f"🎯 Calling end_quiz() NOW...")
+            print("🎯"*80)
             print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
             await self.end_quiz()  # <-- THIS WAS MISSING!
         else:
+            print(f"\n" + "⏭️"*80)
+            print(f"⏭️ MORE QUESTIONS LEFT")
+            print(f"⏭️ Next will be Question {self.current_question + 1}")
+            print(f"⏭️ Calling send_question()...")
+            print("⏭️"*80)
             print(f"🔥 More questions left, calling send_question()")
             await self.send_question()
+
+
+        except Exception as e:
+            print(f"\n❌❌❌ ERROR in end_question: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            # Try to continue anyway
+            self.current_question += 1
+            if self.current_question >= len(self.quiz_questions):
+                await self.end_quiz()
     
     async def create_live_leaderboard(self, countdown=None):
         """Create a live leaderboard embed showing all participants"""
@@ -2589,6 +2670,166 @@ async def test_question5(ctx):
     except Exception as e:
         await ctx.send(f"❌ Error: {e}")
         print(f"5️⃣ Test error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+@bot.command(name="quiz_diagnosis")
+async def quiz_diagnosis(ctx):
+    """Diagnose why quiz rewards aren't working"""
+    global quiz_system
+    
+    print(f"\n" + "🩺"*80)
+    print(f"🩺 QUIZ DIAGNOSIS STARTED")
+    print(f"🩺 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
+    
+    if not quiz_system:
+        print(f"❌ CRITICAL: quiz_system is None!")
+        await ctx.send("❌ quiz_system is None! Bot may not be fully ready.")
+        return
+    
+    # Check 1: Quiz system state
+    print(f"\n🔍 CHECK 1: Quiz System State")
+    print(f"  • quiz_system exists: {quiz_system is not None}")
+    print(f"  • quiz_running: {quiz_system.quiz_running}")
+    print(f"  • current_question: {quiz_system.current_question}")
+    print(f"  • total_questions: {len(quiz_system.quiz_questions)}")
+    print(f"  • quiz_channel: {quiz_system.quiz_channel}")
+    print(f"  • participants: {len(quiz_system.participants)}")
+    
+    # Check 2: Database connection
+    print(f"\n🔍 CHECK 2: Database Connection")
+    print(f"  • db.using_database: {db.using_database}")
+    print(f"  • currency_system exists: {currency_system is not None}")
+    
+    # Check 3: Reward system link
+    print(f"\n🔍 CHECK 3: Reward System Link")
+    print(f"  • quiz_system.currency exists: {hasattr(quiz_system, 'currency')}")
+    if hasattr(quiz_system, 'currency'):
+        print(f"  • Same as currency_system: {quiz_system.currency is currency_system}")
+        print(f"  • Type: {type(quiz_system.currency)}")
+    
+    # Check 4: Simulate the flow
+    print(f"\n🔍 CHECK 4: Flow Simulation")
+    print(f"  • If current_question = 0 → after end_question: 1")
+    print(f"  • If current_question = 1 → after end_question: 2")
+    print(f"  • If current_question = 2 → after end_question: 3")
+    print(f"  • If current_question = 3 → after end_question: 4")
+    print(f"  • If current_question = 4 → after end_question: 5")
+    print(f"  • Should end when: 5 == {len(quiz_system.quiz_questions)}")
+    
+    # Test direct reward distribution
+    print(f"\n🔍 CHECK 5: Direct Reward Test")
+    try:
+        # Create a test participant
+        test_participants = {
+            str(ctx.author.id): {
+                "name": ctx.author.display_name,
+                "score": 500,
+                "correct_answers": 5,
+                "answers": [],
+                "answered_current": False
+            }
+        }
+        
+        sorted_test = sorted(test_participants.items(), key=lambda x: x[1]["score"], reverse=True)
+        
+        print(f"  • Testing distribute_quiz_rewards with 1 participant...")
+        rewards = await quiz_system.distribute_quiz_rewards(sorted_test)
+        print(f"  • Result: {rewards}")
+        
+        if rewards and str(ctx.author.id) in rewards:
+            print(f"  ✅ Direct reward test PASSED!")
+        else:
+            print(f"  ❌ Direct reward test FAILED!")
+            
+    except Exception as e:
+        print(f"  ❌ Direct reward test ERROR: {type(e).__name__}: {e}")
+    
+    print(f"\n🩺 DIAGNOSIS SUMMARY:")
+    
+    if quiz_system.quiz_running:
+        print(f"  ⚠️ There is currently a quiz running!")
+        print(f"  ⚠️ Current question: {quiz_system.current_question + 1}/{len(quiz_system.quiz_questions)}")
+    
+    print(f"  ✅ Database: {'Connected' if db.using_database else 'Not connected'}")
+    print(f"  ✅ Currency link: {'OK' if hasattr(quiz_system, 'currency') else 'Missing'}")
+    print(f"  ✅ Total questions: {len(quiz_system.quiz_questions)}")
+    
+    await ctx.send("✅ Quiz diagnosis complete! Check console for detailed report.")
+    print("🩺"*80)
+
+
+
+
+@bot.command(name="debug_full_quiz")
+async def debug_full_quiz(ctx):
+    """Run a debug quiz that logs EVERY step"""
+    global quiz_system
+    
+    try:
+        print(f"\n" + "🐛"*80)
+        print(f"🐛 DEBUG FULL QUIZ STARTING")
+        
+        # Reset quiz system
+        quiz_system.quiz_running = True
+        quiz_system.current_question = 0
+        quiz_system.quiz_channel = ctx.channel
+        quiz_system.quiz_logs_channel = ctx.channel
+        quiz_system.participants = {
+            str(ctx.author.id): {
+                "name": ctx.author.display_name,
+                "score": 0,
+                "correct_answers": 0,
+                "answers": [],
+                "answered_current": False
+            }
+        }
+        
+        print(f"🐛 Starting at question 0")
+        
+        # Manually trigger the full flow
+        for expected_end in [1, 2, 3, 4, 5]:
+            print(f"\n🐛" + "-"*60)
+            print(f"🐛 EXPECTING TO REACH: Question {expected_end}/5")
+            print(f"🐛 CURRENT STATE: current_question = {quiz_system.current_question}")
+            
+            # Send question
+            await quiz_system.send_question()
+            await asyncio.sleep(2)
+            
+            # Simulate answer
+            quiz_system.participants[str(ctx.author.id)]["score"] += 100
+            quiz_system.participants[str(ctx.author.id)]["correct_answers"] += 1
+            quiz_system.participants[str(ctx.author.id)]["answered_current"] = True
+            
+            # End question
+            await quiz_system.end_question()
+            
+            print(f"🐛 AFTER end_question: current_question = {quiz_system.current_question}")
+            
+            if quiz_system.current_question == 5:
+                print(f"🐛✅ REACHED QUESTION 5! Quiz should end now.")
+                break
+                
+            await asyncio.sleep(2)
+        
+        # If we got here and quiz is still running, something's wrong
+        if quiz_system.quiz_running:
+            print(f"\n🐛❌ QUIZ DID NOT END AUTOMATICALLY!")
+            print(f"🐛❌ current_question: {quiz_system.current_question}")
+            print(f"🐛❌ total_questions: {len(quiz_system.quiz_questions)}")
+            print(f"🐛❌ Manually calling end_quiz()...")
+            await quiz_system.end_quiz()
+        
+        print(f"\n🐛 DEBUG FULL QUIZ COMPLETE")
+        print("🐛"*80)
+        
+        await ctx.send("✅ Debug quiz complete! Check console for the flow.")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+        print(f"🐛 Debug error: {e}")
         import traceback
         traceback.print_exc()
 
