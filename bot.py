@@ -1148,7 +1148,7 @@ class QuizSystem:
             print(f"🎯 Calling end_quiz() NOW...")
             print("🎯"*80)
             print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
-        await self.end_quiz()
+            await self.end_quiz()
         else:
             print(f"\n" + "⏭️"*80)
             print(f"⏭️ MORE QUESTIONS LEFT")
@@ -1156,7 +1156,7 @@ class QuizSystem:
             print(f"⏭️ Calling send_question()...")
             print("⏭️"*80)
             print(f"🔥 More questions left, calling send_question()")
-        await self.send_question()
+            await self.send_question()
 
         print(f"\n✅ END_QUESTION DEBUG COMPLETE")
         print("="*80)
