@@ -846,10 +846,10 @@ class QuizSystem:
 
         
         
-            question = self.quiz_questions[self.current_question]
-            print(f"❓ Question text: {question['question'][:50]}...")
-            print(f"❓ Time limit: {question['time_limit']}s")
-            print(f"❓ Max points: {question['points']}")
+        question = self.quiz_questions[self.current_question]
+        print(f"❓ Question text: {question['question'][:50]}...")
+        print(f"❓ Time limit: {question['time_limit']}s")
+        print(f"❓ Max points: {question['points']}")
 
         self.question_start_time = datetime.now(timezone.utc)  # FIXED
         
