@@ -1318,7 +1318,7 @@ async def end_question(self):
         # DISTRIBUTE REWARDS FIRST
         print(f"🔥 CRITICAL: About to call distribute_quiz_rewards...")
         
-            rewards_distributed = await        self.distribute_quiz_rewards(sorted_participants)
+            rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
             print(f"🔥 CRITICAL: Rewards distributed to {len(rewards_distributed)} users")
 
         except Exception as e:
