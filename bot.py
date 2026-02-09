@@ -1040,6 +1040,14 @@ class QuizSystem:
         print(f"🚨 Participants count: {len(self.participants)}")
         print(f"\n🔥 end_question called - Question {self.current_question + 1}/{len(self.quiz_questions)}")
 
+        print(f"\n" + "🔍"*80)
+        print(f"🔍 DEBUG: Before checking if quiz finished")
+        print(f"🔍 current_question: {self.current_question}")
+        print(f"🔍 total_questions: {len(self.quiz_questions)}")
+        print(f"🔍 Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
+        print(f"🔍 Quiz running: {self.quiz_running}")
+
+
         # Log all participants for debugging
         for user_id, data in self.participants.items():
             print(f"🚨 Participant: {data['name']} - Score: {data['score']}, Answered current: {data.get('answered_current', False)}")
@@ -1262,6 +1270,19 @@ class QuizSystem:
         print(f"🔥 CRITICAL: end_quiz STARTED - Participants: {len(self.participants)}")
         print(f"🔥🔥🔥 Quiz channel: {self.quiz_channel}")
         print(f"🔥🔥🔥 Quiz running: {self.quiz_running}")
+ 
+        print(f"\n" + "💰"*80)
+        print(f"💰💰💰 END_QUIZ CALLED FROM: {traceback.format_stack()[-2]}")  # Show where it was called from
+        print(f"💰💰💰 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S.%f')}")
+        print(f"💰💰💰 Question: {self.current_question}/{len(self.quiz_questions)}")
+        print(f"💰💰💰 Participants: {len(self.participants)}")
+        print(f"💰💰💰 Quiz running: {self.quiz_running}")
+    
+        import traceback
+        # Log the full call stack to see how we got here
+        print(f"\n💰 CALL STACK:")
+        for line in traceback.format_stack()[-5:-1]:
+        print(f"💰 {line.strip()}")
         
         # Log all participants
         for user_id, data in self.participants.items():
@@ -2831,6 +2852,44 @@ async def debug_full_quiz(ctx):
         print(f"🐛 Debug error: {e}")
         import traceback
         traceback.print_exc()
+
+@bot.command(name="monitor_quiz")
+async def monitor_quiz(ctx):
+    """Monitor a quiz in real-time"""
+    global quiz_system
+    
+    if not quiz_system.quiz_running:
+        await ctx.send("❌ No quiz is running!")
+        return
+    
+    embed = discord.Embed(
+        title="🔍 **QUIZ MONITOR**",
+        description="Live tracking quiz progress...",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="📊 **Current State**",
+        value=f"**Running:** {quiz_system.quiz_running}\n"
+              f"**Question:** {quiz_system.current_question + 1}/{len(quiz_system.quiz_questions)}\n"
+              f"**Participants:** {len(quiz_system.participants)}\n"
+              f"**Channel:** {quiz_system.quiz_channel.mention if quiz_system.quiz_channel else 'None'}",
+        inline=False
+    )
+    
+    # Show participants
+    if quiz_system.participants:
+        participants_text = []
+        for user_id, data in quiz_system.participants.items():
+            participants_text.append(f"• {data['name']}: {data['score']} pts")
+        
+        embed.add_field(
+            name="👥 **Participants**",
+            value="\n".join(participants_text[:10]),
+            inline=True
+        )
+    
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="testendquiz")
