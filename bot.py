@@ -1067,13 +1067,14 @@ class QuizSystem:
             self.participants[user_id]["answered_current"] = False
 
         # Move to next question - THIS IS THE FIX!
+        old_index = self.current_question
         self.current_question += 1
     
         print(f"🔥 New question index: {self.current_question}")
         print(f"🔥 Total questions: {len(self.quiz_questions)}")
     
         # CHECK IF QUIZ IS FINISHED
-        if self.current_question >= len(self.quiz_questions):
+        if self.current_question == len(self.quiz_questions):
             print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
             await self.end_quiz()  # <-- THIS WAS MISSING!
         else:
