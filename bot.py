@@ -2544,6 +2544,42 @@ async def db_test_add(ctx, user_id: str = None, gems: int = 100):
         traceback.print_exc()
 
 
+@bot.command(name="testendquiz")
+async def test_end_quiz(ctx):
+    """Test if end_quiz can be called directly"""
+    try:
+        print(f"\n🧪 Testing end_quiz directly...")
+        
+        if not quiz_system:
+            await ctx.send("❌ quiz_system is None")
+            return
+        
+        # Create dummy participants
+        quiz_system.participants = {
+            str(ctx.author.id): {
+                "name": ctx.author.display_name,
+                "score": 500,
+                "correct_answers": 3,
+                "answers": [],
+                "answered_current": False
+            }
+        }
+        
+        quiz_system.quiz_channel = ctx.channel
+        quiz_system.current_question = 5  # Simulate last question
+        
+        print(f"🧪 Calling end_quiz()...")
+        await quiz_system.end_quiz()
+        
+        await ctx.send("✅ end_quiz() called successfully! Check logs.")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {type(e).__name__}: {str(e)[:200]}")
+        print(f"❌ test_end_quiz error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 
 
 # === BOT STARTUP ===
