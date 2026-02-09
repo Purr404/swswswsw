@@ -152,9 +152,7 @@ class DatabaseSystem:
         """Add gems to a user"""
         if not self.using_database:
             raise RuntimeError("Database not connected")
-        
-        print(f"🔍 DB DEBUG: add_gems called with user_id={user_id}, gems={gems}, reason='{reason}'")
-    
+            
         try:
             async with self.pool.acquire() as conn:
                 async with conn.transaction():
@@ -163,11 +161,9 @@ class DatabaseSystem:
                         'SELECT gems FROM user_gems WHERE user_id = $1',
                         user_id
                     )
-                
-                    print(f"🔍 DB DEBUG: User exists check: {row is not None}")
 
                     if row:
-                       # Update existing user
+                        # Update existing user
                         await conn.execute('''
                             UPDATE user_gems 
                             SET gems = gems + $2,
@@ -176,14 +172,13 @@ class DatabaseSystem:
                             WHERE user_id = $1
                             RETURNING gems
                         ''', user_id, gems)
-                    
+                        
                         # Get new balance
                         new_row = await conn.fetchrow(
                             'SELECT gems FROM user_gems WHERE user_id = $1',
                             user_id
                         )
                         new_balance = new_row['gems']
-                        print(f"🔍 DB DEBUG: Updated existing user. New balance: {new_balance}")
                     else:
                         # Create new user
                         await conn.execute('''
@@ -192,25 +187,19 @@ class DatabaseSystem:
                             RETURNING gems
                         ''', user_id, gems)
                         new_balance = gems
-                        print(f"🔍 DB DEBUG: Created new user. Balance: {new_balance}")
 
                     # Record transaction
                     await conn.execute('''
                         INSERT INTO user_transactions (user_id, type, gems, reason, balance_after)
                         VALUES ($1, 'reward', $2, $3, $4)
                     ''', user_id, gems, reason, new_balance)
-                
-                    print(f"🔍 DB DEBUG: Transaction recorded successfully")
-                    print(f"✅ DB DEBUG: Added {gems} gems to {user_id} (Balance: {new_balance})")
 
+                    print(f"✅ [DB] Added {gems} gems to {user_id} (Balance: {new_balance}) Reason: {reason}")
                     return {"gems": gems, "balance": new_balance}
 
         except Exception as e:
-            print(f"❌ DB DEBUG: Database error in add_gems: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"❌ Database error in add_gems: {e}")
             raise
-
 
     async def get_balance(self, user_id: str):
         """Get user balance"""
@@ -819,45 +808,11 @@ class QuizSystem:
     
     async def send_question(self):
         """Send current question with countdown bar"""
-        print(f"\n" + "="*80)
-        print(f"❓❓❓ SEND_QUESTION DEBUG START ❓❓❓")
-        print(f"❓ Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
-        print(f"❓ current_question: {self.current_question}")
-        print(f"❓ total_questions: {len(self.quiz_questions)}")
-        print(f"❓ Quiz running: {self.quiz_running}")
-        print(f"\n🔥 send_question called - Current: {self.current_question}, Total: {len(self.quiz_questions)}")
-
-        # CRITICAL SAFETY CHECK
-        if not self.quiz_running:
-            print(f"❌ QUIZ NOT RUNNING! Aborting send_question")
-            return
-
-        if self.current_question is None:
-            print(f"❌ ERROR: current_question is None!")
-            return
-        
-        # CHECK IF NO MORE QUESTIONS
         if self.current_question >= len(self.quiz_questions):
-            print(f"🚨🚨🚨 ALREADY FINISHED ALL QUESTIONS!")
-            print(f"🚨 current_question: {self.current_question}, total: {len(self.quiz_questions)}")
-            print(f"🚨 Calling end_quiz() directly...")
-            print(f"🚨🚨🚨 CRITICAL: current_question ({self.current_question}) >= total_questions ({len(self.quiz_questions)})")
-            print(f"🚨🚨🚨 Quiz should have ended already!")
-            print(f"🚨🚨🚨 Calling end_quiz() directly...")
-            await self.end_quiz()
-            print(f"🔥🔥🔥 NO MORE QUESTIONS! Calling end_quiz()")
             await self.end_quiz()
             return
-
-        print(f"❓ This is Question {self.current_question + 1} of {len(self.quiz_questions)}")
-
-        
         
         question = self.quiz_questions[self.current_question]
-        print(f"❓ Question text: {question['question'][:50]}...")
-        print(f"❓ Time limit: {question['time_limit']}s")
-        print(f"❓ Max points: {question['points']}")
-
         self.question_start_time = datetime.now(timezone.utc)  # FIXED
         
         # Initial progress bar (full)
@@ -933,21 +888,14 @@ class QuizSystem:
             
             await self.question_message.edit(embed=embed)
             
-            print(f"\n✅ SEND_QUESTION DEBUG COMPLETE - Question sent successfully")
-            print("="*80)
-            
         except Exception as e:
-            print(f"\n❌❌❌ ERROR in send_question: {type(e).__name__}: {e}")
-            import traceback
-            traceback.print_exc()
-            await self.end_quiz()
+            print(f"Countdown error: {e}")
+            self.countdown_task.stop()
     
     def start_question_timer(self, time_limit):
         """Start timer for current question"""
         async def timer():
-            print(f"⏰ TIMER DEBUG: Starting {time_limit}s timer for Q{self.current_question + 1}")
             await asyncio.sleep(time_limit)
-            print(f"⏰ TIMER DEBUG: Timer ended for Q{self.current_question + 1}, calling end_question()")
             await self.end_question()
         
         if self.question_timer:
@@ -959,12 +907,7 @@ class QuizSystem:
         """Process user's answer - allow multiple attempts"""
         if not self.quiz_running:
             return False
-    
-        # CRITICAL FIX: Check if current_question is valid
-        if self.current_question is None or self.current_question >= len(self.quiz_questions):
-            print(f"⚠️ WARNING: Invalid current_question {self.current_question} in process_answer")
-            return False
-    
+        
         question = self.quiz_questions[self.current_question]
         answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
         
@@ -1041,64 +984,26 @@ class QuizSystem:
         
         await self.quiz_logs_channel.send(embed=embed)
     
-    
-    
     async def end_question(self):
         """End current question and show live leaderboard"""
-        import tracebac
-        print(f"\n" + "="*80)
-        print(f"🚨🚨🚨 END_QUESTION DEBUG START 🚨🚨🚨")
-        print(f"🚨 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
-        print(f"🚨 current_question BEFORE: {self.current_question}")
-        print(f"🚨 Total questions: {len(self.quiz_questions)}")
-        print(f"🚨 Quiz running: {self.quiz_running}")
-        print(f"🚨 Participants count: {len(self.participants)}")
-        print(f"\n🔥 end_question called - Question {self.current_question + 1}/{len(self.quiz_questions)}")
-
-        print(f"\n" + "🔍"*80)
-        print(f"🔍 DEBUG: Before checking if quiz finished")
-        print(f"🔍 current_question: {self.current_question}")
-        print(f"🔍 total_questions: {len(self.quiz_questions)}")
-        print(f"🔍 Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
-        print(f"🔍 Quiz running: {self.quiz_running}")
-
-
-        # Log all participants for debugging
-        for user_id, data in self.participants.items():
-            print(f"🚨 Participant: {data['name']} - Score: {data['score']}, Answered current: {data.get('answered_current', False)}")
-
-        try:
-            self.countdown_task.stop()
-        except:
-            pass
-
-        # Validate current_question
-        if self.current_question is None:
-            print(f"❌❌❌ ERROR: current_question is None!")
-            return
-
-        if self.current_question < 0 or self.current_question >= len(self.quiz_questions):
-            print(f"❌❌❌ ERROR: Invalid current_question: {self.current_question}")
-            print(f"❌❌❌ Should be between 0 and {len(self.quiz_questions)-1}")
-            return
-
+        self.countdown_task.stop()
+        
         question = self.quiz_questions[self.current_question]
-        print(f"🚨 Processing question: {question['question'][:50]}...")
-
+        
         # Show correct answer(s)
         correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
-
+        
         embed = discord.Embed(
             title=f"✅ **Question {self.current_question + 1} Complete**",
             description=f"**Correct answer(s):** {correct_answers}",
             color=discord.Color.green()
         )
-
+        
         # Show statistics for this question
         total_participants = len([p for p in self.participants.values()])
         total_answered = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
         correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
-
+        
         # Find fastest correct answer
         fastest_time = None
         fastest_user = None
@@ -1108,7 +1013,7 @@ class QuizSystem:
                     if fastest_time is None or answer["time"] < fastest_time:
                         fastest_time = answer["time"]
                         fastest_user = data["name"]
-
+        
         embed.add_field(
             name="📊 **Question Statistics**",
             value=f"**Total Participants:** {total_participants}\n"
@@ -1117,17 +1022,17 @@ class QuizSystem:
                   f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
                   + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
             inline=False
-         )
-
+        )
+        
         await self.quiz_channel.send(embed=embed)
-
+        
         # Wait 3 seconds
         await asyncio.sleep(3)
-
+        
         # SHOW LIVE LEADERBOARD WITH ALL USERS
         leaderboard_embed = await self.create_live_leaderboard()
         leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
-
+        
         # Countdown to next question with leaderboard showing
         countdown_seconds = 5
         for i in range(countdown_seconds, 0, -1):
@@ -1135,54 +1040,16 @@ class QuizSystem:
             updated_embed = await self.create_live_leaderboard(countdown=i)
             await leaderboard_message.edit(embed=updated_embed)
             await asyncio.sleep(1)
-
+        
         await leaderboard_message.delete()
-
+        
         # Reset answered_current for all users for next question
-        reset_count = 0  # <-- ADD THIS - YOU WERE MISSING IT!
         for user_id in self.participants:
-            if self.participants[user_id].get("answered_current", False):
-                reset_count += 1
             self.participants[user_id]["answered_current"] = False
-    
-        print(f"🚨 Reset answered_current for {reset_count} users")
-
+        
         # Move to next question
-        old_index = self.current_question
         self.current_question += 1
-
-        print(f"\n" + "➡️"*80)
-        print(f"➡️ AFTER INCREMENT:")
-        print(f"➡️ Changed from index {old_index} to {self.current_question}")
-        print(f"➡️ This was Question {old_index + 1} of {len(self.quiz_questions)}")
-        print(f"➡️ Total questions: {len(self.quiz_questions)}")
-        print(f"➡️ New index: {self.current_question}")
-        print(f"➡️ Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
-
-        print(f"🔥 New question index: {self.current_question}")
-        print(f"🔥 Total questions: {len(self.quiz_questions)}")
-
-        # CHECK IF QUIZ IS FINISHED
-        if self.current_question >= len(self.quiz_questions):
-            print(f"\n" + "🎯"*80)
-            print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
-            print(f"🎯 current_question: {self.current_question}")
-            print(f"🎯 total_questions: {len(self.quiz_questions)}")
-            print(f"🎯 Calling end_quiz() NOW...")
-            print("🎯"*80)
-            print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
-            await self.end_quiz()
-        else:
-            print(f"\n" + "⏭️"*80)
-            print(f"⏭️ MORE QUESTIONS LEFT")
-            print(f"⏭️ Next will be Question {self.current_question + 1}")
-            print(f"⏭️ Calling send_question()...")
-            print("⏭️"*80)
-            print(f"🔥 More questions left, calling send_question()")
-            await self.send_question()
-
-        print(f"\n✅ END_QUESTION DEBUG COMPLETE")
-        print("="*80)
+        await self.send_question()
     
     async def create_live_leaderboard(self, countdown=None):
         """Create a live leaderboard embed showing all participants"""
@@ -1279,44 +1146,19 @@ class QuizSystem:
     
     async def end_quiz(self):
         """End the entire quiz with improved leaderboard"""
-        import traceback
-        print(f"\n" + "🎯"*60)
-        print(f"🎯🎯🎯 END_QUIZ CALLED! - Question {self.current_question}/{len(self.quiz_questions)}")
-        print(f"🎯 Participants: {len(self.participants)}")
-        print(f"🔥 CRITICAL: end_quiz STARTED - Participants: {len(self.participants)}")
-        print(f"🔥🔥🔥 Quiz channel: {self.quiz_channel}")
-        print(f"🔥🔥🔥 Quiz running: {self.quiz_running}")
- 
-        print(f"\n" + "💰"*80)
-        print(f"💰💰💰 END_QUIZ CALLED FROM: {traceback.format_stack()[-2]}")  # Show where it was called from
-        print(f"💰💰💰 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S.%f')}")
-        print(f"💰💰💰 Question: {self.current_question}/{len(self.quiz_questions)}")
-        print(f"💰💰💰 Participants: {len(self.participants)}")
-        print(f"💰💰💰 Quiz running: {self.quiz_running}")
-    
-        import traceback
-        # Log the full call stack to see how we got here
-        print(f"\n💰 CALL STACK:")
-        for line in traceback.format_stack()[-5:-1]:
-            print(f"💰 {line.strip()}")
-        
-        # Log all participants
-        for user_id, data in self.participants.items():
-            print(f"🔥 Participant: {data['name']} (ID: {user_id}) - Score: {data['score']}")
-    
         self.quiz_running = False
         self.countdown_task.stop()
-
+        
         if self.question_timer:
             self.question_timer.cancel()
-
+        
         # Sort participants by score
         sorted_participants = sorted(
             self.participants.items(),
             key=lambda x: x[1]["score"],
             reverse=True
         )
-
+        
         # First, send a congratulations embed
         embed = discord.Embed(
             title="🏆 **QUIZ FINISHED!** 🏆",
@@ -1324,13 +1166,13 @@ class QuizSystem:
             color=discord.Color.gold(),
             timestamp=datetime.now(timezone.utc)
         )
-
+        
         # Add quiz statistics
         total_questions = len(self.quiz_questions)
-        total_correct = sum(p['correct_answers'] for p in   self.participants.values())
+        total_correct = sum(p['correct_answers'] for p in self.participants.values())
         total_attempts = sum(len(p['answers']) for p in self.participants.values())
         total_participants = len(self.participants)
-
+        
         embed.add_field(
             name="📊 **Quiz Statistics**",
             value=(
@@ -1343,27 +1185,12 @@ class QuizSystem:
             ),
             inline=False
         )
-
+        
         await self.quiz_channel.send(embed=embed)
-
+        
         # Wait 2 seconds
         await asyncio.sleep(2)
-
-        print(f"\n🔥🔥🔥 ABOUT TO DISTRIBUTE REWARDS")
-        print(f"🔥🔥🔥 Sorted participants count: {len(sorted_participants)}")
-
-        # DISTRIBUTE REWARDS FIRST
-        print(f"🔥 CRITICAL: About to call distribute_quiz_rewards...")
-        try:
-            rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
-            print(f"🔥 CRITICAL: Rewards distributed to {len(rewards_distributed)} users")
-
-        except Exception as e:
-            print(f"❌ CRITICAL ERROR in distribute_quiz_rewards: {e}")
-            import traceback
-            traceback.print_exc()
-            rewards_distributed = {}
-
+        
         # Send TOP 3 WINNERS with avatars
         if len(sorted_participants) >= 3:
             # Get top 3 users
@@ -1371,57 +1198,54 @@ class QuizSystem:
                 title="🎉 **TOP 3 WINNERS** 🎉",
                 color=discord.Color.nitro_pink()
             )
-
+            
             # Fetch user objects for top 3
             top3_users = []
             for i in range(min(3, len(sorted_participants))):
                 user_id = int(sorted_participants[i][0])
                 user_data = sorted_participants[i][1]
-
+                
                 try:
                     user = await self.bot.fetch_user(user_id)
                     top3_users.append((user, user_data))
                 except:
                     # Fallback if can't fetch user
                     top3_users.append((None, user_data))
-
+            
             # Define medals and colors
             medals = ["🥇", "🥈", "🥉"]
             colors = [0xFFD700, 0xC0C0C0, 0xCD7F32]  # Gold, Silver, Bronze
-
+            
             # Create top 3 display
             top3_text = ""
             for i, (user, data) in enumerate(top3_users):
                 medal = medals[i]
-                reward = rewards_distributed.get(str(user.id if user else sorted_participants[i][0]), {})
-                gems = reward.get("gems", 0)
-
+                
                 # Calculate accuracy
                 user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
-
+                
                 # Format user mention or name
-                if user:
-                    user_display = user.mention 
-                else:
-                    user_display = f"**{data['name']}**"
-
-                top3_text += f"{medal} {user_display}\n"
-                top3_text += f"   ⭐ **{data['score']}** points\n"
-                top3_text += f"   💎 **{gems} gems** earned\n"
-                top3_text += f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n\n"
-
+                user_display = user.mention if user else f"**{data['name']}**"
+                
+                top3_text += (
+                    f"{medal} **{user_display}**\n"
+                    f"   ⭐ **{data['score']}** points\n"
+                    f"   📊 {data['correct_answers']}/{total_questions} correct ({user_accuracy}%)\n"
+                    f"   ⏱️ Avg time per correct answer: {self.calculate_average_time(data):.1f}s\n\n"
+                )
+            
             top3_embed.description = top3_text
-            top3_embed.color = colors[0]
-
+            top3_embed.color = colors[0]  # Gold color for winner
+            
             # Set winner's avatar as thumbnail
             if top3_users[0][0] and top3_users[0][0].avatar:
                 top3_embed.set_thumbnail(url=top3_users[0][0].avatar.url)
-
+            
             await self.quiz_channel.send(embed=top3_embed)
-
+        
         # Wait 2 seconds
         await asyncio.sleep(2)
-
+        
         # Send FULL LEADERBOARD with pagination if many participants
         if sorted_participants:
             # Create main leaderboard embed
@@ -1431,69 +1255,69 @@ class QuizSystem:
                 color=discord.Color.blue(),
                 timestamp=datetime.now(timezone.utc)
             )
-
+            
             # Split participants into chunks of 15 for readability
             chunk_size = 15
             chunks = [sorted_participants[i:i + chunk_size] 
                      for i in range(0, len(sorted_participants), chunk_size)]
-
+            
             for chunk_idx, chunk in enumerate(chunks):
                 leaderboard_text = ""
-
+                
                 for rank, (user_id, data) in enumerate(chunk, start=chunk_idx * chunk_size + 1):
                     # Get rank emoji
                     rank_emoji = self.get_rank_emoji(rank)
-
+                    
                     # Try to fetch user for avatar in field
                     try:
                         user = await self.bot.fetch_user(int(user_id))
                         user_display = user.display_name
                     except:
                         user_display = data['name']
-
+                    
                     # Calculate user stats
                     user_accuracy = round(data['correct_answers'] / total_questions * 100, 1)
                     avg_time = self.calculate_average_time(data)
-
+                    
                     leaderboard_text += (
                         f"{rank_emoji} **{user_display}**\n"
                         f"   ⭐ {data['score']} pts | 📊 {data['correct_answers']}/{total_questions} ({user_accuracy}%)\n"
                         f"   ⏱️ Avg: {avg_time:.1f}s | 📈 Rank: #{rank}\n"
                     )
-
+                    
                     # Add separator between entries
                     if rank < len(chunk) + chunk_idx * chunk_size:
                         leaderboard_text += "━━━━━━━━━━━━━━━━━━━━\n"
-
+                
                 # Add chunk as a field
                 field_name = f"🏆 **Rank {chunk_idx * chunk_size + 1}-{chunk_idx * chunk_size + len(chunk)}**"
                 if chunk_idx == 0:
                     field_name = "🏆 **TOP CONTENDERS**"
-
+                
                 leaderboard_embed.add_field(
                     name=field_name,
                     value=leaderboard_text if leaderboard_text else "No participants",
                     inline=False
                 )
-
+            
             # Add footer with quiz completion time
             leaderboard_embed.set_footer(
                 text=f"Quiz completed • {total_participants} participants",
                 icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None
             )
-
+            
             await self.quiz_channel.send(embed=leaderboard_embed)
 
+        # DISTRIBUTE REWARDS
+        rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+
         # Send rewards summary
-        total_distributed_gems = sum(reward.get("gems", 0) for reward in rewards_distributed.values())
-        successful_rewards = sum(1 for reward in rewards_distributed.values() if reward.get("gems", 0) > 0)
-    
         rewards_embed = discord.Embed(
             title="💰 **Quiz Rewards Distributed!**",
             color=discord.Color.green(),
             timestamp=datetime.now(timezone.utc)
-    )
-
+        )
+        
         # Show top 3 with rewards
         top_3 = []
         for i, (user_id, data) in enumerate(sorted_participants[:3]):
@@ -1505,39 +1329,31 @@ class QuizSystem:
                 f"{medal} **{data['name']}** - {data['score']} pts\n"
                 f"   Reward: 💎 {gems} gems"
             )
-
+        
         if top_3:
             rewards_embed.add_field(
                 name="🏆 **TOP 3 WINNERS**",
                 value="\n".join(top_3),
                 inline=False
             )
-
+        
         # Show participation rewards
         if len(sorted_participants) > 3:
             rewards_embed.add_field(
-                name="🎁 **Rewards Summary**",
-                value=f"**Participants Rewarded:** {successful_rewards}/{len(sorted_participants)}\n"
-                      f"**Total Gems Distributed:** {total_distributed_gems} 💎\n"
-                      f"**Reward Formula:**\n"
-                      f"• Base: 50 gems participation\n"
-                      f"• 1st: +500 gems\n"
-                      f"• 2nd: +250 gems\n"
-                      f"• 3rd: +125 gems\n"
-                      f"• Top 10: +75 gems\n"
-                      f"• Score bonus: +10 gems per 100 points",
-            inline=False
-        )
+                name="🎁 **Participation Rewards**",
+                value=f"All {len(sorted_participants)} participants received:\n"
+                      f"• 💎 50 gems for joining\n"
+                      f"• +10 gems per 100 points scored\n"
+                      f"• Speed bonuses for fast answers!",
+                inline=False
+            )
 
         await self.quiz_channel.send(embed=rewards_embed)
-
+        
         # Send individual DMs with rewards
-        dm_count = 0
         for user_id, data in self.participants.items():
             reward = rewards_distributed.get(user_id, {})
-            gems = reward.get("gems", 0)
-        
-            if gems > 0:
+            if reward:
                 user_obj = self.bot.get_user(int(user_id))
                 if user_obj:
                     try:
@@ -1548,59 +1364,50 @@ class QuizSystem:
                                       f"Rank: **#{list(self.participants.keys()).index(user_id) + 1}**",
                             color=discord.Color.gold()
                         )
-
+                        
                         dm_embed.add_field(
                             name="💰 **Rewards Earned**",
-                            value=f"💎 **{gems} Gems**",
+                            value=f"💎 **{reward['gems']} Gems**",
                             inline=False
                         )
-
-                        balance = await self.currency.get_balance(user_id)
+                        
+                        balance = self.currency.get_balance(user_id)
                         dm_embed.add_field(
                             name="📊 **New Balance**",
                             value=f"💎 Total Gems: **{balance['gems']}**",
                             inline=False
                         )
-
+                        
                         dm_embed.set_footer(text="Use !!currency to check your gems!")
                         await user_obj.send(embed=dm_embed)
-                        dm_count += 1
-                        print(f"✅ Sent DM to user {user_id} - {gems} gems")
                     except:
-                        print(f"⚠️ Could not send DM to user {user_id}")
-
-        print(f"🔥 CRITICAL: Sent {dm_count} reward DMs")
-
+                        pass  # User has DMs disabled
+        
         # Wait 2 seconds
         await asyncio.sleep(2)
-
+        
         # Final message
         final_embed = discord.Embed(
             description="🎉 **Thank you for participating!** 🎉\n\nUse `!!quiz start` to play again!",
             color=discord.Color.green()
         )
         final_embed.set_footer(text="Quiz System • Powered by 558 Discord Server")
-
+        
         await self.quiz_channel.send(embed=final_embed)
-
+        
         # Reset for next quiz
         self.quiz_channel = None
         self.quiz_logs_channel = None
         self.current_question = 0
         self.participants = {}
-        print(f"🔥 CRITICAL: end_quiz COMPLETED successfully")
-        print(f"\n" + "✅"*60)
-        print(f"✅✅✅ END_QUIZ COMPLETED SUCCESSFULLY")
-        print(f"✅✅✅ All embeds should have been sent")
-        print("✅"*60 + "\n")
-
+    
     def calculate_average_time(self, user_data):
         """Calculate average time for correct answers"""
         correct_times = [a['time'] for a in user_data['answers'] if a['correct']]
         if not correct_times:
             return 0
         return sum(correct_times) / len(correct_times)
-
+    
     def get_rank_emoji(self, rank):
         """Get appropriate emoji for rank position"""
         rank_emojis = {
@@ -1616,69 +1423,26 @@ class QuizSystem:
             10: "🔟"
         }
         return rank_emojis.get(rank, f"{rank}.")
-
     
     async def distribute_quiz_rewards(self, sorted_participants):
-        """Distribute gems based on quiz performance - GUARANTEED WORKING VERSION"""
-        print(f"\n" + "="*80)
-        print(f"🚀 NUCLEAR DEBUG: distribute_quiz_rewards STARTED")
-        print(f"🚀 Participants count: {len(sorted_participants)}")
-    
+        """Distribute gems based on quiz performance"""
         rewards = {}
+        total_participants = len(sorted_participants)
     
-        if not sorted_participants:
-            print(f"⚠️ No participants to reward")
-            return rewards
-    
-        # NUCLEAR DEBUG 1: Check currency system
-        print(f"\n🔍 NUCLEAR DEBUG 1: Checking currency system...")
-        if not hasattr(self, 'currency'):
-            print(f"❌ CRITICAL ERROR: self.currency attribute missing!")
-            return rewards
-    
-        print(f"✅ self.currency exists: {self.currency}")
-        print(f"✅ self.currency type: {type(self.currency)}")
-    
-        # NUCLEAR DEBUG 2: Check if currency methods exist
-        required_methods = ['add_gems', 'get_balance']
-        for method in required_methods:
-            if not hasattr(self.currency, method):
-                print(f"❌ CRITICAL ERROR: self.currency.{method} missing!")
-                return rewards
-            else:
-                print(f"✅ self.currency.{method} exists")
-    
-        # NUCLEAR DEBUG 3: Test database connection
-        print(f"\n🔍 NUCLEAR DEBUG 3: Testing database connection...")
-        try:
-            # Try to get balance of first user to test DB
-            test_user_id = str(sorted_participants[0][0])
-            test_balance = await self.currency.get_balance(test_user_id)
-            print(f"✅ Database test passed: User {test_user_id} has {test_balance['gems']} gems")
-        except Exception as e:
-            print(f"❌ DATABASE CONNECTION FAILED: {type(e).__name__}: {e}")
-            return rewards
-    
-        # Process each participant
         for rank, (user_id, data) in enumerate(sorted_participants, 1):
-            print(f"\n" + "-"*40)
-            print(f"🎯 Processing user {user_id} (Rank #{rank})")
-            print(f"📊 User data: {data}")
-        
-            # Calculate rewards
             base_gems = 50  # Participation reward
         
-            # Rank bonuses
-            if rank == 1:
+            # Rank-based bonuses
+            if rank == 1:  # 1st place
                 base_gems += 500
-            elif rank == 2:
+            elif rank == 2:  # 2nd place
                 base_gems += 250
-            elif rank == 3:
+            elif rank == 3:  # 3rd place
                 base_gems += 125
-            elif rank <= 10:
+            elif rank <= 10:  # Top 10
                 base_gems += 75
         
-            # Score bonus
+            # Score-based bonus: 10 gems per 100 points
             score_bonus = (data["score"] // 100) * 10
             base_gems += score_bonus
         
@@ -1690,121 +1454,63 @@ class QuizSystem:
             else:
                 reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
         
-            # Speed bonus
+            # Speed bonus for fast answers
             speed_bonus = self.calculate_speed_bonus(user_id)
             if speed_bonus:
                 base_gems += speed_bonus
                 reason += f" + ⚡{speed_bonus} speed bonus"
         
-            print(f"💰 Calculated {base_gems} gems for {data['name']}")
-            print(f"📝 Reason: {reason}")
+            # Add gems using the SHARED currency system (ASYNC NOW)
+            result = await self.currency.add_gems(
+                user_id=user_id,
+                gems=base_gems,
+                reason=reason
+            )
         
-            # NUCLEAR DEBUG 4: Try to add gems with maximum logging
-            print(f"\n🔍 NUCLEAR DEBUG 4: Attempting to add gems...")
-            try:
-                print(f"📞 Calling: await self.currency.add_gems('{user_id}', {base_gems}, '{reason}')")
-            
-                # ACTUAL GEM ADDING - This is the critical line
-                result = await self.currency.add_gems(
-                    user_id=user_id,
-                    gems=base_gems,
-                    reason=reason
-                )
-            
-                print(f"✅ SUCCESS! add_gems returned: {result}")
-            
-                if result is None:
-                    print(f"❌ WARNING: add_gems returned None (might indicate failure)")
-                    rewards[user_id] = {"gems": 0, "rank": rank, "error": "add_gems returned None"}
-                elif isinstance(result, dict):
-                    print(f"✅ Result type: dict with keys: {list(result.keys())}")
-                    if 'balance' in result:
-                        print(f"💰 New balance: {result['balance']}")
-                
-                    rewards[user_id] = {
-                        "gems": base_gems,
-                        "rank": rank,
-                        "result": result
-                    }
-                
-                    # Log to quiz logs
-                    try:
-                        await self.log_reward(user_id, data["name"], base_gems, rank)
-                        print(f"📝 Logged reward successfully")
-                    except Exception as log_error:
-                        print(f"⚠️ Failed to log reward: {log_error}")
-                else:
-                    print(f"⚠️ Unexpected result type: {type(result)} - Value: {result}")
-                    rewards[user_id] = {"gems": base_gems, "rank": rank, "result": result}
-                
-            except Exception as e:
-                print(f"❌ CRITICAL ERROR in add_gems:")
-                print(f"❌ Error type: {type(e).__name__}")
-                print(f"❌ Error message: {e}")
-                import traceback
-                traceback.print_exc()
-            
-                rewards[user_id] = {
-                    "gems": 0,
-                    "rank": rank,
-                    "error": f"{type(e).__name__}: {str(e)[:100]}"
-                }
-    
-        print(f"\n" + "="*80)
-        print(f"🚀 NUCLEAR DEBUG: distribute_quiz_rewards COMPLETED")
-        print(f"📊 Final rewards summary:")
-        for user_id, reward in rewards.items():
-            gems = reward.get("gems", 0)
-            if gems > 0:
-                print(f"  ✅ {user_id}: {gems} gems")
-            else:
-                print(f"  ❌ {user_id}: Failed - {reward.get('error', 'Unknown error')}")
-        print("="*80)
+            rewards[user_id] = {
+                "gems": base_gems,
+                "rank": rank,
+                "result": result
+            }
+        
+            # Log reward distribution
+            await self.log_reward(user_id, data["name"], base_gems, rank)
     
         return rewards
-
+    
     def calculate_speed_bonus(self, user_id):
         """Calculate speed bonus for fast answers"""
         if user_id not in self.participants:
             return 0
-    
+        
         speed_bonus = 0
         for answer in self.participants[user_id]["answers"]:
             if answer["correct"] and answer["time"] < 10:
                 # Bonus gems for answering under 10 seconds
                 speed_bonus += max(1, 10 - answer["time"])
-    
+        
         return min(speed_bonus, 50)  # Cap at 50 gems
-
+    
     async def log_reward(self, user_id, username, gems, rank):
         """Log reward distribution"""
         if not self.quiz_logs_channel:
             return
-    
+        
         embed = discord.Embed(
             title="💰 **Gems Distributed**",
             color=discord.Color.gold(),
             timestamp=datetime.now(timezone.utc)
         )
-    
+        
         embed.add_field(name="👤 User", value=username, inline=True)
         embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
         embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
-    
-        # Get user's new balance
-        try:
-            balance = await self.currency.get_balance(user_id)
-            embed.add_field(name="📊 New Balance", value=f"{balance['gems']} gems", inline=True)
-        except:
-            embed.add_field(name="📊 Status", value="Balance update failed", inline=True)
-    
-        embed.set_footer(text=f"Quiz completed • {len(self.participants)} participants")
-    
+        embed.add_field(name="📊 Total", value=f"{gems} gems", inline=True)
+        
         await self.quiz_logs_channel.send(embed=embed)
 
-
-# === CREATE QUIZ SYSTEM LATER (after database connection) ===
-quiz_system = None  # We'll create it in on_ready()
+# === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
+quiz_system = QuizSystem(bot)
 
 # --- ANNOUNCEMENT COMMANDS ---
 @bot.group(name="announce", invoke_without_command=True)
@@ -1959,9 +1665,6 @@ async def quiz_start(ctx, channel: discord.TextChannel = None):
     Usage: !!quiz start #channel  (starts in mentioned channel)
            !!quiz start           (starts in current channel)
     """
-
-    global quiz_system
-
     if quiz_system.quiz_running:
         await ctx.send("❌ Quiz is already running!", delete_after=5)
         return
@@ -2000,9 +1703,6 @@ async def quiz_start(ctx, channel: discord.TextChannel = None):
 @commands.has_permissions(manage_messages=True)
 async def quiz_stop(ctx):
     """Stop current quiz"""
-
-    global quiz_sytem
-
     if not quiz_system.quiz_running:
         await ctx.send("❌ No quiz is running!", delete_after=5)
         return
@@ -2016,9 +1716,6 @@ async def quiz_stop(ctx):
 @quiz_group.command(name="leaderboard")
 async def quiz_leaderboard(ctx):
     """Show current quiz leaderboard"""
-
-    global quiz_sytem
-
     if not quiz_system.participants:
         await ctx.send("❌ No quiz data available!", delete_after=5)
         return
@@ -2279,29 +1976,17 @@ async def balance_cmd(ctx):
 # --- ANSWER DETECTION ---
 @bot.event
 async def on_message(message):
-    # Skip bot messages
     if message.author.bot:
         return
     
-    # GLOBAL DECLARATION
-    global quiz_system  # FIXED TYPO: quiz_sytem → quiz_system
-    
-    # Check for quiz answers
-    if (quiz_system and quiz_system.quiz_running and 
+    # Check for quiz answers (any text answer)
+    if (quiz_system.quiz_running and 
         message.channel == quiz_system.quiz_channel):
-        
-        # ADD SAFETY CHECK
-        if (quiz_system.current_question is None or 
-            quiz_system.current_question >= len(quiz_system.quiz_questions)):
-            print(f"⚠️ Quiz finished, ignoring answer: {message.content[:50]}")
-            return
         
         # Process the answer silently (NO REACTIONS)
         await quiz_system.process_answer(message.author, message.content)
     
-    # Process commands
     await bot.process_commands(message)
-
 
 # --- HELP COMMAND ---
 @bot.command(name="help")
@@ -2349,67 +2034,6 @@ async def custom_help(ctx, command: str = None):
 async def ping(ctx):
     """Check if bot is alive"""
     await ctx.send("🏓 Pong!")
-
-@bot.command(name="quizdebug")
-async def quiz_debug(ctx):
-    """Debug quiz participants"""
-    if not quiz_system.participants:
-        await ctx.send("❌ No quiz participants")
-        return
-    
-    embed = discord.Embed(
-        title="🔍 **Quiz Debug**",
-        color=discord.Color.orange()
-    )
-    
-    # Show all participants
-    participants_info = []
-    for user_id, data in quiz_system.participants.items():
-        participants_info.append(
-            f"**{data['name']}** (ID: {user_id}):\n"
-            f"  Score: {data['score']} pts\n"
-            f"  Correct: {data['correct_answers']}/{len(quiz_system.quiz_questions)}\n"
-            f"  Answers: {len(data['answers'])}"
-        )
-    
-    embed.add_field(
-        name="📊 Participants",
-        value="\n".join(participants_info),
-        inline=False
-    )
-    
-    # Show what rewards would be calculated
-    sorted_participants = sorted(
-        quiz_system.participants.items(),
-        key=lambda x: x[1]["score"],
-        reverse=True
-    )
-    
-    reward_calc = []
-    for rank, (user_id, data) in enumerate(sorted_participants[:5], 1):
-        base_gems = 50
-        if rank == 1: base_gems += 500
-        elif rank == 2: base_gems += 250
-        elif rank == 3: base_gems += 125
-        elif rank <= 10: base_gems += 75
-        
-        score_bonus = (data["score"] // 100) * 10
-        base_gems += score_bonus
-        
-        reward_calc.append(
-            f"**Rank {rank} ({data['name']})**:\n"
-            f"Score: {data['score']} → {base_gems} gems\n"
-            f"(50 base + rank bonus + {score_bonus} score bonus)"
-        )
-    
-    if reward_calc:
-        embed.add_field(
-            name="🧮 Reward Calculation",
-            value="\n\n".join(reward_calc),
-            inline=False
-        )
-    
-    await ctx.send(embed=embed)
 
 
 # === EMERGENCY FIX COMMANDS ===
@@ -2487,531 +2111,42 @@ async def railway_help(ctx):
     """
     await ctx.send(help_text)
 
-@bot.command(name="quizlink")
-async def quiz_link_check(ctx):
-    """Check if quiz system is properly linked to PostgreSQL"""
-    if quiz_system is None:
-        await ctx.send("❌ Quiz system not initialized yet!")
-        return
+@bot.command(name="testdb")
+async def test_db(ctx):
+    """Test database connection"""
+    user_id = str(ctx.author.id)
     
-    embed = discord.Embed(
-        title="🔗 **Quiz System Link Check**",
-        color=discord.Color.blue()
+    # Add gems using the shared currency system
+    transaction = currency_system.add_gems(
+        user_id=user_id,
+        gems=10,
+        reason="Database test"
     )
     
-    # Check database connection
-    embed.add_field(
-        name="1. Database Connection",
-        value=f"Connected: **{db.using_database}**",
-        inline=False
-    )
-    
-    # Check currency system
-    embed.add_field(
-        name="2. Currency System",
-        value=f"Type: `{type(currency_system).__name__}`",
-        inline=False
-    )
-    
-    # Check quiz system
-    embed.add_field(
-        name="3. Quiz System",
-        value=f"Initialized: **{quiz_system is not None}**",
-        inline=False
-    )
-    
-    if quiz_system:
-        embed.add_field(
-            name="4. Quiz Currency Link",
-            value=f"Has currency: **{hasattr(quiz_system, 'currency')}**",
-            inline=False
-        )
-        
-        if hasattr(quiz_system, 'currency'):
-            # Test if it can actually add gems
-            try:
-                test_result = await quiz_system.currency.add_gems(
-                    user_id=str(ctx.author.id),
-                    gems=1,
-                    reason="Link test"
-                )
-                embed.add_field(
-                    name="5. Test Transaction",
-                    value=f"✅ **SUCCESS!**\nResult: {test_result}",
-                    inline=False
-                )
-            except Exception as e:
-                embed.add_field(
-                    name="5. Test Transaction",
-                    value=f"❌ **FAILED:** {type(e).__name__}: {str(e)[:100]}",
-                    inline=False
-                )
-    
-    await ctx.send(embed=embed)
+    if transaction:
+        balance = currency_system.get_balance(user_id)
+        await ctx.send(f"✅ **CURRENCY SYSTEM WORKING!**\nAdded 10 gems\nNew balance: **{balance['gems']} gems**")
+    else:
+        await ctx.send("❌ **Test failed completely**")
 
-@bot.command(name="nucleartest")
-async def nuclear_test(ctx):
-    """ULTIMATE test of quiz rewards - bypasses everything"""
-    try:
-        print(f"\n" + "="*80)
-        print(f"💣 NUCLEAR TEST STARTED for {ctx.author.id}")
-        
-        # Test 1: Check if quiz_system exists
-        print(f"\n🔍 Test 1: quiz_system check")
-        print(f"   quiz_system: {quiz_system}")
-        print(f"   Type: {type(quiz_system)}")
-        
-        if not quiz_system:
-            await ctx.send("❌ quiz_system is None!")
-            return
-        
-        # Test 2: Check currency link
-        print(f"\n🔍 Test 2: currency check")
-        print(f"   hasattr(quiz_system, 'currency'): {hasattr(quiz_system, 'currency')}")
-        
-        if hasattr(quiz_system, 'currency'):
-            currency = quiz_system.currency
-            print(f"   currency object: {currency}")
-            print(f"   currency type: {type(currency)}")
-            print(f"   Same as currency_system? {currency is currency_system}")
-            
-            # Test add_gems directly
-            print(f"\n🔍 Test 3: Direct add_gems test")
-            try:
-                print(f"   Calling: await currency.add_gems('{ctx.author.id}', 100, 'Nuclear test')")
-                result = await currency.add_gems(
-                    user_id=str(ctx.author.id),
-                    gems=100,
-                    reason="💣 Nuclear test"
-                )
-                print(f"   Result: {result}")
-                
-                if result and isinstance(result, dict) and 'balance' in result:
-                    print(f"   ✅ SUCCESS! New balance: {result['balance']}")
-                    await ctx.send(f"✅ **NUCLEAR TEST PASSED!**\nAdded 100 gems\nNew balance: {result['balance']} gems")
-                else:
-                    print(f"   ❌ FAILED: Result: {result}")
-                    await ctx.send(f"❌ **NUCLEAR TEST FAILED:** add_gems returned: {result}")
-                    
-            except Exception as e:
-                print(f"   ❌ ERROR: {type(e).__name__}: {e}")
-                import traceback
-                traceback.print_exc()
-                await ctx.send(f"❌ **NUCLEAR TEST ERROR:** {type(e).__name__}: {str(e)[:200]}")
-        else:
-            await ctx.send("❌ quiz_system.currency attribute missing!")
-            
-        print(f"\n" + "="*80)
-        
-    except Exception as e:
-        await ctx.send(f"❌ **NUCLEAR TEST CRASHED:** {type(e).__name__}: {str(e)[:200]}")
-        print(f"💥 NUCLEAR TEST CRASHED: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-@bot.command(name="manualquizrewards")
-@commands.has_permissions(administrator=True)
-async def manual_quiz_rewards(ctx, user_id: str, score: int = 500):
-    """Manually trigger quiz rewards for testing"""
-    try:
-        print(f"\n🔧 MANUAL REWARDS TRIGGERED for user {user_id}")
-        
-        # Simulate quiz participant
-        self_participants = {
-            user_id: {
-                "name": "Test User",
-                "score": score,
-                "correct_answers": 3,
-                "answers": []
-            }
-        }
-        
-        # Sort them
-        sorted_participants = sorted(
-            self_participants.items(),
-            key=lambda x: x[1]["score"],
-            reverse=True
-        )
-        
-        # Call distribute_quiz_rewards
-        rewards = await quiz_system.distribute_quiz_rewards(sorted_participants)
-        
-        await ctx.send(f"✅ **Manual rewards triggered!**\nRewards: {rewards}")
-        
-        # Check balance
-        balance = await currency_system.get_balance(user_id)
-        await ctx.send(f"💰 **New balance:** {balance['gems']} gems")
-        
-    except Exception as e:
-        await ctx.send(f"❌ **Error:** {type(e).__name__}: {str(e)[:200]}")
-        print(f"❌ Manual rewards error: {e}")
-        import traceback
-        traceback.print_exc()
-
-@bot.command(name="dbtestadd")
-async def db_test_add(ctx, user_id: str = None, gems: int = 100):
-    """Direct database add_gems test"""
-    target_id = user_id or str(ctx.author.id)
+@bot.command(name="checkenv")
+async def check_env(ctx):
+    """Check all database environment variables"""
+    import os
     
-    try:
-        print(f"\n🔍 DB TEST: Direct database test for user {target_id}")
-        print(f"🔍 DB TEST: db.using_database = {db.using_database}")
-        print(f"🔍 DB TEST: db.pool = {db.pool}")
-        
-        if not db.using_database:
-            await ctx.send("❌ Database not connected")
-            return
-        
-        # Test directly with database
-        result = await db.add_gems(
-            user_id=target_id,
-            gems=gems,
-            reason=f"Direct database test by {ctx.author.name}"
-        )
-        
-        await ctx.send(f"✅ **Direct Database Test:**\nAdded {gems} gems\nResult: {result}")
-        
-        # Verify with get_balance
-        balance = await db.get_balance(target_id)
-        await ctx.send(f"✅ **Verified Balance:** {balance['gems']} gems")
-        
-    except Exception as e:
-        await ctx.send(f"❌ **Database Error:** {type(e).__name__}: {str(e)[:200]}")
-        print(f"❌ DB TEST ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-
-@bot.command(name="test_question5")
-async def test_question5(ctx):
-    """Test Question 5 directly"""
-    try:
-        quiz = bot.quiz_system
-        
-        if not quiz:
-            await ctx.send("❌ No quiz system!")
-            return
-            
-        print(f"\n" + "5️⃣"*60)
-        print(f"5️⃣ TESTING QUESTION 5 DIRECTLY")
-        
-        # Set to Question 5 (index 4)
-        quiz.quiz_channel = ctx.channel
-        quiz.current_question = 4
-        
-        print(f"5️⃣ Set current_question to 4")
-        print(f"5️⃣ Total questions: {len(quiz.quiz_questions)}")
-        
-        # Directly call send_question
-        print(f"5️⃣ Calling send_question()...")
-        await quiz.send_question()
-        
-        await ctx.send("✅ Testing Question 5. Check console!")
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
-        print(f"5️⃣ Test error: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-@bot.command(name="quiz_diagnosis")
-async def quiz_diagnosis(ctx):
-    """Diagnose why quiz rewards aren't working"""
-    global quiz_system
+    db_vars = []
+    for key in sorted(os.environ.keys()):
+        if any(word in key.upper() for word in ['DB', 'DATABASE', 'POSTGRES', 'PG', 'SQL', 'URL', 'HOST', 'PORT', 'USER', 'PASS']):
+            value = os.environ[key]
+            if 'PASS' in key.upper() or 'PASSWORD' in key.upper():
+                db_vars.append(f"`{key}`: `*****`")
+            else:
+                db_vars.append(f"`{key}`: `{value}`")
     
-    print(f"\n" + "🩺"*80)
-    print(f"🩺 QUIZ DIAGNOSIS STARTED")
-    print(f"🩺 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
-    
-    if not quiz_system:
-        print(f"❌ CRITICAL: quiz_system is None!")
-        await ctx.send("❌ quiz_system is None! Bot may not be fully ready.")
-        return
-    
-    # Check 1: Quiz system state
-    print(f"\n🔍 CHECK 1: Quiz System State")
-    print(f"  • quiz_system exists: {quiz_system is not None}")
-    print(f"  • quiz_running: {quiz_system.quiz_running}")
-    print(f"  • current_question: {quiz_system.current_question}")
-    print(f"  • total_questions: {len(quiz_system.quiz_questions)}")
-    print(f"  • quiz_channel: {quiz_system.quiz_channel}")
-    print(f"  • participants: {len(quiz_system.participants)}")
-    
-    # Check 2: Database connection
-    print(f"\n🔍 CHECK 2: Database Connection")
-    print(f"  • db.using_database: {db.using_database}")
-    print(f"  • currency_system exists: {currency_system is not None}")
-    
-    # Check 3: Reward system link
-    print(f"\n🔍 CHECK 3: Reward System Link")
-    print(f"  • quiz_system.currency exists: {hasattr(quiz_system, 'currency')}")
-    if hasattr(quiz_system, 'currency'):
-        print(f"  • Same as currency_system: {quiz_system.currency is currency_system}")
-        print(f"  • Type: {type(quiz_system.currency)}")
-    
-    # Check 4: Simulate the flow
-    print(f"\n🔍 CHECK 4: Flow Simulation")
-    print(f"  • If current_question = 0 → after end_question: 1")
-    print(f"  • If current_question = 1 → after end_question: 2")
-    print(f"  • If current_question = 2 → after end_question: 3")
-    print(f"  • If current_question = 3 → after end_question: 4")
-    print(f"  • If current_question = 4 → after end_question: 5")
-    print(f"  • Should end when: 5 == {len(quiz_system.quiz_questions)}")
-    
-    # Test direct reward distribution
-    print(f"\n🔍 CHECK 5: Direct Reward Test")
-    try:
-        # Create a test participant
-        test_participants = {
-            str(ctx.author.id): {
-                "name": ctx.author.display_name,
-                "score": 500,
-                "correct_answers": 5,
-                "answers": [],
-                "answered_current": False
-            }
-        }
-        
-        sorted_test = sorted(test_participants.items(), key=lambda x: x[1]["score"], reverse=True)
-        
-        print(f"  • Testing distribute_quiz_rewards with 1 participant...")
-        rewards = await quiz_system.distribute_quiz_rewards(sorted_test)
-        print(f"  • Result: {rewards}")
-        
-        if rewards and str(ctx.author.id) in rewards:
-            print(f"  ✅ Direct reward test PASSED!")
-        else:
-            print(f"  ❌ Direct reward test FAILED!")
-            
-    except Exception as e:
-        print(f"  ❌ Direct reward test ERROR: {type(e).__name__}: {e}")
-    
-    print(f"\n🩺 DIAGNOSIS SUMMARY:")
-    
-    if quiz_system.quiz_running:
-        print(f"  ⚠️ There is currently a quiz running!")
-        print(f"  ⚠️ Current question: {quiz_system.current_question + 1}/{len(quiz_system.quiz_questions)}")
-    
-    print(f"  ✅ Database: {'Connected' if db.using_database else 'Not connected'}")
-    print(f"  ✅ Currency link: {'OK' if hasattr(quiz_system, 'currency') else 'Missing'}")
-    print(f"  ✅ Total questions: {len(quiz_system.quiz_questions)}")
-    
-    await ctx.send("✅ Quiz diagnosis complete! Check console for detailed report.")
-    print("🩺"*80)
-
-
-
-
-@bot.command(name="debug_full_quiz")
-async def debug_full_quiz(ctx):
-    """Run a debug quiz that logs EVERY step"""
-    global quiz_system
-    
-    try:
-        print(f"\n" + "🐛"*80)
-        print(f"🐛 DEBUG FULL QUIZ STARTING")
-        
-        # Reset quiz system
-        quiz_system.quiz_running = True
-        quiz_system.current_question = 0
-        quiz_system.quiz_channel = ctx.channel
-        quiz_system.quiz_logs_channel = ctx.channel
-        quiz_system.participants = {
-            str(ctx.author.id): {
-                "name": ctx.author.display_name,
-                "score": 0,
-                "correct_answers": 0,
-                "answers": [],
-                "answered_current": False
-            }
-        }
-        
-        print(f"🐛 Starting at question 0")
-        
-        # Manually trigger the full flow
-        for expected_end in [1, 2, 3, 4, 5]:
-            print(f"\n🐛" + "-"*60)
-            print(f"🐛 EXPECTING TO REACH: Question {expected_end}/5")
-            print(f"🐛 CURRENT STATE: current_question = {quiz_system.current_question}")
-            
-            # Send question
-            await quiz_system.send_question()
-            await asyncio.sleep(2)
-            
-            # Simulate answer
-            quiz_system.participants[str(ctx.author.id)]["score"] += 100
-            quiz_system.participants[str(ctx.author.id)]["correct_answers"] += 1
-            quiz_system.participants[str(ctx.author.id)]["answered_current"] = True
-            
-            # End question
-            await quiz_system.end_question()
-            
-            print(f"🐛 AFTER end_question: current_question = {quiz_system.current_question}")
-            
-            if quiz_system.current_question == 5:
-                print(f"🐛✅ REACHED QUESTION 5! Quiz should end now.")
-                break
-                
-            await asyncio.sleep(2)
-        
-        # If we got here and quiz is still running, something's wrong
-        if quiz_system.quiz_running:
-            print(f"\n🐛❌ QUIZ DID NOT END AUTOMATICALLY!")
-            print(f"🐛❌ current_question: {quiz_system.current_question}")
-            print(f"🐛❌ total_questions: {len(quiz_system.quiz_questions)}")
-            print(f"🐛❌ Manually calling end_quiz()...")
-            await quiz_system.end_quiz()
-        
-        print(f"\n🐛 DEBUG FULL QUIZ COMPLETE")
-        print("🐛"*80)
-        
-        await ctx.send("✅ Debug quiz complete! Check console for the flow.")
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {e}")
-        print(f"🐛 Debug error: {e}")
-        import traceback
-        traceback.print_exc()
-
-@bot.command(name="monitor_quiz")
-async def monitor_quiz(ctx):
-    """Monitor a quiz in real-time"""
-    global quiz_system
-    
-    if not quiz_system.quiz_running:
-        await ctx.send("❌ No quiz is running!")
-        return
-    
-    embed = discord.Embed(
-        title="🔍 **QUIZ MONITOR**",
-        description="Live tracking quiz progress...",
-        color=discord.Color.blue()
-    )
-    
-    embed.add_field(
-        name="📊 **Current State**",
-        value=f"**Running:** {quiz_system.quiz_running}\n"
-              f"**Question:** {quiz_system.current_question + 1}/{len(quiz_system.quiz_questions)}\n"
-              f"**Participants:** {len(quiz_system.participants)}\n"
-              f"**Channel:** {quiz_system.quiz_channel.mention if quiz_system.quiz_channel else 'None'}",
-        inline=False
-    )
-    
-    # Show participants
-    if quiz_system.participants:
-        participants_text = []
-        for user_id, data in quiz_system.participants.items():
-            participants_text.append(f"• {data['name']}: {data['score']} pts")
-        
-        embed.add_field(
-            name="👥 **Participants**",
-            value="\n".join(participants_text[:10]),
-            inline=True
-        )
-    
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="testendquiz")
-async def test_end_quiz(ctx):
-    """Test if end_quiz can be called directly"""
-    try:
-        print(f"\n🧪 Testing end_quiz directly...")
-        
-        if not quiz_system:
-            await ctx.send("❌ quiz_system is None")
-            return
-        
-        # Create dummy participants
-        quiz_system.participants = {
-            str(ctx.author.id): {
-                "name": ctx.author.display_name,
-                "score": 500,
-                "correct_answers": 3,
-                "answers": [],
-                "answered_current": False
-            }
-        }
-        
-        quiz_system.quiz_channel = ctx.channel
-        quiz_system.current_question = 5  # Simulate last question
-        
-        print(f"🧪 Calling end_quiz()...")
-        await quiz_system.end_quiz()
-        
-        await ctx.send("✅ end_quiz() called successfully! Check logs.")
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {type(e).__name__}: {str(e)[:200]}")
-        print(f"❌ test_end_quiz error: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-
-@bot.command(name="test_final_question")
-async def test_final_question(ctx):
-    """Test Question 5 specifically"""
-    import traceback  # <-- ADD THIS IMPORT
-    global quiz_system
-    
-    print(f"\n" + "5️⃣"*80)
-    print(f"5️⃣ TESTING QUESTION 5 SPECIFICALLY")
-    
-    try:
-        # Start at Question 5 (index 4)
-        quiz_system.quiz_channel = ctx.channel
-        quiz_system.current_question = 4
-        quiz_system.quiz_running = True
-        quiz_system.participants = {
-            str(ctx.author.id): {
-                "name": ctx.author.display_name,
-                "score": 400,
-                "correct_answers": 4,
-                "answers": [],
-                "answered_current": False
-            }
-        }
-        
-        print(f"5️⃣ Starting at Question 5 (index 4)")
-        print(f"5️⃣ Total questions: {len(quiz_system.quiz_questions)}")
-        
-        # Send Question 5
-        await quiz_system.send_question()
-        await asyncio.sleep(2)
-        
-        # Answer Question 5
-        quiz_system.participants[str(ctx.author.id)]["score"] += 100
-        quiz_system.participants[str(ctx.author.id)]["correct_answers"] += 1
-        quiz_system.participants[str(ctx.author.id)]["answered_current"] = True
-        
-        print(f"5️⃣ Answered Question 5, now calling end_question()...")
-        
-        # End Question 5
-        await quiz_system.end_question()
-        
-        print(f"5️⃣ After end_question:")
-        print(f"5️⃣   current_question: {quiz_system.current_question}")
-        print(f"5️⃣   quiz_running: {quiz_system.quiz_running}")
-        
-        # Try to answer again (should fail)
-        print(f"5️⃣ Trying to answer after quiz should end...")
-        result = await quiz_system.process_answer(ctx.author, "test")
-        print(f"5️⃣ process_answer returned: {result} (should be False)")
-        
-        await ctx.send("✅ Test complete! Check console.")
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {type(e).__name__}: {str(e)[:100]}")
-        print(f"5️⃣ Test error: {e}")
-        traceback.print_exc()  # <-- Now traceback is available
-    
-    print("5️⃣"*80)
-
-
+    if db_vars:
+        await ctx.send("**Database Environment Variables:**\n" + "\n".join(db_vars[:10]))  # First 10
+    else:
+        await ctx.send("❌ No database environment variables found!")
 
 # === BOT STARTUP ===
 @bot.event
@@ -3026,23 +2161,8 @@ async def on_ready():
         print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         print("✅ Your data will persist across redeploys")
     else:
-        print("⚠️ Database connection failed")
-    
-    # NOW CREATE THE QUIZ SYSTEM AFTER DATABASE IS CONNECTED
-    global quiz_system
-    quiz_system = QuizSystem(bot)
-
-    bot.quiz_system = quiz_system
-    
-    # Verify the link
-    print(f"\n🔗 SYSTEM LINK VERIFICATION:")
-    print(f"  • Database connected: {db.using_database}")
-    print(f"  • Currency system exists: {currency_system is not None}")
-    print(f"  • Quiz system exists: {quiz_system is not None}")
-    if quiz_system:
-        print(f"  • Quiz linked to currency: {hasattr(quiz_system, 'currency')}")
-        if hasattr(quiz_system, 'currency'):
-            print(f"  • Quiz currency is PostgreSQL: {quiz_system.currency is currency_system}")
+        print("⚠️ Using JSON fallback storage")
+        print("❌ Data may reset on redeploy")
     
     await bot.change_presence(
         activity=discord.Activity(
