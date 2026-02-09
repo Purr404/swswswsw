@@ -2953,54 +2953,61 @@ async def test_end_quiz(ctx):
 @bot.command(name="test_final_question")
 async def test_final_question(ctx):
     """Test Question 5 specifically"""
+    import traceback  # <-- ADD THIS IMPORT
     global quiz_system
     
     print(f"\n" + "5️⃣"*80)
     print(f"5️⃣ TESTING QUESTION 5 SPECIFICALLY")
     
-    # Start at Question 5 (index 4)
-    quiz_system.quiz_channel = ctx.channel
-    quiz_system.current_question = 4
-    quiz_system.quiz_running = True
-    quiz_system.participants = {
-        str(ctx.author.id): {
-            "name": ctx.author.display_name,
-            "score": 400,
-            "correct_answers": 4,
-            "answers": [],
-            "answered_current": False
+    try:
+        # Start at Question 5 (index 4)
+        quiz_system.quiz_channel = ctx.channel
+        quiz_system.current_question = 4
+        quiz_system.quiz_running = True
+        quiz_system.participants = {
+            str(ctx.author.id): {
+                "name": ctx.author.display_name,
+                "score": 400,
+                "correct_answers": 4,
+                "answers": [],
+                "answered_current": False
+            }
         }
-    }
-    
-    print(f"5️⃣ Starting at Question 5 (index 4)")
-    print(f"5️⃣ Total questions: {len(quiz_system.quiz_questions)}")
-    
-    # Send Question 5
-    await quiz_system.send_question()
-    await asyncio.sleep(2)
-    
-    # Answer Question 5
-    quiz_system.participants[str(ctx.author.id)]["score"] += 100
-    quiz_system.participants[str(ctx.author.id)]["correct_answers"] += 1
-    quiz_system.participants[str(ctx.author.id)]["answered_current"] = True
-    
-    print(f"5️⃣ Answered Question 5, now calling end_question()...")
-    
-    # End Question 5
-    await quiz_system.end_question()
-    
-    print(f"5️⃣ After end_question:")
-    print(f"5️⃣   current_question: {quiz_system.current_question}")
-    print(f"5️⃣   quiz_running: {quiz_system.quiz_running}")
-    
-    # Try to answer again (should fail)
-    print(f"5️⃣ Trying to answer after quiz should end...")
-    result = await quiz_system.process_answer(ctx.author, "test")
-    print(f"5️⃣ process_answer returned: {result} (should be False)")
+        
+        print(f"5️⃣ Starting at Question 5 (index 4)")
+        print(f"5️⃣ Total questions: {len(quiz_system.quiz_questions)}")
+        
+        # Send Question 5
+        await quiz_system.send_question()
+        await asyncio.sleep(2)
+        
+        # Answer Question 5
+        quiz_system.participants[str(ctx.author.id)]["score"] += 100
+        quiz_system.participants[str(ctx.author.id)]["correct_answers"] += 1
+        quiz_system.participants[str(ctx.author.id)]["answered_current"] = True
+        
+        print(f"5️⃣ Answered Question 5, now calling end_question()...")
+        
+        # End Question 5
+        await quiz_system.end_question()
+        
+        print(f"5️⃣ After end_question:")
+        print(f"5️⃣   current_question: {quiz_system.current_question}")
+        print(f"5️⃣   quiz_running: {quiz_system.quiz_running}")
+        
+        # Try to answer again (should fail)
+        print(f"5️⃣ Trying to answer after quiz should end...")
+        result = await quiz_system.process_answer(ctx.author, "test")
+        print(f"5️⃣ process_answer returned: {result} (should be False)")
+        
+        await ctx.send("✅ Test complete! Check console.")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {type(e).__name__}: {str(e)[:100]}")
+        print(f"5️⃣ Test error: {e}")
+        traceback.print_exc()  # <-- Now traceback is available
     
     print("5️⃣"*80)
-    await ctx.send("✅ Test complete! Check console.")
-
 
 
 
