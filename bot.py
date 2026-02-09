@@ -1081,9 +1081,9 @@ class QuizSystem:
             for user_id, data in self.participants.items():
                 for answer in data["answers"]:
                     if answer["question"] == self.current_question and answer["correct"]:
-                    if fastest_time is None or answer["time"] < fastest_time:
-                        fastest_time = answer["time"]
-                        fastest_user = data["name"]
+                        if fastest_time is None or answer["time"] < fastest_time:
+                            fastest_time = answer["time"]
+                            fastest_user = data["name"]
 
             embed.add_field(
                 name="📊 **Question Statistics**",
@@ -1092,65 +1092,68 @@ class QuizSystem:
                       f"**Got It Right:** {correct_count}\n"
                       f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
                       + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
-        inline=False
-        )
+                inline=False
+            )
 
-        await self.quiz_channel.send(embed=embed)
+            await self.quiz_channel.send(embed=embed)
 
-        # Wait 3 seconds
-        await asyncio.sleep(3)
+            # Wait 3 seconds
+            await asyncio.sleep(3)
 
-        # SHOW LIVE LEADERBOARD WITH ALL USERS
-        leaderboard_embed = await self.create_live_leaderboard()
-        leaderboard_message = await      self.quiz_channel.send(embed=leaderboard_embed)
+            # SHOW LIVE LEADERBOARD WITH ALL USERS
+            leaderboard_embed = await self.create_live_leaderboard()
+            leaderboard_message = await      self.quiz_channel.send(embed=leaderboard_embed)
 
-        # Countdown to next question with leaderboard showing
-        countdown_seconds = 5
-        for i in range(countdown_seconds, 0, -1):
-            # Update leaderboard countdown
-            updated_embed = await self.create_live_leaderboard(countdown=i)
-            await leaderboard_message.edit(embed=updated_embed)
-            await asyncio.sleep(1)
+            # Countdown to next question with leaderboard showing
+            countdown_seconds = 5
+            for i in range(countdown_seconds, 0, -1):
+                # Update leaderboard countdown
+                updated_embed = await self.create_live_leaderboard(countdown=i)
+                await leaderboard_message.edit(embed=updated_embed)
+                await asyncio.sleep(1)
 
-        await leaderboard_message.delete()
+            await leaderboard_message.delete()
 
-        # Reset answered_current for all users for next question
-        for user_id in self.participants:
-            self.participants[user_id]["answered_current"] = False
+            # Reset answered_current for all users for next question
+            for user_id in self.participants:
+                self.participants[user_id]["answered_current"] = False
         print(f"🚨 Reset answered_current for {reset_count} users")
 
-        # Move to next question - THIS IS THE FIX!
-        old_index = self.current_question
-        self.current_question += 1
-print(f"\n" + "➡️"*80)
-        print(f"➡️ AFTER INCREMENT:")
-        print(f"➡️ Changed from index {old_index} to {self.current_question}")
-        print(f"➡️ This was Question {old_index + 1} of {len(self.quiz_questions)}")
-        print(f"➡️ Total questions: {len(self.quiz_questions)}")
-        print(f"➡️ New index: {self.current_question}")
-        print(f"➡️ Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
+            # Move to next question - THIS IS THE FIX!
+            old_index = self.current_question
+            self.current_question += 1
+            print(f"\n" + "➡️"*80)
+            print(f"➡️ AFTER INCREMENT:")
+            print(f"➡️ Changed from index {old_index} to {self.current_question}")
+            print(f"➡️ This was Question {old_index + 1} of {len(self.quiz_questions)}")
+            print(f"➡️ Total questions: {len(self.quiz_questions)}")
+            print(f"➡️ New index: {self.current_question}")
+            print(f"➡️ Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
     
-        print(f"🔥 New question index: {self.current_question}")
-        print(f"🔥 Total questions: {len(self.quiz_questions)}")
+            print(f"🔥 New question index: {self.current_question}")
+            print(f"🔥 Total questions: {len(self.quiz_questions)}")
     
-        # CHECK IF QUIZ IS FINISHED
-        if self.current_question == len(self.quiz_questions):
-            print(f"\n" + "🎯"*80)
-            print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
-            print(f"🎯 current_question: {self.current_question}")
-            print(f"🎯 total_questions: {len(self.quiz_questions)}")
-            print(f"🎯 Calling end_quiz() NOW...")
-            print("🎯"*80)
-            print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
-            await self.end_quiz()  # <-- THIS WAS MISSING!
-        else:
-            print(f"\n" + "⏭️"*80)
-            print(f"⏭️ MORE QUESTIONS LEFT")
-            print(f"⏭️ Next will be Question {self.current_question + 1}")
-            print(f"⏭️ Calling send_question()...")
-            print("⏭️"*80)
-            print(f"🔥 More questions left, calling send_question()")
-            await self.send_question()
+            # CHECK IF QUIZ IS FINISHED
+            if self.current_question == len(self.quiz_questions):
+                print(f"\n" + "🎯"*80)
+                print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
+                print(f"🎯 current_question: {self.current_question}")
+                print(f"🎯 total_questions: {len(self.quiz_questions)}")
+                print(f"🎯 Calling end_quiz() NOW...")
+                print("🎯"*80)
+                print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
+                await self.end_quiz()  # <-- THIS WAS MISSING!
+            else:
+                print(f"\n" + "⏭️"*80)
+                print(f"⏭️ MORE QUESTIONS LEFT")
+                print(f"⏭️ Next will be Question {self.current_question + 1}")
+                print(f"⏭️ Calling send_question()...")
+                print("⏭️"*80)
+                print(f"🔥 More questions left, calling send_question()")
+                await self.send_question()
+
+            print(f"\n✅ END_QUESTION DEBUG COMPLETE")
+            print("="*80)
 
 
         except Exception as e:
