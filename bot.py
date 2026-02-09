@@ -1045,6 +1045,7 @@ class QuizSystem:
     
     async def end_question(self):
         """End current question and show live leaderboard"""
+        import tracebac
         print(f"\n" + "="*80)
         print(f"🚨🚨🚨 END_QUESTION DEBUG START 🚨🚨🚨")
         print(f"🚨 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
@@ -1278,6 +1279,7 @@ class QuizSystem:
     
     async def end_quiz(self):
         """End the entire quiz with improved leaderboard"""
+        import traceback
         print(f"\n" + "🎯"*60)
         print(f"🎯🎯🎯 END_QUIZ CALLED! - Question {self.current_question}/{len(self.quiz_questions)}")
         print(f"🎯 Participants: {len(self.participants)}")
