@@ -827,13 +827,20 @@ class QuizSystem:
         print(f"❓ Quiz running: {self.quiz_running}")
         print(f"\n🔥 send_question called - Current: {self.current_question}, Total: {len(self.quiz_questions)}")
 
-        # SAFETY CHECK: If somehow we're at or past the last question
+        # CRITICAL SAFETY CHECK
+        if not self.quiz_running:
+            print(f"❌ QUIZ NOT RUNNING! Aborting send_question")
+            return
+
         if self.current_question is None:
-            print(f"❌❌❌ ERROR: current_question is None!")
+            print(f"❌ ERROR: current_question is None!")
             return
         
         # CHECK IF NO MORE QUESTIONS
         if self.current_question >= len(self.quiz_questions):
+            print(f"🚨🚨🚨 ALREADY FINISHED ALL QUESTIONS!")
+            print(f"🚨 current_question: {self.current_question}, total: {len(self.quiz_questions)}")
+            print(f"🚨 Calling end_quiz() directly...")
             print(f"🚨🚨🚨 CRITICAL: current_question ({self.current_question}) >= total_questions ({len(self.quiz_questions)})")
             print(f"🚨🚨🚨 Quiz should have ended already!")
             print(f"🚨🚨🚨 Calling end_quiz() directly...")
@@ -952,7 +959,12 @@ class QuizSystem:
         """Process user's answer - allow multiple attempts"""
         if not self.quiz_running:
             return False
-        
+    
+        # CRITICAL FIX: Check if current_question is valid
+        if self.current_question is None or self.current_question >= len(self.quiz_questions):
+            print(f"⚠️ WARNING: Invalid current_question {self.current_question} in process_answer")
+            return False
+    
         question = self.quiz_questions[self.current_question]
         answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
         
@@ -1150,7 +1162,7 @@ class QuizSystem:
         print(f"🔥 Total questions: {len(self.quiz_questions)}")
 
         # CHECK IF QUIZ IS FINISHED
-        if self.current_question == len(self.quiz_questions):
+        if self.current_question >= len(self.quiz_questions):
             print(f"\n" + "🎯"*80)
             print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
             print(f"🎯 current_question: {self.current_question}")
@@ -2273,9 +2285,15 @@ async def on_message(message):
 
     quiz = getattr(bot, 'quiz_system', None)
     
-    # Check for quiz answers (any text answer)
-    if (quiz_system.quiz_running and 
+    # Check for quiz answers
+    if (quiz_system and quiz_system.quiz_running and 
         message.channel == quiz_system.quiz_channel):
+
+    # ADD SAFETY CHECK
+    if (quiz_system.current_question is None or 
+        quiz_system.current_question >= len(quiz_system.quiz_questions)):
+        print(f"⚠️ Quiz finished, ignoring answer: {message.content[:50]}")
+        return
         
         # Process the answer silently (NO REACTIONS)
         await quiz_system.process_answer(message.author, message.content)
