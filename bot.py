@@ -1122,35 +1122,35 @@ class QuizSystem:
         # Move to next question - THIS IS THE FIX!
         old_index = self.current_question
         self.current_question += 1
-            print(f"\n" + "➡️"*80)
-            print(f"➡️ AFTER INCREMENT:")
-            print(f"➡️ Changed from index {old_index} to {self.current_question}")
-            print(f"➡️ This was Question {old_index + 1} of {len(self.quiz_questions)}")
-            print(f"➡️ Total questions: {len(self.quiz_questions)}")
-            print(f"➡️ New index: {self.current_question}")
-            print(f"➡️ Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
+        print(f"\n" + "➡️"*80)
+        print(f"➡️ AFTER INCREMENT:")
+        print(f"➡️ Changed from index {old_index} to {self.current_question}")
+        print(f"➡️ This was Question {old_index + 1} of {len(self.quiz_questions)}")
+        print(f"➡️ Total questions: {len(self.quiz_questions)}")
+        print(f"➡️ New index: {self.current_question}")
+        print(f"➡️ Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
     
-            print(f"🔥 New question index: {self.current_question}")
-            print(f"🔥 Total questions: {len(self.quiz_questions)}")
+        print(f"🔥 New question index: {self.current_question}")
+        print(f"🔥 Total questions: {len(self.quiz_questions)}")
     
-            # CHECK IF QUIZ IS FINISHED
-            if self.current_question == len(self.quiz_questions):
-                print(f"\n" + "🎯"*80)
-                print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
-                print(f"🎯 current_question: {self.current_question}")
-                print(f"🎯 total_questions: {len(self.quiz_questions)}")
-                print(f"🎯 Calling end_quiz() NOW...")
-                print("🎯"*80)
-                print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
-                await self.end_quiz()  # <-- THIS WAS MISSING!
-            else:
-                print(f"\n" + "⏭️"*80)
-                print(f"⏭️ MORE QUESTIONS LEFT")
-                print(f"⏭️ Next will be Question {self.current_question + 1}")
-                print(f"⏭️ Calling send_question()...")
-                print("⏭️"*80)
-                print(f"🔥 More questions left, calling send_question()")
-                await self.send_question()
+        # CHECK IF QUIZ IS FINISHED
+        if self.current_question == len(self.quiz_questions):
+            print(f"\n" + "🎯"*80)
+            print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
+            print(f"🎯 current_question: {self.current_question}")
+            print(f"🎯 total_questions: {len(self.quiz_questions)}")
+            print(f"🎯 Calling end_quiz() NOW...")
+            print("🎯"*80)
+            print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
+            await self.end_quiz()  # <-- THIS WAS MISSING!
+        else:
+            print(f"\n" + "⏭️"*80)
+            print(f"⏭️ MORE QUESTIONS LEFT")
+            print(f"⏭️ Next will be Question {self.current_question + 1}")
+            print(f"⏭️ Calling send_question()...")
+            print("⏭️"*80)
+            print(f"🔥 More questions left, calling send_question()")
+            await self.send_question()
 
             print(f"\n✅ END_QUESTION DEBUG COMPLETE")
             print("="*80)
