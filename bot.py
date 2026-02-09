@@ -2544,6 +2544,40 @@ async def db_test_add(ctx, user_id: str = None, gems: int = 100):
         traceback.print_exc()
 
 
+
+@bot.command(name="test_question5")
+async def test_question5(ctx):
+    """Test Question 5 directly"""
+    try:
+        quiz = bot.quiz_system
+        
+        if not quiz:
+            await ctx.send("❌ No quiz system!")
+            return
+            
+        print(f"\n" + "5️⃣"*60)
+        print(f"5️⃣ TESTING QUESTION 5 DIRECTLY")
+        
+        # Set to Question 5 (index 4)
+        quiz.quiz_channel = ctx.channel
+        quiz.current_question = 4
+        
+        print(f"5️⃣ Set current_question to 4")
+        print(f"5️⃣ Total questions: {len(quiz.quiz_questions)}")
+        
+        # Directly call send_question
+        print(f"5️⃣ Calling send_question()...")
+        await quiz.send_question()
+        
+        await ctx.send("✅ Testing Question 5. Check console!")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+        print(f"5️⃣ Test error: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 @bot.command(name="testendquiz")
 async def test_end_quiz(ctx):
     """Test if end_quiz can be called directly"""
