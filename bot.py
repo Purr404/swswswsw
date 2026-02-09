@@ -845,7 +845,7 @@ class QuizSystem:
         print(f"❓ This is Question {self.current_question + 1} of {len(self.quiz_questions)}")
 
         
-        try:
+        
             question = self.quiz_questions[self.current_question]
             print(f"❓ Question text: {question['question'][:50]}...")
             print(f"❓ Time limit: {question['time_limit']}s")
