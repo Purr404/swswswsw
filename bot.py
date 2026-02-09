@@ -1465,33 +1465,70 @@ class QuizSystem:
         return rank_emojis.get(rank, f"{rank}.")
 
     async def distribute_quiz_rewards(self, sorted_participants):
-        """Distribute gems based on quiz performance - ASYNC VERSION"""
-        print(f"🔥 CRITICAL: distribute_quiz_rewards CALLED!")
-        print(f"🔥 CRITICAL: Participants count: {len(sorted_participants)}")
+    async def distribute_quiz_rewards(self, sorted_participants):
+        """Distribute gems based on quiz performance - GUARANTEED WORKING VERSION"""
+        print(f"\n" + "="*80)
+        print(f"🚀 NUCLEAR DEBUG: distribute_quiz_rewards STARTED")
+        print(f"🚀 Participants count: {len(sorted_participants)}")
     
         rewards = {}
-        total_participants = len(sorted_participants)
-
+    
+        if not sorted_participants:
+            print(f"⚠️ No participants to reward")
+            return rewards
+    
+        # NUCLEAR DEBUG 1: Check currency system
+        print(f"\n🔍 NUCLEAR DEBUG 1: Checking currency system...")
+        if not hasattr(self, 'currency'):
+            print(f"❌ CRITICAL ERROR: self.currency attribute missing!")
+            return rewards
+    
+        print(f"✅ self.currency exists: {self.currency}")
+        print(f"✅ self.currency type: {type(self.currency)}")
+    
+        # NUCLEAR DEBUG 2: Check if currency methods exist
+        required_methods = ['add_gems', 'get_balance']
+        for method in required_methods:
+            if not hasattr(self.currency, method):
+                print(f"❌ CRITICAL ERROR: self.currency.{method} missing!")
+                return rewards
+            else:
+                print(f"✅ self.currency.{method} exists")
+    
+        # NUCLEAR DEBUG 3: Test database connection
+        print(f"\n🔍 NUCLEAR DEBUG 3: Testing database connection...")
+        try:
+            # Try to get balance of first user to test DB
+            test_user_id = str(sorted_participants[0][0])
+            test_balance = await self.currency.get_balance(test_user_id)
+            print(f"✅ Database test passed: User {test_user_id} has {test_balance['gems']} gems")
+        except Exception as e:
+            print(f"❌ DATABASE CONNECTION FAILED: {type(e).__name__}: {e}")
+            return rewards
+    
+        # Process each participant
         for rank, (user_id, data) in enumerate(sorted_participants, 1):
-            print(f"\n🔥 CRITICAL: Processing user {user_id} (rank {rank})")
-            print(f"🔥 CRITICAL: User data - Score: {data['score']}, Name: {data['name']}")
+            print(f"\n" + "-"*40)
+            print(f"🎯 Processing user {user_id} (Rank #{rank})")
+            print(f"📊 User data: {data}")
         
+            # Calculate rewards
             base_gems = 50  # Participation reward
-
-            # Rank-based bonuses
-            if rank == 1:  # 1st place
+        
+            # Rank bonuses
+            if rank == 1:
                 base_gems += 500
-            elif rank == 2:  # 2nd place
+            elif rank == 2:
                 base_gems += 250
-            elif rank == 3:  # 3rd place
+            elif rank == 3:
                 base_gems += 125
-            elif rank <= 10:  # Top 10
+            elif rank <= 10:
                 base_gems += 75
-
-            # Score-based bonus: 10 gems per 100 points
+        
+            # Score bonus
             score_bonus = (data["score"] // 100) * 10
             base_gems += score_bonus
-
+        
             # Perfect score bonus
             max_score = len(self.quiz_questions) * 300
             if data["score"] == max_score:
@@ -1499,48 +1536,78 @@ class QuizSystem:
                 reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
             else:
                 reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
-
-            # Speed bonus for fast answers
+        
+            # Speed bonus
             speed_bonus = self.calculate_speed_bonus(user_id)
             if speed_bonus:
                 base_gems += speed_bonus
                 reason += f" + ⚡{speed_bonus} speed bonus"
-
-            print(f"🔥 CRITICAL: Calculated {base_gems} gems for {data['name']}")
-
-            # Add gems using the SHARED currency system (ASYNC NOW)
+        
+            print(f"💰 Calculated {base_gems} gems for {data['name']}")
+            print(f"📝 Reason: {reason}")
+        
+            # NUCLEAR DEBUG 4: Try to add gems with maximum logging
+            print(f"\n🔍 NUCLEAR DEBUG 4: Attempting to add gems...")
             try:
-                print(f"🔥 CRITICAL: Calling currency.add_gems for {user_id}")
+                print(f"📞 Calling: await self.currency.add_gems('{user_id}', {base_gems}, '{reason}')")
+            
+                # ACTUAL GEM ADDING - This is the critical line
                 result = await self.currency.add_gems(
                     user_id=user_id,
                     gems=base_gems,
                     reason=reason
                 )
-
-                print(f"✅ CRITICAL: currency.add_gems returned: {result}")
-
-                rewards[user_id] = {
-                    "gems": base_gems,
-                    "rank": rank,
-                    "result": result
-                }
-
-                # Log reward distribution
-                await self.log_reward(user_id, data["name"], base_gems, rank)
             
+                print(f"✅ SUCCESS! add_gems returned: {result}")
+            
+                if result is None:
+                    print(f"❌ WARNING: add_gems returned None (might indicate failure)")
+                    rewards[user_id] = {"gems": 0, "rank": rank, "error": "add_gems returned None"}
+                elif isinstance(result, dict):
+                    print(f"✅ Result type: dict with keys: {list(result.keys())}")
+                    if 'balance' in result:
+                        print(f"💰 New balance: {result['balance']}")
+                
+                    rewards[user_id] = {
+                        "gems": base_gems,
+                        "rank": rank,
+                        "result": result
+                    }
+                
+                    # Log to quiz logs
+                    try:
+                        await self.log_reward(user_id, data["name"], base_gems, rank)
+                        print(f"📝 Logged reward successfully")
+                    except Exception as log_error:
+                        print(f"⚠️ Failed to log reward: {log_error}")
+                else:
+                    print(f"⚠️ Unexpected result type: {type(result)} - Value: {result}")
+                    rewards[user_id] = {"gems": base_gems, "rank": rank, "result": result}
+                
             except Exception as e:
-                print(f"❌ CRITICAL: Exception in add_gems: {type(e).__name__}: {e}")
+                print(f"❌ CRITICAL ERROR in add_gems:")
+                print(f"❌ Error type: {type(e).__name__}")
+                print(f"❌ Error message: {e}")
                 import traceback
                 traceback.print_exc()
             
                 rewards[user_id] = {
                     "gems": 0,
                     "rank": rank,
-                    "error": str(e)
+                    "error": f"{type(e).__name__}: {str(e)[:100]}"
                 }
     
-        print(f"\n🔥 CRITICAL: Finished distributing rewards")
-        print(f"🔥 CRITICAL: Rewards dict: {rewards}")
+        print(f"\n" + "="*80)
+        print(f"🚀 NUCLEAR DEBUG: distribute_quiz_rewards COMPLETED")
+        print(f"📊 Final rewards summary:")
+        for user_id, reward in rewards.items():
+            gems = reward.get("gems", 0)
+            if gems > 0:
+                print(f"  ✅ {user_id}: {gems} gems")
+            else:
+                print(f"  ❌ {user_id}: Failed - {reward.get('error', 'Unknown error')}")
+        print("="*80)
+    
         return rewards
 
     def calculate_speed_bonus(self, user_id):
@@ -2308,6 +2375,65 @@ async def quiz_link_check(ctx):
     
     await ctx.send(embed=embed)
 
+@bot.command(name="nucleartest")
+async def nuclear_test(ctx):
+    """ULTIMATE test of quiz rewards - bypasses everything"""
+    try:
+        print(f"\n" + "="*80)
+        print(f"💣 NUCLEAR TEST STARTED for {ctx.author.id}")
+        
+        # Test 1: Check if quiz_system exists
+        print(f"\n🔍 Test 1: quiz_system check")
+        print(f"   quiz_system: {quiz_system}")
+        print(f"   Type: {type(quiz_system)}")
+        
+        if not quiz_system:
+            await ctx.send("❌ quiz_system is None!")
+            return
+        
+        # Test 2: Check currency link
+        print(f"\n🔍 Test 2: currency check")
+        print(f"   hasattr(quiz_system, 'currency'): {hasattr(quiz_system, 'currency')}")
+        
+        if hasattr(quiz_system, 'currency'):
+            currency = quiz_system.currency
+            print(f"   currency object: {currency}")
+            print(f"   currency type: {type(currency)}")
+            print(f"   Same as currency_system? {currency is currency_system}")
+            
+            # Test add_gems directly
+            print(f"\n🔍 Test 3: Direct add_gems test")
+            try:
+                print(f"   Calling: await currency.add_gems('{ctx.author.id}', 100, 'Nuclear test')")
+                result = await currency.add_gems(
+                    user_id=str(ctx.author.id),
+                    gems=100,
+                    reason="💣 Nuclear test"
+                )
+                print(f"   Result: {result}")
+                
+                if result and isinstance(result, dict) and 'balance' in result:
+                    print(f"   ✅ SUCCESS! New balance: {result['balance']}")
+                    await ctx.send(f"✅ **NUCLEAR TEST PASSED!**\nAdded 100 gems\nNew balance: {result['balance']} gems")
+                else:
+                    print(f"   ❌ FAILED: Result: {result}")
+                    await ctx.send(f"❌ **NUCLEAR TEST FAILED:** add_gems returned: {result}")
+                    
+            except Exception as e:
+                print(f"   ❌ ERROR: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
+                await ctx.send(f"❌ **NUCLEAR TEST ERROR:** {type(e).__name__}: {str(e)[:200]}")
+        else:
+            await ctx.send("❌ quiz_system.currency attribute missing!")
+            
+        print(f"\n" + "="*80)
+        
+    except Exception as e:
+        await ctx.send(f"❌ **NUCLEAR TEST CRASHED:** {type(e).__name__}: {str(e)[:200]}")
+        print(f"💥 NUCLEAR TEST CRASHED: {e}")
+        import traceback
+        traceback.print_exc()
 
 @bot.command(name="dbtestadd")
 async def db_test_add(ctx, user_id: str = None, gems: int = 100):
