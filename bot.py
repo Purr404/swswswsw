@@ -1284,7 +1284,7 @@ class QuizSystem:
         # Log the full call stack to see how we got here
         print(f"\n💰 CALL STACK:")
         for line in traceback.format_stack()[-5:-1]:
-        print(f"💰 {line.strip()}")
+            print(f"💰 {line.strip()}")
         
         # Log all participants
         for user_id, data in self.participants.items():
