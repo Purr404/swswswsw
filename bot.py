@@ -2277,28 +2277,29 @@ async def balance_cmd(ctx):
 # --- ANSWER DETECTION ---
 @bot.event
 async def on_message(message):
+    # Skip bot messages
     if message.author.bot:
         return
-
+    
     # GLOBAL DECLARATION
-    global quiz_sytem
-
-    quiz = getattr(bot, 'quiz_system', None)
+    global quiz_system  # FIXED TYPO: quiz_sytem → quiz_system
     
     # Check for quiz answers
     if (quiz_system and quiz_system.quiz_running and 
         message.channel == quiz_system.quiz_channel):
-
-    # ADD SAFETY CHECK
-    if (quiz_system.current_question is None or 
-        quiz_system.current_question >= len(quiz_system.quiz_questions)):
-        print(f"⚠️ Quiz finished, ignoring answer: {message.content[:50]}")
-        return
+        
+        # ADD SAFETY CHECK
+        if (quiz_system.current_question is None or 
+            quiz_system.current_question >= len(quiz_system.quiz_questions)):
+            print(f"⚠️ Quiz finished, ignoring answer: {message.content[:50]}")
+            return
         
         # Process the answer silently (NO REACTIONS)
         await quiz_system.process_answer(message.author, message.content)
     
+    # Process commands
     await bot.process_commands(message)
+
 
 # --- HELP COMMAND ---
 @bot.command(name="help")
