@@ -819,9 +819,14 @@ class QuizSystem:
     
     async def send_question(self):
         """Send current question with countdown bar"""
+        print(f"\n🔥 send_question called - Current: {self.current_question}, Total: {len(self.quiz_questions)}")
+        
+        # CHECK IF NO MORE QUESTIONS
         if self.current_question >= len(self.quiz_questions):
+            print(f"🔥🔥🔥 NO MORE QUESTIONS! Calling end_quiz()")
             await self.end_quiz()
             return
+
         
         question = self.quiz_questions[self.current_question]
         self.question_start_time = datetime.now(timezone.utc)  # FIXED
@@ -995,26 +1000,29 @@ class QuizSystem:
         
         await self.quiz_logs_channel.send(embed=embed)
     
+    
     async def end_question(self):
         """End current question and show live leaderboard"""
+        print(f"\n🔥 end_question called - Question {self.current_question + 1}/{len(self.quiz_questions)}")
+    
         self.countdown_task.stop()
-        
+
         question = self.quiz_questions[self.current_question]
-        
+
         # Show correct answer(s)
         correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
-        
+
         embed = discord.Embed(
             title=f"✅ **Question {self.current_question + 1} Complete**",
             description=f"**Correct answer(s):** {correct_answers}",
             color=discord.Color.green()
         )
-        
+
         # Show statistics for this question
         total_participants = len([p for p in self.participants.values()])
-        total_answered = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
+        total_answered = len([p for p in self.participants.values() if  any(a["question"] == self.current_question for a in p["answers"])])
         correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
-        
+
         # Find fastest correct answer
         fastest_time = None
         fastest_user = None
@@ -1024,7 +1032,7 @@ class QuizSystem:
                     if fastest_time is None or answer["time"] < fastest_time:
                         fastest_time = answer["time"]
                         fastest_user = data["name"]
-        
+
         embed.add_field(
             name="📊 **Question Statistics**",
             value=f"**Total Participants:** {total_participants}\n"
@@ -1032,18 +1040,18 @@ class QuizSystem:
                   f"**Got It Right:** {correct_count}\n"
                   f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
                   + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
-            inline=False
+        inline=False
         )
-        
+
         await self.quiz_channel.send(embed=embed)
-        
+
         # Wait 3 seconds
         await asyncio.sleep(3)
-        
+
         # SHOW LIVE LEADERBOARD WITH ALL USERS
         leaderboard_embed = await self.create_live_leaderboard()
-        leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
-        
+        leaderboard_message = await      self.quiz_channel.send(embed=leaderboard_embed)
+
         # Countdown to next question with leaderboard showing
         countdown_seconds = 5
         for i in range(countdown_seconds, 0, -1):
@@ -1051,16 +1059,26 @@ class QuizSystem:
             updated_embed = await self.create_live_leaderboard(countdown=i)
             await leaderboard_message.edit(embed=updated_embed)
             await asyncio.sleep(1)
-        
+
         await leaderboard_message.delete()
-        
+
         # Reset answered_current for all users for next question
         for user_id in self.participants:
             self.participants[user_id]["answered_current"] = False
-        
-        # Move to next question
+
+        # Move to next question - THIS IS THE FIX!
         self.current_question += 1
-        await self.send_question()
+    
+        print(f"🔥 New question index: {self.current_question}")
+        print(f"🔥 Total questions: {len(self.quiz_questions)}")
+    
+        # CHECK IF QUIZ IS FINISHED
+        if self.current_question >= len(self.quiz_questions):
+            print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
+            await self.end_quiz()  # <-- THIS WAS MISSING!
+        else:
+            print(f"🔥 More questions left, calling send_question()")
+            await self.send_question()
     
     async def create_live_leaderboard(self, countdown=None):
         """Create a live leaderboard embed showing all participants"""
@@ -1157,6 +1175,9 @@ class QuizSystem:
     
     async def end_quiz(self):
         """End the entire quiz with improved leaderboard"""
+        print(f"\n" + "🎯"*60)
+        print(f"🎯🎯🎯 END_QUIZ CALLED! - Question {self.current_question}/{len(self.quiz_questions)}")
+        print(f"🎯 Participants: {len(self.participants)}")
         print(f"🔥 CRITICAL: end_quiz STARTED - Participants: {len(self.participants)}")
         print(f"🔥🔥🔥 Quiz channel: {self.quiz_channel}")
         print(f"🔥🔥🔥 Quiz running: {self.quiz_running}")
