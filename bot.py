@@ -1119,9 +1119,9 @@ class QuizSystem:
                 self.participants[user_id]["answered_current"] = False
         print(f"🚨 Reset answered_current for {reset_count} users")
 
-            # Move to next question - THIS IS THE FIX!
-            old_index = self.current_question
-            self.current_question += 1
+        # Move to next question - THIS IS THE FIX!
+        old_index = self.current_question
+        self.current_question += 1
             print(f"\n" + "➡️"*80)
             print(f"➡️ AFTER INCREMENT:")
             print(f"➡️ Changed from index {old_index} to {self.current_question}")
