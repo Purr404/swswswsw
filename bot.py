@@ -1030,6 +1030,7 @@ class QuizSystem:
     
     async def end_question(self):
         """End current question and show live leaderboard"""
+    try:
         print(f"\n" + "="*80)
         print(f"🚨🚨🚨 END_QUESTION DEBUG START 🚨🚨🚨")
         print(f"🚨 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
@@ -1043,9 +1044,11 @@ class QuizSystem:
         for user_id, data in self.participants.items():
             print(f"🚨 Participant: {data['name']} - Score: {data['score']}, Answered current: {data.get('answered_current', False)}")
         
-        
+        try:
             self.countdown_task.stop()
 
+        except:
+            pass
 
             # Validate current_question
             if self.current_question is None:
