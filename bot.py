@@ -1158,6 +1158,12 @@ class QuizSystem:
     async def end_quiz(self):
         """End the entire quiz with improved leaderboard"""
         print(f"🔥 CRITICAL: end_quiz STARTED - Participants: {len(self.participants)}")
+        print(f"🔥🔥🔥 Quiz channel: {self.quiz_channel}")
+        print(f"🔥🔥🔥 Quiz running: {self.quiz_running}")
+        
+        # Log all participants
+        for user_id, data in self.participants.items():
+            print(f"🔥 Participant: {data['name']} (ID: {user_id}) - Score: {data['score']}")
     
         self.quiz_running = False
         self.countdown_task.stop()
@@ -1204,11 +1210,15 @@ class QuizSystem:
         # Wait 2 seconds
         await asyncio.sleep(2)
 
+        print(f"\n🔥🔥🔥 ABOUT TO DISTRIBUTE REWARDS")
+        print(f"🔥🔥🔥 Sorted participants count: {len(sorted_participants)}")
+
         # DISTRIBUTE REWARDS FIRST
         print(f"🔥 CRITICAL: About to call distribute_quiz_rewards...")
         try:
-            rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
+            rewards_distributed = await        self.distribute_quiz_rewards(sorted_participants)
             print(f"🔥 CRITICAL: Rewards distributed to {len(rewards_distributed)} users")
+
         except Exception as e:
             print(f"❌ CRITICAL ERROR in distribute_quiz_rewards: {e}")
             import traceback
@@ -1440,6 +1450,10 @@ class QuizSystem:
         self.current_question = 0
         self.participants = {}
         print(f"🔥 CRITICAL: end_quiz COMPLETED successfully")
+        print(f"\n" + "✅"*60)
+        print(f"✅✅✅ END_QUIZ COMPLETED SUCCESSFULLY")
+        print(f"✅✅✅ All embeds should have been sent")
+        print("✅"*60 + "\n")
 
     def calculate_average_time(self, user_data):
         """Calculate average time for correct answers"""
@@ -2432,6 +2446,46 @@ async def nuclear_test(ctx):
     except Exception as e:
         await ctx.send(f"❌ **NUCLEAR TEST CRASHED:** {type(e).__name__}: {str(e)[:200]}")
         print(f"💥 NUCLEAR TEST CRASHED: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+@bot.command(name="manualquizrewards")
+@commands.has_permissions(administrator=True)
+async def manual_quiz_rewards(ctx, user_id: str, score: int = 500):
+    """Manually trigger quiz rewards for testing"""
+    try:
+        print(f"\n🔧 MANUAL REWARDS TRIGGERED for user {user_id}")
+        
+        # Simulate quiz participant
+        self_participants = {
+            user_id: {
+                "name": "Test User",
+                "score": score,
+                "correct_answers": 3,
+                "answers": []
+            }
+        }
+        
+        # Sort them
+        sorted_participants = sorted(
+            self_participants.items(),
+            key=lambda x: x[1]["score"],
+            reverse=True
+        )
+        
+        # Call distribute_quiz_rewards
+        rewards = await quiz_system.distribute_quiz_rewards(sorted_participants)
+        
+        await ctx.send(f"✅ **Manual rewards triggered!**\nRewards: {rewards}")
+        
+        # Check balance
+        balance = await currency_system.get_balance(user_id)
+        await ctx.send(f"💰 **New balance:** {balance['gems']} gems")
+        
+    except Exception as e:
+        await ctx.send(f"❌ **Error:** {type(e).__name__}: {str(e)[:200]}")
+        print(f"❌ Manual rewards error: {e}")
         import traceback
         traceback.print_exc()
 
