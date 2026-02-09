@@ -1043,7 +1043,7 @@ class QuizSystem:
         for user_id, data in self.participants.items():
             print(f"🚨 Participant: {data['name']} - Score: {data['score']}, Answered current: {data.get('answered_current', False)}")
         
-        try:
+        
             self.countdown_task.stop()
 
 
