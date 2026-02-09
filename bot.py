@@ -1841,6 +1841,9 @@ async def quiz_start(ctx, channel: discord.TextChannel = None):
     Usage: !!quiz start #channel  (starts in mentioned channel)
            !!quiz start           (starts in current channel)
     """
+
+    global quiz_system
+
     if quiz_system.quiz_running:
         await ctx.send("❌ Quiz is already running!", delete_after=5)
         return
@@ -1879,6 +1882,9 @@ async def quiz_start(ctx, channel: discord.TextChannel = None):
 @commands.has_permissions(manage_messages=True)
 async def quiz_stop(ctx):
     """Stop current quiz"""
+
+    global quiz_sytem
+
     if not quiz_system.quiz_running:
         await ctx.send("❌ No quiz is running!", delete_after=5)
         return
@@ -1892,6 +1898,9 @@ async def quiz_stop(ctx):
 @quiz_group.command(name="leaderboard")
 async def quiz_leaderboard(ctx):
     """Show current quiz leaderboard"""
+
+    global quiz_sytem
+
     if not quiz_system.participants:
         await ctx.send("❌ No quiz data available!", delete_after=5)
         return
@@ -2154,6 +2163,11 @@ async def balance_cmd(ctx):
 async def on_message(message):
     if message.author.bot:
         return
+
+    # GLOBAL DECLARATION
+    global quiz_sytem
+
+    quiz = getattr(bot, 'quiz_system', None)
     
     # Check for quiz answers (any text answer)
     if (quiz_system.quiz_running and 
@@ -2634,6 +2648,8 @@ async def on_ready():
     # NOW CREATE THE QUIZ SYSTEM AFTER DATABASE IS CONNECTED
     global quiz_system
     quiz_system = QuizSystem(bot)
+
+    bot.quiz_system = quiz_system
     
     # Verify the link
     print(f"\n🔗 SYSTEM LINK VERIFICATION:")
