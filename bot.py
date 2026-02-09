@@ -1030,7 +1030,7 @@ class QuizSystem:
     
     async def end_question(self):
         """End current question and show live leaderboard"""
-    try:
+    
         print(f"\n" + "="*80)
         print(f"🚨🚨🚨 END_QUESTION DEBUG START 🚨🚨🚨")
         print(f"🚨 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
