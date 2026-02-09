@@ -938,7 +938,9 @@ class QuizSystem:
     def start_question_timer(self, time_limit):
         """Start timer for current question"""
         async def timer():
+            print(f"⏰ TIMER DEBUG: Starting {time_limit}s timer for Q{self.current_question + 1}")
             await asyncio.sleep(time_limit)
+            print(f"⏰ TIMER DEBUG: Timer ended for Q{self.current_question + 1}, calling end_question()")
             await self.end_question()
         
         if self.question_timer:
