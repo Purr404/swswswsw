@@ -1029,137 +1029,137 @@ class QuizSystem:
     
     
     
-async def end_question(self):
-    """End current question and show live leaderboard"""
-    print(f"\n" + "="*80)
-    print(f"🚨🚨🚨 END_QUESTION DEBUG START 🚨🚨🚨")
-    print(f"🚨 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
-    print(f"🚨 current_question BEFORE: {self.current_question}")
-    print(f"🚨 Total questions: {len(self.quiz_questions)}")
-    print(f"🚨 Quiz running: {self.quiz_running}")
-    print(f"🚨 Participants count: {len(self.participants)}")
-    print(f"\n🔥 end_question called - Question {self.current_question + 1}/{len(self.quiz_questions)}")
+    async def end_question(self):
+        """End current question and show live leaderboard"""
+        print(f"\n" + "="*80)
+        print(f"🚨🚨🚨 END_QUESTION DEBUG START 🚨🚨🚨")
+        print(f"🚨 Time: {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
+        print(f"🚨 current_question BEFORE: {self.current_question}")
+        print(f"🚨 Total questions: {len(self.quiz_questions)}")
+        print(f"🚨 Quiz running: {self.quiz_running}")
+        print(f"🚨 Participants count: {len(self.participants)}")
+        print(f"\n🔥 end_question called - Question {self.current_question + 1}/{len(self.quiz_questions)}")
 
-    # Log all participants for debugging
-    for user_id, data in self.participants.items():
-        print(f"🚨 Participant: {data['name']} - Score: {data['score']}, Answered current: {data.get('answered_current', False)}")
+        # Log all participants for debugging
+        for user_id, data in self.participants.items():
+            print(f"🚨 Participant: {data['name']} - Score: {data['score']}, Answered current: {data.get('answered_current', False)}")
 
-    try:
-        self.countdown_task.stop()
-    except:
-        pass
+        try:
+            self.countdown_task.stop()
+        except:
+            pass
 
-    # Validate current_question
-    if self.current_question is None:
-        print(f"❌❌❌ ERROR: current_question is None!")
-        return
+        # Validate current_question
+        if self.current_question is None:
+            print(f"❌❌❌ ERROR: current_question is None!")
+            return
 
-    if self.current_question < 0 or self.current_question >= len(self.quiz_questions):
-        print(f"❌❌❌ ERROR: Invalid current_question: {self.current_question}")
-        print(f"❌❌❌ Should be between 0 and {len(self.quiz_questions)-1}")
-        return
+        if self.current_question < 0 or self.current_question >= len(self.quiz_questions):
+            print(f"❌❌❌ ERROR: Invalid current_question: {self.current_question}")
+            print(f"❌❌❌ Should be between 0 and {len(self.quiz_questions)-1}")
+            return
 
-    question = self.quiz_questions[self.current_question]
-    print(f"🚨 Processing question: {question['question'][:50]}...")
+        question = self.quiz_questions[self.current_question]
+        print(f"🚨 Processing question: {question['question'][:50]}...")
 
-    # Show correct answer(s)
-    correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
+        # Show correct answer(s)
+        correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
 
-    embed = discord.Embed(
-        title=f"✅ **Question {self.current_question + 1} Complete**",
-        description=f"**Correct answer(s):** {correct_answers}",
-        color=discord.Color.green()
-    )
+        embed = discord.Embed(
+            title=f"✅ **Question {self.current_question + 1} Complete**",
+            description=f"**Correct answer(s):** {correct_answers}",
+            color=discord.Color.green()
+        )
 
-    # Show statistics for this question
-    total_participants = len([p for p in self.participants.values()])
-    total_answered = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
-    correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
+        # Show statistics for this question
+        total_participants = len([p for p in self.participants.values()])
+        total_answered = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
+        correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
 
-    # Find fastest correct answer
-    fastest_time = None
-    fastest_user = None
-    for user_id, data in self.participants.items():
-        for answer in data["answers"]:
-            if answer["question"] == self.current_question and answer["correct"]:
-                if fastest_time is None or answer["time"] < fastest_time:
-                    fastest_time = answer["time"]
-                    fastest_user = data["name"]
+        # Find fastest correct answer
+        fastest_time = None
+        fastest_user = None
+        for user_id, data in self.participants.items():
+            for answer in data["answers"]:
+                if answer["question"] == self.current_question and answer["correct"]:
+                    if fastest_time is None or answer["time"] < fastest_time:
+                        fastest_time = answer["time"]
+                        fastest_user = data["name"]
 
-    embed.add_field(
-        name="📊 **Question Statistics**",
-        value=f"**Total Participants:** {total_participants}\n"
-              f"**Attempted This Q:** {total_answered}\n"
-              f"**Got It Right:** {correct_count}\n"
-              f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
-              + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
-        inline=False
-    )
+        embed.add_field(
+            name="📊 **Question Statistics**",
+            value=f"**Total Participants:** {total_participants}\n"
+                  f"**Attempted This Q:** {total_answered}\n"
+                  f"**Got It Right:** {correct_count}\n"
+                  f"**Accuracy:** {round(correct_count/total_answered*100 if total_answered > 0 else 0, 1)}%\n"
+                  + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else "**Fastest:** No correct answers"),
+            inline=False
+         )
 
-    await self.quiz_channel.send(embed=embed)
+        await self.quiz_channel.send(embed=embed)
 
-    # Wait 3 seconds
-    await asyncio.sleep(3)
+        # Wait 3 seconds
+        await asyncio.sleep(3)
 
-    # SHOW LIVE LEADERBOARD WITH ALL USERS
-    leaderboard_embed = await self.create_live_leaderboard()
-    leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
+        # SHOW LIVE LEADERBOARD WITH ALL USERS
+        leaderboard_embed = await self.create_live_leaderboard()
+        leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
 
-    # Countdown to next question with leaderboard showing
-    countdown_seconds = 5
-    for i in range(countdown_seconds, 0, -1):
-        # Update leaderboard countdown
-        updated_embed = await self.create_live_leaderboard(countdown=i)
-        await leaderboard_message.edit(embed=updated_embed)
-        await asyncio.sleep(1)
+        # Countdown to next question with leaderboard showing
+        countdown_seconds = 5
+        for i in range(countdown_seconds, 0, -1):
+            # Update leaderboard countdown
+            updated_embed = await self.create_live_leaderboard(countdown=i)
+            await leaderboard_message.edit(embed=updated_embed)
+            await asyncio.sleep(1)
 
-    await leaderboard_message.delete()
+        await leaderboard_message.delete()
 
-    # Reset answered_current for all users for next question
-    reset_count = 0  # <-- ADD THIS - YOU WERE MISSING IT!
-    for user_id in self.participants:
-        if self.participants[user_id].get("answered_current", False):
-            reset_count += 1
-        self.participants[user_id]["answered_current"] = False
+        # Reset answered_current for all users for next question
+        reset_count = 0  # <-- ADD THIS - YOU WERE MISSING IT!
+        for user_id in self.participants:
+            if self.participants[user_id].get("answered_current", False):
+                reset_count += 1
+            self.participants[user_id]["answered_current"] = False
     
-    print(f"🚨 Reset answered_current for {reset_count} users")
+        print(f"🚨 Reset answered_current for {reset_count} users")
 
-    # Move to next question
-    old_index = self.current_question
-    self.current_question += 1
-    
-    print(f"\n" + "➡️"*80)
-    print(f"➡️ AFTER INCREMENT:")
-    print(f"➡️ Changed from index {old_index} to {self.current_question}")
-    print(f"➡️ This was Question {old_index + 1} of {len(self.quiz_questions)}")
-    print(f"➡️ Total questions: {len(self.quiz_questions)}")
-    print(f"➡️ New index: {self.current_question}")
-    print(f"➡️ Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
+        # Move to next question
+        old_index = self.current_question
+        self.current_question += 1
 
-    print(f"🔥 New question index: {self.current_question}")
-    print(f"🔥 Total questions: {len(self.quiz_questions)}")
+        print(f"\n" + "➡️"*80)
+        print(f"➡️ AFTER INCREMENT:")
+        print(f"➡️ Changed from index {old_index} to {self.current_question}")
+        print(f"➡️ This was Question {old_index + 1} of {len(self.quiz_questions)}")
+        print(f"➡️ Total questions: {len(self.quiz_questions)}")
+        print(f"➡️ New index: {self.current_question}")
+        print(f"➡️ Should end? {self.current_question} == {len(self.quiz_questions)} = {self.current_question == len(self.quiz_questions)}")
 
-    # CHECK IF QUIZ IS FINISHED
-    if self.current_question == len(self.quiz_questions):
-        print(f"\n" + "🎯"*80)
-        print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
-        print(f"🎯 current_question: {self.current_question}")
-        print(f"🎯 total_questions: {len(self.quiz_questions)}")
-        print(f"🎯 Calling end_quiz() NOW...")
-        print("🎯"*80)
-        print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
+        print(f"🔥 New question index: {self.current_question}")
+        print(f"🔥 Total questions: {len(self.quiz_questions)}")
+
+        # CHECK IF QUIZ IS FINISHED
+        if self.current_question == len(self.quiz_questions):
+            print(f"\n" + "🎯"*80)
+            print(f"🎯🎯🎯 ALL QUESTIONS DONE! 🎯🎯🎯")
+            print(f"🎯 current_question: {self.current_question}")
+            print(f"🎯 total_questions: {len(self.quiz_questions)}")
+            print(f"🎯 Calling end_quiz() NOW...")
+            print("🎯"*80)
+            print(f"🔥🔥🔥 QUIZ FINISHED! Calling end_quiz()")
         await self.end_quiz()
-    else:
-        print(f"\n" + "⏭️"*80)
-        print(f"⏭️ MORE QUESTIONS LEFT")
-        print(f"⏭️ Next will be Question {self.current_question + 1}")
-        print(f"⏭️ Calling send_question()...")
-        print("⏭️"*80)
-        print(f"🔥 More questions left, calling send_question()")
+        else:
+            print(f"\n" + "⏭️"*80)
+            print(f"⏭️ MORE QUESTIONS LEFT")
+            print(f"⏭️ Next will be Question {self.current_question + 1}")
+            print(f"⏭️ Calling send_question()...")
+            print("⏭️"*80)
+            print(f"🔥 More questions left, calling send_question()")
         await self.send_question()
 
-    print(f"\n✅ END_QUESTION DEBUG COMPLETE")
-    print("="*80)
+        print(f"\n✅ END_QUESTION DEBUG COMPLETE")
+        print("="*80)
     
     async def create_live_leaderboard(self, countdown=None):
         """Create a live leaderboard embed showing all participants"""
