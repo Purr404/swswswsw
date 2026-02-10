@@ -1696,7 +1696,7 @@ async def currency_group(ctx):
     message_content = ctx.message.content.strip().lower()
 
     # only process exact !!currency or !!balance
-    if not message_content == "!!currency" or message_content == "!!balance"):
+    if not (message_content == "!!currency" or message_content == "!!balance"):
         return
 
 
