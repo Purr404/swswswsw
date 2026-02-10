@@ -1692,6 +1692,13 @@ async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
 @bot.group(name="currency", invoke_without_command=True)
 async def currency_group(ctx):
     """Currency and rewards commands"""
+    # check for exact command match
+    message_content = ctx.message.content.strip().lower()
+
+    # only process exact !!currency or !!balance
+    if not message_content == "currency" or message_content == "balance"):
+
+
     # Get user balance using SHARED currency system
     user_id = str(ctx.author.id)
     balance = await currency_system.get_balance(user_id)
@@ -1885,6 +1892,14 @@ async def add_gems(ctx, amount: int = 100):
 @bot.command(name="balance")
 async def balance_cmd(ctx):
     """Check your balance"""
+    # check for exact command match
+    message_content = ctx.message.content.strip().lower()
+
+    # only process exact !!balance command without extra text
+    if message_content != "!!balance":
+        return
+
+
     user_id = str(ctx.author.id)
     balance = await currency_system.get_balance(user_id)
     
