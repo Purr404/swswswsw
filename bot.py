@@ -1455,10 +1455,10 @@ async def send_gem_notification(user, admin, amount, new_balance):
             title="🎁 **You've received Gems!**",
             embed.description = f"**{admin.display_name}** has added **{amount} gems** to your account.",
             color=discord.Color.gold(),
-            timestamp=datetime.now(timezone.utc)
+            
         )
         
-        embed.add_field(name="💎 Amount Added", value=f"**+{amount} gems**, inline=True)
+        embed.add_field(name="💎 Amount Added", value=f"**+{amount} gems**", inline=True)
         embed.add_field(name="💰 New Balance", value=f"**{new_balance} gems**", inline=True)
         
         embed.set_footer(text="Thank you for joining the server!")
