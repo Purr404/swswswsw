@@ -1453,7 +1453,7 @@ async def send_gem_notification(user, admin, amount, new_balance):
         
         embed = discord.Embed(
             title="🎁 **You've received Gems!**",
-            embed.description = f"**{admin.display_name}** has added **{amount} gems** to your account.",
+            embed.description=f"**{admin.name}** has added **{amount} gems** to your account.",
             color=discord.Color.gold(),
             
         )
