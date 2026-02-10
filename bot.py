@@ -1390,10 +1390,10 @@ class QuizSystem:
         
         # Final message
         final_embed = discord.Embed(
-            description="🎉 **Thank you for participating!** 🎉\n\nUse `!!quiz start` to play again!",
+            description="🎉 **Thank you for participating!**",
             color=discord.Color.green()
         )
-        final_embed.set_footer(text="Quiz System • Powered by 558 Discord Server")
+        final_embed.set_footer(text="Quiz System • ©️ 558 Discord Server")
         
         await self.quiz_channel.send(embed=final_embed)
         
@@ -1461,22 +1461,24 @@ class QuizSystem:
             if speed_bonus:
                 base_gems += speed_bonus
                 reason += f" + ⚡{speed_bonus} speed bonus"
+
+            try:
         
-            # Add gems using the SHARED currency system (ASYNC NOW)
-            result = await self.currency.add_gems(
-                user_id=user_id,
-                gems=base_gems,
-                reason=reason
-            )
+                # Add gems using the SHARED currency system (ASYNC NOW)
+                result = await self.currency.add_gems(
+                    user_id=user_id,
+                    gems=base_gems,
+                    reason=reason
+                )
         
-            rewards[user_id] = {
-                "gems": base_gems,
-                "rank": rank,
-                "result": result
-            }
+                rewards[user_id] = {
+                    "gems": base_gems,
+                    "rank": rank,
+                    "result": result
+                }
         
-            # Log reward distribution
-            await self.log_reward(user_id, data["name"], base_gems, rank)
+                # Log reward distribution
+                await self.log_reward(user_id, data["name"], base_gems, rank)
     
         return rewards
     
