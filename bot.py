@@ -1158,10 +1158,12 @@ class QuizSystem:
     
     async def end_quiz(self):
         """End the entire quiz with improved leaderboard"""
-
-        if not self.quiz_running
+        print(f"🚨 end_quiz called! Participants: {len(self.participants)}")
+    
+        if not self.quiz_running:
+            print("❌ Quiz not running but end_quiz called!")
             return
-
+        
         self.quiz_running = False
         self.countdown_task.stop()
         
