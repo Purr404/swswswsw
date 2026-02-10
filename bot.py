@@ -1355,10 +1355,13 @@ class QuizSystem:
         # Send individual DMs with rewards
         for user_id, data in self.participants.items():
             reward = rewards_distributed.get(user_id, {})
-            if reward:
+            if reward and reward.get("gems", 0) > 0:
                 user_obj = self.bot.get_user(int(user_id))
                 if user_obj:
                     try:
+                        # BALANCE FROM DATABASE
+                        balance_data = await self.currency.get_balance(user_id)
+
                         dm_embed = discord.Embed(
                             title="🎁 **Quiz Rewards Claimed!**",
                             description=f"**Quiz Results:**\n"
