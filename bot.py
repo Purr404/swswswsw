@@ -1192,7 +1192,7 @@ class QuizSystem:
         try:
             rewards_distributed = await self.distribute_quiz_rewards(sorted_participants)
             print(f"✅ Rewards distributed successfully!")
-    except Exception as e:
+        except Exception as e:
             print(f"❌ ERROR in reward distribution: {e}")
             await self.quiz_channel.send(f"❌ Error distributing rewards: {str(e)[:100]}")
             rewards_distributed = {}
