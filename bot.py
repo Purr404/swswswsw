@@ -1030,33 +1030,37 @@ class QuizSystem:
         
         # Wait 3 seconds
         await asyncio.sleep(3)
+
+        # Check if this was the last question
+        is_last_question = (self.current_question + 1) >= len(self.quiz_questions)
+    
+        if not is_last_question:
+            # SHOW LIVE LEADERBOARD WITH ALL USERS
+            leaderboard_embed = await self.create_live_leaderboard()
+            leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
         
-        # SHOW LIVE LEADERBOARD WITH ALL USERS
-        leaderboard_embed = await self.create_live_leaderboard()
-        leaderboard_message = await self.quiz_channel.send(embed=leaderboard_embed)
+            # Countdown to next question with leaderboard showing
+            countdown_seconds = 5
+            for i in range(countdown_seconds, 0, -1):
+                # Update leaderboard countdown
+                updated_embed = await self.create_live_leaderboard(countdown=i)
+                await leaderboard_message.edit(embed=updated_embed)
+                await asyncio.sleep(1)
         
-        # Countdown to next question with leaderboard showing
-        countdown_seconds = 5
-        for i in range(countdown_seconds, 0, -1):
-            # Update leaderboard countdown
-            updated_embed = await self.create_live_leaderboard(countdown=i)
-            await leaderboard_message.edit(embed=updated_embed)
-            await asyncio.sleep(1)
+            await leaderboard_message.delete()
         
-        await leaderboard_message.delete()
+            # Reset answered_current for all users for next question
+            for user_id in self.participants:
+                self.participants[user_id]["answered_current"] = False
         
-        # Reset answered_current for all users for next question
-        for user_id in self.participants:
-            self.participants[user_id]["answered_current"] = False
-        
-        # Move to next question
-        self.current_question += 1
-        await self.send_question()
-    else:
-        # This is the last question, go directly to end_quiz
-        print(f"🎯 Last question completed! Going to end_quiz...")
-        self.current_question += 1  # Increment so end_quiz
-        await self.end_quiz()
+            # Move to next question
+            self.current_question += 1
+            await self.send_question()
+        else:
+            # This is the last question, go directly to end_quiz
+            print(f"🎯 Last question completed! Going to end_quiz...")
+            self.current_question += 1  # Increment so end_quiz
+            await self.end_quiz()
 
     
     async def create_live_leaderboard(self, countdown=None):
