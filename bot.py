@@ -702,12 +702,30 @@ async def send_to(ctx, channel: discord.TextChannel, *, message: str):
         await ctx.send(f"❌ Error: {str(e)[:100]}")
 
 # REPLY TO MESSAGES COMMAND
-
 @bot.command(name="reply")
 @commands.has_permissions(administrator=True)
-async def reply_message(ctx, channel: discord.TextChannel, message_id: int, *, message: str):
-    
-    
+async def reply_message(
+    ctx,
+    channel: discord.TextChannel,
+    message_id: int,
+    *,
+    reply_text: str
+):
+    try:
+        # Fetch the target message
+        target_message = await channel.fetch_message(message_id)
+
+        # Reply to that message
+        await target_message.reply(reply_text)
+
+        await ctx.message.add_reaction("✅")
+
+    except discord.NotFound:
+        await ctx.send("❌ Message not found.")
+    except discord.Forbidden:
+        await ctx.send("❌ I don't have permission to read or send messages there.")
+    except Exception as e:
+        await ctx.send(f"⚠️ Error: {e}")
 # END -----
 
 # --- QUIZ SYSTEM CLASS ---
