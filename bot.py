@@ -702,13 +702,12 @@ async def send_to(ctx, channel: discord.TextChannel, *, message: str):
         await ctx.send(f"❌ Error: {str(e)[:100]}")
 
 # REPLY TO MESSAGES COMMAND
+
 @bot.command(name="reply")
 @commands.has_permissions(administrator=True)
 async def reply_message(ctx, channel: discord.TextChannel, message_id: int, *, message: str):
-    """Reply to a message in another channel"""
-    await channel.send(embed=discord.Embed(description=f"**Mod:** {message}", color=discord.Color.blue()))
-    await ctx.send("✅ Done")
-
+    
+    
 # END -----
 
 # --- QUIZ SYSTEM CLASS ---
