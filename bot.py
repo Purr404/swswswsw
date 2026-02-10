@@ -1437,6 +1437,47 @@ class QuizSystem:
 # === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
 quiz_system = QuizSystem(bot)
 
+
+# HELPER FUNCTION FOR ADDING GEMS 
+@bot.command(name="add"))
+async def send_gem_notification(user, admin, amount, new_balance):
+    """Send a DM notification to a user when gems are added to their account
+    
+    Returns:
+        bool: True if DM was sent successfully, False otherwise
+    """
+    try:
+        # Don't send DM if the user is the admin (they already see the channel message)
+        if user.id == admin.id:
+            return True  # Return True since we don't need to send a DM
+        
+        embed = discord.Embed(
+            title="🎁 **Gems Added to Your Account!**",
+            description=f"An administrator has added gems to your account.",
+            color=discord.Color.gold(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        
+        embed.add_field(name="💎 Amount Added", value=f"**+{amount} gems**", inline=True)
+        embed.add_field(name="💰 New Balance", value=f"**{new_balance} gems**", inline=True)
+        embed.add_field(name="👤 Admin", value=f"{admin.name}", inline=True)
+        
+        embed.set_footer(text="Thank you for participating!")
+        
+        # Try to send DM
+        await user.send(embed=embed)
+        print(f"✅ Sent DM notification to {user.name} ({user.id}) for +{amount} gems")
+        return True
+        
+    except discord.Forbidden:
+        # User has DMs disabled or blocked the bot
+        print(f"⚠️ Could not send DM to {user.name} - DMs disabled or blocked")
+        return False
+    except Exception as e:
+        print(f"❌ Error sending DM to {user.name}: {e}")
+        return False
+
+
 # --- ANNOUNCEMENT COMMANDS ---
 @bot.group(name="announce", invoke_without_command=True)
 @commands.has_permissions(manage_messages=True)
@@ -1882,24 +1923,24 @@ async def add_gems(ctx, member: discord.Member = None, amount: int = 100):
         !!add @Username        - Add 100 gems (default) to mentioned user
         !!add 500              - Add 500 gems to yourself (admin only)
     """
-    
+
     # Validate amount
     if amount <= 0:
         await ctx.send("❌ Amount must be positive!")
         return
-    
+
     # Optional: Set maximum limit
     MAX_ADD_LIMIT = 10000
     if amount > MAX_ADD_LIMIT:
         await ctx.send(f"❌ Maximum gems per addition is {MAX_ADD_LIMIT}!")
         return
-    
+
     # If no member mentioned, default to the command user
     if member is None:
         member = ctx.author
-    
+
     user_id = str(member.id)
-    
+
     try:
         # Use the shared currency system
         result = await currency_system.add_gems(
@@ -1912,28 +1953,41 @@ async def add_gems(ctx, member: discord.Member = None, amount: int = 100):
             # Get updated balance
             balance = await currency_system.get_balance(user_id)
             
+            # ✅ SEND DM NOTIFICATION TO THE USER
+            dm_sent = False
+            if member != ctx.author:
+                dm_sent = await send_gem_notification(member, ctx.author, amount, balance['gems'])
+            else:
+                dm_sent = True  # No need to send DM if adding to self
+
             embed = discord.Embed(
                 title="✅ **Gems Added Successfully**",
                 color=discord.Color.green(),
                 timestamp=datetime.now(timezone.utc)
             )
-            
+
             # Different message if adding to self vs others
             if member == ctx.author:
                 embed.description = f"Added gems to your account"
             else:
                 embed.description = f"Added gems to {member.mention}'s account"
-            
+                
+                # Add DM notification status
+                if dm_sent:
+                    embed.add_field(name="📨 Notification", value="✅ DM sent to user", inline=True)
+                else:
+                    embed.add_field(name="📨 Notification", value="⚠️ Could not send DM (user has DMs disabled)", inline=True)
+
             embed.add_field(name="💎 Amount Added", value=f"**+{amount} gems**", inline=True)
             embed.add_field(name="💰 New Balance", value=f"**{balance['gems']} gems**", inline=True)
             embed.add_field(name="👤 Added By", value=ctx.author.mention, inline=True)
-            
+
             # Add transaction ID if available
             if isinstance(result, dict) and 'transaction_id' in result:
                 embed.set_footer(text=f"Transaction ID: {result['transaction_id']}")
             else:
                 embed.set_footer(text="Administrator Action")
-            
+
             await ctx.send(embed=embed)
         else:
             error_embed = discord.Embed(
@@ -1942,7 +1996,7 @@ async def add_gems(ctx, member: discord.Member = None, amount: int = 100):
                 color=discord.Color.red()
             )
             await ctx.send(embed=error_embed)
-            
+
     except Exception as e:
         error_embed = discord.Embed(
             title="❌ Error Adding Gems",
@@ -1986,6 +2040,9 @@ async def add_gems_error(ctx, error):
             "❌ An unexpected error occurred. Please try again.",
             delete_after=5
         )
+
+
+
 
 
 @bot.command(name="balance")
