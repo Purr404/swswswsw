@@ -1873,22 +1873,120 @@ async def currency_stats(ctx, member: discord.Member = None):
 
 # Update the add command to use PostgreSQL
 @bot.command(name="add")
-async def add_gems(ctx, amount: int = 100):
-    """Add gems to your account"""
-    user_id = str(ctx.author.id)
+@commands.has_permissions(administrator=True)
+async def add_gems(ctx, member: discord.Member = None, amount: int = 100):
+    """Add gems to a user's account (Admin only)
     
-    # Use the shared currency system
-    result = await currency_system.add_gems(
-        user_id=user_id,
-        gems=amount,
-        reason=f"Command by {ctx.author.name}"
-    )
+    Usage:
+        !!add @Username 500    - Add 500 gems to mentioned user
+        !!add @Username        - Add 100 gems (default) to mentioned user
+        !!add 500              - Add 500 gems to yourself (admin only)
+    """
     
-    if result:
-        balance = await currency_system.get_balance(user_id)
-        await ctx.send(f"✅ Added **{amount} gems**\nNew balance: **{balance['gems']} gems**")
+    # Validate amount
+    if amount <= 0:
+        await ctx.send("❌ Amount must be positive!")
+        return
+    
+    # Optional: Set maximum limit
+    MAX_ADD_LIMIT = 10000
+    if amount > MAX_ADD_LIMIT:
+        await ctx.send(f"❌ Maximum gems per addition is {MAX_ADD_LIMIT}!")
+        return
+    
+    # If no member mentioned, default to the command user
+    if member is None:
+        member = ctx.author
+    
+    user_id = str(member.id)
+    
+    try:
+        # Use the shared currency system
+        result = await currency_system.add_gems(
+            user_id=user_id,
+            gems=amount,
+            reason=f"Admin addition by {ctx.author.name}"
+        )
+
+        if result:
+            # Get updated balance
+            balance = await currency_system.get_balance(user_id)
+            
+            embed = discord.Embed(
+                title="✅ **Gems Added Successfully**",
+                color=discord.Color.green(),
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            # Different message if adding to self vs others
+            if member == ctx.author:
+                embed.description = f"Added gems to your account"
+            else:
+                embed.description = f"Added gems to {member.mention}'s account"
+            
+            embed.add_field(name="💎 Amount Added", value=f"**+{amount} gems**", inline=True)
+            embed.add_field(name="💰 New Balance", value=f"**{balance['gems']} gems**", inline=True)
+            embed.add_field(name="👤 Added By", value=ctx.author.mention, inline=True)
+            
+            # Add transaction ID if available
+            if isinstance(result, dict) and 'transaction_id' in result:
+                embed.set_footer(text=f"Transaction ID: {result['transaction_id']}")
+            else:
+                embed.set_footer(text="Administrator Action")
+            
+            await ctx.send(embed=embed)
+        else:
+            error_embed = discord.Embed(
+                title="❌ Failed to Add Gems",
+                description="The currency system returned an error.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=error_embed)
+            
+    except Exception as e:
+        error_embed = discord.Embed(
+            title="❌ Error Adding Gems",
+            description=f"An error occurred: {str(e)}",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=error_embed)
+
+
+@add_gems.error
+async def add_gems_error(ctx, error):
+    """Handle errors for the add command"""
+    if isinstance(error, commands.MissingPermissions):
+        # Send ephemeral message (only visible to command user)
+        try:
+            await ctx.send(
+                "❌ **Permission Denied:** This command is for administrators only!",
+                delete_after=10
+            )
+        except:
+            pass
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send(
+            "❌ **Invalid arguments!** Usage:\n"
+            "• `!!add @Username 500` - Add 500 gems to mentioned user\n"
+            "• `!!add @Username` - Add 100 gems (default)\n"
+            "• `!!add 500` - Add 500 gems to yourself (admin only)",
+            delete_after=10
+        )
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(
+            "❌ **Missing arguments!** Usage:\n"
+            "• `!!add @Username 500` - Add gems to user\n"
+            "• `!!add 500` - Add gems to yourself\n",
+            delete_after=10
+        )
     else:
-        await ctx.send("❌ Failed to add gems")
+        # Log unexpected errors
+        print(f"Error in add command: {error}")
+        await ctx.send(
+            "❌ An unexpected error occurred. Please try again.",
+            delete_after=5
+        )
+
 
 @bot.command(name="balance")
 async def balance_cmd(ctx):
