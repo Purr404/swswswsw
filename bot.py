@@ -1697,6 +1697,7 @@ async def currency_group(ctx):
 
     # only process exact !!currency or !!balance
     if not message_content == "currency" or message_content == "balance"):
+        return
 
 
     # Get user balance using SHARED currency system
