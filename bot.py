@@ -1052,7 +1052,7 @@ class QuizSystem:
         # Move to next question
         self.current_question += 1
         await self.send_question()
-   else:
+    else:
         # This is the last question, go directly to end_quiz
         print(f"🎯 Last question completed! Going to end_quiz...")
         self.current_question += 1  # Increment so end_quiz
