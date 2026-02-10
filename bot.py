@@ -343,6 +343,8 @@ class DatabaseSystem:
                         new_streak = 1
                     else:
                         last_claim = row['last_daily']
+                        if last_claim.tzinfo is None
+                            last_claim = last_claim.replace(tzinfo = timezone.utc)
                         days_diff = (now - last_claim).days
 
                         if days_diff == 1:
