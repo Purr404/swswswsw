@@ -571,10 +571,10 @@ class AnnouncementSystem:
     def create_announcement_embed(self, message, author, title="", color=0xFF5500, image_url=None):
         """Create a beautiful announcement embed"""
         embed = discord.Embed(
-            title=f"**{title}**",
+            title=f"{title}",
             description=message,
             color=color,
-            timestamp=datetime.now(timezone.utc)
+            
         )
         
         embed.set_author(
