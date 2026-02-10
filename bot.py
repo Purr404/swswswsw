@@ -1397,9 +1397,9 @@ class QuizSystem:
             except Exception as e:
                 print(f"❌ Failed to distribute rewards to {user_id}: {e}")
                 rewards[user_id] = {
-                "gems": 0,
-                "rank": rank,
-                "error": str(e)
+                    "gems": 0,
+                    "rank": rank,
+                    "error": str(e)
                 }
         return rewards
     
