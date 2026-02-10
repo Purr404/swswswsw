@@ -1971,7 +1971,7 @@ async def balance_cmd(ctx):
         color=discord.Color.gold()
     )
     
-    embed.set_footer(text="Stored in PostgreSQL database")
+    embed.set_footer(text="")
     await ctx.send(embed=embed)
 
 
