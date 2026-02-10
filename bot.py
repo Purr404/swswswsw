@@ -1439,7 +1439,7 @@ quiz_system = QuizSystem(bot)
 
 
 # HELPER FUNCTION FOR ADDING GEMS 
-@bot.command(name="add"))
+
 async def send_gem_notification(user, admin, amount, new_balance):
     """Send a DM notification to a user when gems are added to their account
     
