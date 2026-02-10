@@ -256,7 +256,7 @@ class DatabaseSystem:
                     last_daily = row['last_daily']
                     if last_daily.tzinfo is None:
                         last_daily = last_daily.replace(tzinfo=timezone.utc)
-                last_daily_str = last_daily.isoformat()
+                    last_daily_str = last_daily.isoformat()
 
                 # Get recent transactions
                 transactions = await conn.fetch('''
@@ -343,6 +343,8 @@ class DatabaseSystem:
                         new_streak = 1
                     else:
                         last_claim = row['last_daily']
+                        if last_claim.tzinfo is None:
+                            last_claim = last_claim.replace(tzinfo=timezone.utc)
                         days_diff = (now - last_claim).days
 
                         if days_diff == 1:
