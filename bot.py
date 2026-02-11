@@ -752,7 +752,6 @@ async def log_to_discord(bot, message, level="INFO"):
 
 class QuizSystem:
     def __init__(self, bot):
-        print("=== QuizSystem.__init__ called ===")
         self.bot = bot
         self.currency = currency_system
         self.quiz_questions = []
@@ -763,10 +762,12 @@ class QuizSystem:
         self.quiz_logs_channel = None
         self.quiz_running = False
         self.question_start_time = None
-        self.load_questions()
-        # Start the countdown task as a loop (will be started later)
         self.countdown_task = None
+        self.load_questions()
 
+    # ------------------------------------------------------------
+    # QUESTION LOADING & POINTS
+    # ------------------------------------------------------------
     def load_questions(self):
         self.quiz_questions = [
             {"question": "What is the capital city of France?", "correct_answers": ["paris"], "points": 300, "time_limit": 30},
@@ -782,88 +783,104 @@ class QuizSystem:
             return 0
         return int(max_points * (time_left / total_time))
 
+    # ------------------------------------------------------------
+    # QUIZ LIFECYCLE
+    # ------------------------------------------------------------
     async def start_quiz(self, channel, logs_channel):
-        self.quiz_channel = channel
-        self.quiz_logs_channel = logs_channel
-        self.quiz_running = True
-        self.current_question = 0
-        self.participants = {}
-        self.question_start_time = None   # important: no active question yet
-        random.shuffle(self.quiz_questions)
+        try:
+            self.quiz_channel = channel
+            self.quiz_logs_channel = logs_channel
+            self.quiz_running = True
+            self.current_question = 0
+            self.participants = {}
+            self.question_start_time = None
+            random.shuffle(self.quiz_questions)
 
-        embed = discord.Embed(
-            title="🎯 **QUIZ STARTING!**",
-            description="**Open-Ended Quiz**\n... (your description) ...",
-            color=discord.Color.gold()
-        )
-        start_msg = await channel.send(embed=embed)
-        for i in range(10, 0, -1):
-            await start_msg.edit(content=f"⏰ **{i}...**")
-            await asyncio.sleep(1)
-        await start_msg.delete()
-        await self.send_question()
+            embed = discord.Embed(
+                title="🎯 **QUIZ STARTING!**",
+                description=(
+                    "**Open-Ended Quiz**\n"
+                    "Think carefully and type your answers!\n\n"
+                    "**Rules:**\n"
+                    "• Type your answer exactly\n"
+                    "• Spelling matters!\n"
+                    "• Faster answers = more points!\n"
+                    "• You can answer multiple times!\n"
+                    "• Max points: 300 per question\n\n"
+                    f"First question starts in **10 seconds**!"
+                ),
+                color=discord.Color.gold()
+            )
+            start_msg = await channel.send(embed=embed)
+            for i in range(10, 0, -1):
+                await start_msg.edit(content=f"⏰ **{i}...**")
+                await asyncio.sleep(1)
+            await start_msg.delete()
+            await self.send_question()
+            await log_to_discord(self.bot, "✅ Quiz started successfully", "INFO")
+        except Exception as e:
+            await log_to_discord(self.bot, f"❌ start_quiz failed", "ERROR", e)
 
     async def send_question(self):
-        if self.current_question >= len(self.quiz_questions):
-            await self.end_quiz()
-            return
-        question = self.quiz_questions[self.current_question]
-        self.question_start_time = datetime.now(timezone.utc)
+        try:
+            if self.current_question >= len(self.quiz_questions):
+                await self.end_quiz()
+                return
 
-        # ... (your embed code - keep as is) ...
-        progress_bar = "🟩" * 20
-        embed = discord.Embed(
-            title=f"❓ **Question {self.current_question + 1}/{len(self.quiz_questions)}**",
-            description=question["question"],
-            color=discord.Color.blue()
-        )
-        embed.add_field(
-            name=f"⏰ **{question['time_limit']:02d} SECONDS LEFT**",
-            value=f"```\n{progress_bar}\n{question['time_limit']:02d} seconds\n```\n**Max Points:** {question['points']} ⭐",
-            inline=False
-        )
-        embed.set_footer(text="Type your answer in the chat (multiple attempts allowed)")
-        self.question_message = await self.quiz_channel.send(embed=embed)
+            q = self.quiz_questions[self.current_question]
+            self.question_start_time = datetime.now(timezone.utc)
 
-        # Start countdown loop
-        if self.countdown_task:
-            self.countdown_task.cancel()
-        self.countdown_task = self.bot.loop.create_task(self._countdown(question["time_limit"]))
+            progress_bar = "🟩" * 20
+            embed = discord.Embed(
+                title=f"❓ **Q{self.current_question + 1}/{len(self.quiz_questions)}**",
+                description=q["question"],
+                color=discord.Color.blue()
+            )
+            embed.add_field(
+                name=f"⏰ **{q['time_limit']:02d} SECONDS LEFT**",
+                value=f"```\n{progress_bar}\n{q['time_limit']:02d} seconds\n```\n**Max Points:** {q['points']} ⭐",
+                inline=False
+            )
+            embed.set_footer(text="Multiple attempts allowed")
+            self.question_message = await self.quiz_channel.send(embed=embed)
 
-        # Start question timer
-        self.start_question_timer(question["time_limit"])
+            # Start countdown and timer
+            if self.countdown_task:
+                self.countdown_task.cancel()
+            self.countdown_task = self.bot.loop.create_task(self._run_countdown(q["time_limit"]))
+            self.start_question_timer(q["time_limit"])
+        except Exception as e:
+            await log_to_discord(self.bot, f"❌ send_question failed", "ERROR", e)
 
-    async def _countdown(self, total_time):
-        """Internal countdown coroutine (not a tasks.loop)"""
+    async def _run_countdown(self, total_time):
         while self.quiz_running:
-            if not self.question_start_time:
-                await asyncio.sleep(0.5)
-                continue
-            elapsed = (datetime.now(timezone.utc) - self.question_start_time).seconds
-            time_left = total_time - elapsed
-            if time_left <= 0:
-                break
-            # Update embed (same as your code) ...
             try:
+                if not self.question_start_time:
+                    await asyncio.sleep(0.5)
+                    continue
+                elapsed = (datetime.now(timezone.utc) - self.question_start_time).seconds
+                time_left = total_time - elapsed
+                if time_left <= 0:
+                    break
+
                 embed = self.question_message.embeds[0]
                 progress = int((time_left / total_time) * 20)
-                progress_bar = "🟩" * progress + "⬜" * (20 - progress)
+                bar = "🟩" * progress + "⬜" * (20 - progress)
+
                 for i, field in enumerate(embed.fields):
                     if "⏰" in field.name:
                         embed.set_field_at(
                             i,
                             name=f"⏰ **{time_left:02d} SECONDS LEFT**",
-                            value=f"```\n{progress_bar}\n{time_left:02d} seconds\n```\n**Max Points:** {self.quiz_questions[self.current_question]['points']} ⭐",
+                            value=f"```\n{bar}\n{time_left:02d} seconds\n```\n**Max Points:** {self.quiz_questions[self.current_question]['points']} ⭐",
                             inline=False
                         )
                         break
-                if time_left <= 10:
-                    embed.color = discord.Color.red()
-                elif time_left <= 30:
-                    embed.color = discord.Color.orange()
+
+                embed.color = discord.Color.red() if time_left <= 10 else discord.Color.orange() if time_left <= 30 else discord.Color.blue()
                 await self.question_message.edit(embed=embed)
-            except:
-                pass
+            except Exception as e:
+                await log_to_discord(self.bot, "⚠️ Countdown error (non-fatal)", "WARN", e)
             await asyncio.sleep(1)
 
     def start_question_timer(self, time_limit):
@@ -874,209 +891,232 @@ class QuizSystem:
             self.question_timer.cancel()
         self.question_timer = asyncio.create_task(timer())
 
+    # ------------------------------------------------------------
+    # ANSWER PROCESSING
+    # ------------------------------------------------------------
     async def process_answer(self, user, answer_text):
-        """Safe answer processing – returns False if no active question."""
-        if not self.quiz_running:
+        try:
+            if not self.quiz_running:
+                return False
+            if self.question_start_time is None:
+                return False
+            if self.current_question >= len(self.quiz_questions):
+                return False
+
+            q = self.quiz_questions[self.current_question]
+            answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
+            if answer_time > q["time_limit"]:
+                return False
+
+            uid = str(user.id)
+            if uid not in self.participants:
+                self.participants[uid] = {
+                    "name": user.display_name,
+                    "score": 0,
+                    "answers": [],
+                    "correct_answers": 0,
+                    "answered_current": False
+                }
+
+            if self.participants[uid]["answered_current"]:
+                return False
+
+            user_ans = answer_text.lower().strip()
+            is_correct = user_ans in [a.lower() for a in q["correct_answers"]]
+
+            points = 0
+            if is_correct:
+                points = self.calculate_points(answer_time, q["time_limit"], q["points"])
+                self.participants[uid]["score"] += points
+                self.participants[uid]["correct_answers"] += 1
+                self.participants[uid]["answered_current"] = True
+
+            self.participants[uid]["answers"].append({
+                "question": self.current_question,
+                "question_text": q["question"][:100],
+                "answer": answer_text,
+                "correct": is_correct,
+                "points": points,
+                "time": answer_time
+            })
+
+            if is_correct:
+                await self.log_answer(user, q["question"], answer_text, points, answer_time)
+
+            return True
+        except Exception as e:
+            await log_to_discord(self.bot, f"❌ process_answer error for {user.id}", "ERROR", e)
             return False
-        if self.question_start_time is None:
-            return False
-        if self.current_question >= len(self.quiz_questions):
-            return False
-
-        question = self.quiz_questions[self.current_question]
-        answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
-        if answer_time > question["time_limit"]:
-            return False
-
-        user_id = str(user.id)
-        if user_id not in self.participants:
-            self.participants[user_id] = {
-                "name": user.display_name,
-                "score": 0,
-                "answers": [],
-                "correct_answers": 0,
-                "answered_current": False
-            }
-
-        if self.participants[user_id]["answered_current"]:
-            return False
-
-        user_answer = answer_text.lower().strip()
-        is_correct = user_answer in [ans.lower() for ans in question["correct_answers"]]
-
-        points = 0
-        if is_correct:
-            points = self.calculate_points(answer_time, question["time_limit"], question["points"])
-            self.participants[user_id]["score"] += points
-            self.participants[user_id]["correct_answers"] += 1
-            self.participants[user_id]["answered_current"] = True
-
-        self.participants[user_id]["answers"].append({
-            "question": self.current_question,
-            "question_text": question["question"][:100],
-            "answer": answer_text,
-            "correct": is_correct,
-            "points": points,
-            "time": answer_time
-        })
-
-        if is_correct:
-            await self.log_answer(user, question["question"], answer_text, points, answer_time)
-
-        return True
 
     async def log_answer(self, user, question, answer, points, time):
         if not self.quiz_logs_channel:
             return
-        embed = discord.Embed(title="✅ Correct Answer Logged", color=discord.Color.green())
-        embed.add_field(name="👤 User", value=user.mention, inline=True)
-        embed.add_field(name="📋 Question", value=question[:100], inline=False)
-        embed.add_field(name="✏️ Answer", value=answer[:50], inline=True)
-        embed.add_field(name="⭐ Points", value=str(points), inline=True)
-        embed.add_field(name="⏱️ Time", value=f"{time}s", inline=True)
-        embed.add_field(name="Q#", value=str(self.current_question + 1), inline=True)
-        await self.quiz_logs_channel.send(embed=embed)
+        try:
+            embed = discord.Embed(title="✅ Correct Answer", color=discord.Color.green())
+            embed.add_field(name="👤 User", value=user.mention, inline=True)
+            embed.add_field(name="📋 Question", value=question[:100], inline=False)
+            embed.add_field(name="✏️ Answer", value=answer[:50], inline=True)
+            embed.add_field(name="⭐ Points", value=str(points), inline=True)
+            embed.add_field(name="⏱️ Time", value=f"{time}s", inline=True)
+            embed.add_field(name="Q#", value=str(self.current_question + 1), inline=True)
+            await self.quiz_logs_channel.send(embed=embed)
+        except Exception as e:
+            await log_to_discord(self.bot, "⚠️ log_answer failed", "WARN", e)
 
+    # ------------------------------------------------------------
+    # QUESTION END / TRANSITION
+    # ------------------------------------------------------------
     async def end_question(self):
-        """End current question, show stats, and move to next or end."""
-        if self.countdown_task:
-            self.countdown_task.cancel()
-        self.question_start_time = None   # no active question
+        try:
+            if self.countdown_task:
+                self.countdown_task.cancel()
+            self.question_start_time = None
 
-        question = self.quiz_questions[self.current_question]
-        correct_answers = ", ".join([a.capitalize() for a in question["correct_answers"]])
+            q = self.quiz_questions[self.current_question]
+            correct_answers = ", ".join([a.capitalize() for a in q["correct_answers"]])
 
-        # Statistics embed
-        embed = discord.Embed(
-            title=f"✅ Question {self.current_question + 1}/{len(self.quiz_questions)} Complete",
-            description=f"**Correct answer(s):** {correct_answers}",
-            color=discord.Color.green()
-        )
+            # Build stats embed
+            embed = discord.Embed(
+                title=f"✅ Question {self.current_question + 1}/{len(self.quiz_questions)} Complete",
+                description=f"**Correct answer(s):** {correct_answers}",
+                color=discord.Color.green()
+            )
 
-        total_participants = len(self.participants)
-        total_answered = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
-        correct_count = len([p for p in self.participants.values() if p.get("answered_current", False)])
+            total_p = len(self.participants)
+            total_ans = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
+            correct_cnt = len([p for p in self.participants.values() if p.get("answered_current", False)])
 
-        fastest_time = None
-        fastest_user = None
-        for uid, data in self.participants.items():
-            for ans in data["answers"]:
-                if ans["question"] == self.current_question and ans["correct"]:
-                    if fastest_time is None or ans["time"] < fastest_time:
-                        fastest_time = ans["time"]
-                        fastest_user = data["name"]
+            fastest_time = None
+            fastest_user = None
+            for uid, data in self.participants.items():
+                for ans in data["answers"]:
+                    if ans["question"] == self.current_question and ans["correct"]:
+                        if fastest_time is None or ans["time"] < fastest_time:
+                            fastest_time = ans["time"]
+                            fastest_user = data["name"]
 
-        embed.add_field(
-            name="📊 Question Statistics",
-            value=f"**Participants:** {total_participants}\n"
-                  f"**Attempted:** {total_answered}\n"
-                  f"**Correct:** {correct_count}\n"
-                  f"**Accuracy:** {round(correct_count/total_answered*100,1) if total_answered else 0}%\n"
-                  + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else ""),
-            inline=False
-        )
-        await self.quiz_channel.send(embed=embed)
-        await asyncio.sleep(3)
+            embed.add_field(
+                name="📊 Question Statistics",
+                value=f"**Participants:** {total_p}\n**Attempted:** {total_ans}\n**Correct:** {correct_cnt}\n"
+                      f"**Accuracy:** {round(correct_cnt/total_ans*100,1) if total_ans else 0}%\n"
+                      + (f"**Fastest:** {fastest_user} ({fastest_time}s)" if fastest_user else ""),
+                inline=False
+            )
+            await self.quiz_channel.send(embed=embed)
+            await asyncio.sleep(3)
 
-        # Check if last question
-        if self.current_question + 1 == len(self.quiz_questions):
-            await log_to_discord(self.bot, "Last question ended, calling end_quiz()", "INFO")
-            await self.end_quiz()
-            return
+            # LAST QUESTION? -> end_quiz()
+            if self.current_question + 1 == len(self.quiz_questions):
+                await log_to_discord(self.bot, "🏁 Last question finished, calling end_quiz()", "INFO")
+                await self.end_quiz()
+                return
 
-        # Not last question: show live leaderboard and countdown
-        leaderboard_embed = await self.create_live_leaderboard()
-        leaderboard_msg = await self.quiz_channel.send(embed=leaderboard_embed)
+            # NOT LAST: show leaderboard + countdown
+            lb_embed = await self.create_live_leaderboard()
+            lb_msg = await self.quiz_channel.send(embed=lb_embed)
 
-        for i in range(5, 0, -1):
-            updated = await self.create_live_leaderboard(countdown=i)
-            await leaderboard_msg.edit(embed=updated)
-            await asyncio.sleep(1)
-        await leaderboard_msg.delete()
+            for i in range(5, 0, -1):
+                updated = await self.create_live_leaderboard(countdown=i)
+                await lb_msg.edit(embed=updated)
+                await asyncio.sleep(1)
+            await lb_msg.delete()
 
-        # Reset answered_current for next question
-        for uid in self.participants:
-            self.participants[uid]["answered_current"] = False
+            # Reset for next question
+            for uid in self.participants:
+                self.participants[uid]["answered_current"] = False
 
-        self.current_question += 1
-        await self.send_question()
+            self.current_question += 1
+            await self.send_question()
+        except Exception as e:
+            await log_to_discord(self.bot, "❌ end_question crashed – forcing end_quiz", "CRITICAL", e)
+            await self.end_quiz()   # emergency call
 
     async def create_live_leaderboard(self, countdown=None):
-        if not self.participants:
-            return discord.Embed(title="📊 Current Leaderboard", description="No participants yet!", color=discord.Color.blue())
+        try:
+            if not self.participants:
+                return discord.Embed(title="📊 Leaderboard", description="No participants yet!", color=discord.Color.blue())
 
-        sorted_participants = sorted(self.participants.items(), key=lambda x: x[1]["score"], reverse=True)
-        embed = discord.Embed(title="📊 LIVE LEADERBOARD", color=discord.Color.gold())
-        if countdown:
-            embed.description = f"**Next question in:** {countdown} seconds\n"
+            sorted_p = sorted(self.participants.items(), key=lambda x: x[1]["score"], reverse=True)
+            embed = discord.Embed(title="📊 LIVE LEADERBOARD", color=discord.Color.gold())
+            if countdown:
+                embed.description = f"**Next question in:** {countdown}s\n"
 
-        embed.add_field(
-            name="📈 Progress",
-            value=f"**Question:** {self.current_question + 1}/{len(self.quiz_questions)}\n**Max Possible:** {(self.current_question+1)*300} pts",
-            inline=False
-        )
+            embed.add_field(
+                name="📈 Progress",
+                value=f"**Q:** {self.current_question + 1}/{len(self.quiz_questions)}  **Max:** {(self.current_question+1)*300} pts",
+                inline=False
+            )
 
-        lines = []
-        for i, (uid, data) in enumerate(sorted_participants):
-            # Status for current question
-            status = "⏳ Not attempted"
-            attempts = [a for a in data["answers"] if a["question"] == self.current_question]
-            if attempts:
-                if attempts[-1]["correct"]:
-                    status = f"✅ +{attempts[-1]['points']} pts ({attempts[-1]['time']}s)"
-                else:
-                    status = f"❌ Wrong ({len(attempts)} attempt{'s' if len(attempts)>1 else ''})"
+            lines = []
+            for i, (uid, data) in enumerate(sorted_p):
+                status = "⏳ Not attempted"
+                attempts = [a for a in data["answers"] if a["question"] == self.current_question]
+                if attempts:
+                    if attempts[-1]["correct"]:
+                        status = f"✅ +{attempts[-1]['points']} pts ({attempts[-1]['time']}s)"
+                    else:
+                        status = f"❌ Wrong ({len(attempts)} attempt{'s' if len(attempts)>1 else ''})"
 
-            medal = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"][i] if i < 10 else f"{i+1}."
-            lines.append(f"{medal} **{data['name']}**\n   Total: **{data['score']}** pts | This Q: {status}")
+                medal = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"][i] if i < 10 else f"{i+1}."
+                lines.append(f"{medal} **{data['name']}**\n   Total: **{data['score']}** pts | This Q: {status}")
 
-        for i in range(0, len(lines), 10):
-            chunk = lines[i:i+10]
-            embed.add_field(name=f"Rank {i+1}-{i+len(chunk)}" if i else "🏆 TOP 10", value="\n".join(chunk), inline=False)
+            for i in range(0, len(lines), 10):
+                chunk = lines[i:i+10]
+                embed.add_field(name=f"Rank {i+1}-{i+len(chunk)}" if i else "🏆 TOP 10", value="\n".join(chunk), inline=False)
 
-        # Statistics
-        total_p = len(self.participants)
-        attempted = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
-        correct = len([p for p in self.participants.values() if p.get("answered_current", False)])
-        embed.add_field(
-            name="📊 Statistics",
-            value=f"**Participants:** {total_p}\n**Attempted Q{self.current_question+1}:** {attempted}/{total_p}\n**Correct Q{self.current_question+1}:** {correct}/{total_p}",
-            inline=True
-        )
-        embed.set_footer(text=f"Question {self.current_question+1}/{len(self.quiz_questions)} | Multiple attempts")
-        return embed
+            total_p = len(self.participants)
+            attempted = len([p for p in self.participants.values() if any(a["question"] == self.current_question for a in p["answers"])])
+            correct = len([p for p in self.participants.values() if p.get("answered_current", False)])
+            embed.add_field(
+                name="📊 Stats",
+                value=f"**Participants:** {total_p}\n**Attempted Q{self.current_question+1}:** {attempted}/{total_p}\n**Correct Q{self.current_question+1}:** {correct}/{total_p}",
+                inline=True
+            )
+            embed.set_footer(text=f"Q{self.current_question+1}/{len(self.quiz_questions)} | Multiple attempts")
+            return embed
+        except Exception as e:
+            await log_to_discord(self.bot, "❌ create_live_leaderboard failed", "ERROR", e)
+            return discord.Embed(title="⚠️ Leaderboard Error", color=discord.Color.red())
 
+    # ------------------------------------------------------------
+    # REWARD DISTRIBUTION (CORE FIX)
+    # ------------------------------------------------------------
     async def distribute_quiz_rewards(self, sorted_participants):
         rewards = {}
-        for rank, (uid, data) in enumerate(sorted_participants, 1):
-            base = 50  # participation
-            if rank == 1: base += 500
-            elif rank == 2: base += 250
-            elif rank == 3: base += 125
-            elif rank <= 10: base += 75
+        try:
+            for rank, (uid, data) in enumerate(sorted_participants, 1):
+                base = 50  # participation
+                if rank == 1: base += 500
+                elif rank == 2: base += 250
+                elif rank == 3: base += 125
+                elif rank <= 10: base += 75
 
-            base += (data["score"] // 100) * 10  # score bonus
+                base += (data["score"] // 100) * 10  # score bonus
+                speed_bonus = self.calculate_speed_bonus(uid)
+                if speed_bonus:
+                    base += speed_bonus
 
-            # Speed bonus (fast answers)
-            speed_bonus = self.calculate_speed_bonus(uid)
-            if speed_bonus:
-                base += speed_bonus
+                max_score = len(self.quiz_questions) * 300
+                if data["score"] == max_score:
+                    base += 250
+                    reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+                else:
+                    reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
 
-            max_score = len(self.quiz_questions) * 300
-            if data["score"] == max_score:
-                base += 250
-                reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
-            else:
-                reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
+                # --- ADD GEMS TO DATABASE ---
+                try:
+                    result = await self.currency.add_gems(uid, base, reason)
+                    rewards[uid] = {"gems": base, "rank": rank, "result": result}
+                    await log_to_discord(self.bot, f"✅ Added {base} gems to {data['name']} (Rank #{rank})", "INFO")
+                    await self.log_reward(uid, data['name'], base, rank)
+                except Exception as e:
+                    await log_to_discord(self.bot, f"❌ Failed to add gems to {uid}", "ERROR", e)
+                    rewards[uid] = {"gems": 0, "rank": rank, "error": str(e)}
 
-            try:
-                result = await self.currency.add_gems(uid, base, reason)
-                rewards[uid] = {"gems": base, "rank": rank, "result": result}
-                await log_to_discord(self.bot, f"✅ Added {base} gems to {data['name']} (Rank #{rank})", "INFO")
-            except Exception as e:
-                await log_to_discord(self.bot, f"❌ Failed to add gems to {uid}: {e}", "ERROR")
-                rewards[uid] = {"gems": 0, "rank": rank, "error": str(e)}
-        return rewards
+            return rewards
+        except Exception as e:
+            await log_to_discord(self.bot, "❌ distribute_quiz_rewards fatal", "ERROR", e)
+            return {}
 
     def calculate_speed_bonus(self, user_id):
         if user_id not in self.participants:
@@ -1087,124 +1127,154 @@ class QuizSystem:
                 bonus += max(1, 10 - ans["time"])
         return min(bonus, 50)
 
-    async def end_quiz(self):
-        """Finalize quiz, distribute rewards, show leaderboard, send DMs."""
-        await log_to_discord(self.bot, f"🚨 end_quiz() called. Participants: {len(self.participants)}", "INFO")
-
-        if not self.quiz_running:
-            await log_to_discord(self.bot, "❌ Quiz not running, aborting end_quiz", "WARN")
+    async def log_reward(self, user_id, username, gems, rank):
+        if not self.quiz_logs_channel:
             return
-
-        self.quiz_running = False
-        self.question_start_time = None
-        if self.countdown_task:
-            self.countdown_task.cancel()
-        if self.question_timer:
-            self.question_timer.cancel()
-
-        # Show "QUIZ FINISHED!" message
-        embed = discord.Embed(
-            title="🏆 **QUIZ FINISHED!** 🏆",
-            description="Calculating final scores and rewards...",
-            color=discord.Color.gold()
-        )
-        await self.quiz_channel.send(embed=embed)
-        await asyncio.sleep(2)
-
-        if not self.participants:
-            await self.quiz_channel.send("❌ No participants – no rewards.")
-            await log_to_discord(self.bot, "No participants, skipping rewards", "WARN")
-            self._reset()
-            return
-
-        # Sort participants
-        sorted_participants = sorted(self.participants.items(), key=lambda x: x[1]["score"], reverse=True)
-        # Ensure keys exist
-        for _, p in sorted_participants:
-            p.setdefault("correct_answers", 0)
-            p.setdefault("answers", [])
-            p.setdefault("score", 0)
-
-        # Distribute rewards
-        rewards = {}
         try:
-            rewards = await self.distribute_quiz_rewards(sorted_participants)
-            await log_to_discord(self.bot, f"✅ Reward distribution complete. Rewards: {rewards}", "INFO")
+            embed = discord.Embed(title="💰 Gems Distributed", color=discord.Color.gold(), timestamp=datetime.now(timezone.utc))
+            embed.add_field(name="👤 User", value=username, inline=True)
+            embed.add_field(name="🏆 Rank", value=f"#{rank}", inline=True)
+            embed.add_field(name="💎 Gems", value=f"+{gems}", inline=True)
+            await self.quiz_logs_channel.send(embed=embed)
         except Exception as e:
-            await log_to_discord(self.bot, f"❌ Reward distribution error: {e}", "ERROR")
-            import traceback
-            await log_to_discord(self.bot, f"```{traceback.format_exc()[-1900:]}```", "ERROR")
+            await log_to_discord(self.bot, "⚠️ log_reward failed", "WARN", e)
 
-        # Build FINAL LEADERBOARD
-        leaderboard_embed = discord.Embed(title="📊 **FINAL LEADERBOARD**", color=discord.Color.green())
+    # ------------------------------------------------------------
+    # END QUIZ – LEADERBOARD, DMs, RESET
+    # ------------------------------------------------------------
+    async def end_quiz(self):
+        """Fully protected, logs every step, guarantees leaderboard & rewards."""
+        try:
+            await log_to_discord(self.bot, f"🚨 end_quiz() CALLED. Participants: {len(self.participants)}", "INFO")
 
-        total_questions = len(self.quiz_questions)
-        total_correct = sum(p["correct_answers"] for _, p in sorted_participants)
-        total_attempts = sum(len(p["answers"]) for _, p in sorted_participants)
-        accuracy = round(total_correct / total_attempts * 100, 1) if total_attempts else 0
+            if not self.quiz_running:
+                await log_to_discord(self.bot, "⚠️ Quiz already stopped, aborting end_quiz", "WARN")
+                return
 
-        leaderboard_embed.add_field(
-            name="📈 Quiz Statistics",
-            value=f"**Participants:** {len(sorted_participants)}\n**Questions:** {total_questions}\n**Correct Answers:** {total_correct}\n**Accuracy:** {accuracy}%",
-            inline=False
-        )
+            self.quiz_running = False
+            self.question_start_time = None
+            if self.countdown_task:
+                self.countdown_task.cancel()
+            if self.question_timer:
+                self.question_timer.cancel()
 
-        top_entries = []
-        for i, (uid, data) in enumerate(sorted_participants[:10], 1):
-            gem = rewards.get(uid, {}).get("gems", 0)
-            medal = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"][i-1] if i <= 10 else f"{i}."
-            top_entries.append(f"{medal} **{data['name']}** – {data['score']} pts  💎 +{gem} gems")
+            # ----- 1) SHOW FINISHED MESSAGE -----
+            finish_embed = discord.Embed(
+                title="🏆 **QUIZ FINISHED!** 🏆",
+                description="Calculating final scores and rewards...",
+                color=discord.Color.gold()
+            )
+            await self.quiz_channel.send(embed=finish_embed)
+            await asyncio.sleep(2)
 
-        if top_entries:
-            leaderboard_embed.add_field(name="🏆 TOP 10 WINNERS", value="\n".join(top_entries), inline=False)
+            # ----- 2) NO PARTICIPANTS? -----
+            if not self.participants:
+                await self.quiz_channel.send("❌ No participants – no rewards.")
+                await log_to_discord(self.bot, "No participants, skipping rewards", "WARN")
+                self._reset()
+                return
 
-        if len(sorted_participants) > 10:
-            leaderboard_embed.add_field(name="🎁 All Participants", value=f"All {len(sorted_participants)} participants received rewards!\nCheck your DMs.", inline=False)
+            # ----- 3) SORT & VALIDATE -----
+            sorted_participants = sorted(self.participants.items(), key=lambda x: x[1]["score"], reverse=True)
+            for _, p in sorted_participants:
+                p.setdefault("correct_answers", 0)
+                p.setdefault("answers", [])
+                p.setdefault("score", 0)
 
-        await self.quiz_channel.send(embed=leaderboard_embed)
-        await asyncio.sleep(3)
+            # ----- 4) DISTRIBUTE REWARDS -----
+            rewards = {}
+            try:
+                rewards = await self.distribute_quiz_rewards(sorted_participants)
+                await log_to_discord(self.bot, f"✅ Rewards distribution completed. {len(rewards)} entries.", "INFO")
+            except Exception as e:
+                await log_to_discord(self.bot, "❌ CRITICAL: distribute_quiz_rewards crashed", "ERROR", e)
 
-        # Rewards summary
-        summary_embed = discord.Embed(title="💰 Rewards Summary", color=discord.Color.gold())
-        successful = sum(1 for r in rewards.values() if r.get("gems", 0) > 0)
-        summary_embed.add_field(name="📊 Distribution Stats", value=f"**Successful:** {successful}/{len(sorted_participants)}", inline=False)
+            # ----- 5) FINAL LEADERBOARD -----
+            lb_embed = discord.Embed(title="📊 **FINAL LEADERBOARD**", color=discord.Color.green())
 
-        # Send DMs
-        dm_count = 0
-        for uid, data in self.participants.items():
-            reward = rewards.get(uid, {})
-            if reward and reward.get("gems", 0) > 0:
-                try:
-                    user = self.bot.get_user(int(uid))
-                    if user:
-                        balance = await self.currency.get_balance(uid)
-                        dm_embed = discord.Embed(
-                            title="🎉 Quiz Rewards!",
-                            description=f"**Quiz Results:**\nFinal Score: **{data['score']}** pts\nRank: **#{list(self.participants.keys()).index(uid)+1}**",
-                            color=discord.Color.gold()
-                        )
-                        dm_embed.add_field(name="💰 Rewards Earned", value=f"💎 **+{reward['gems']} Gems**", inline=False)
-                        dm_embed.add_field(name="📊 New Balance", value=f"💎 Total Gems: **{balance['gems']}**", inline=False)
-                        await user.send(embed=dm_embed)
-                        dm_count += 1
-                except Exception as e:
-                    await log_to_discord(self.bot, f"❌ Failed to send DM to {uid}: {e}", "ERROR")
+            total_q = len(self.quiz_questions)
+            total_correct = sum(p["correct_answers"] for _, p in sorted_participants)
+            total_attempts = sum(len(p["answers"]) for _, p in sorted_participants)
+            accuracy = round(total_correct / total_attempts * 100, 1) if total_attempts else 0
 
-        summary_embed.add_field(name="📨 DM Notifications", value=f"Sent to: **{dm_count}/{len(self.participants)}** participants", inline=False)
-        await self.quiz_channel.send(embed=summary_embed)
+            lb_embed.add_field(
+                name="📈 Quiz Statistics",
+                value=f"**Participants:** {len(sorted_participants)}\n**Questions:** {total_q}\n**Correct:** {total_correct}\n**Accuracy:** {accuracy}%",
+                inline=False
+            )
 
-        # Reset
-        self._reset()
-        await log_to_discord(self.bot, "✅ Quiz system reset for next game", "INFO")
+            # --- TOP 10 WITH REWARDS (FIXED INDENTATION) ---
+            top_entries = []
+            for i, (uid, data) in enumerate(sorted_participants[:10], 1):
+                gems = rewards.get(uid, {}).get("gems", 0)
+                medal = ["🥇","🥈","🥉","4️⃣","5️⃣","6️⃣","7️⃣","8️⃣","9️⃣","🔟"][i-1] if i <= 10 else f"{i}."
+                top_entries.append(f"{medal} **{data['name']}** – {data['score']} pts  💎 +{gems} gems")
+
+            if top_entries:
+                lb_embed.add_field(name="🏆 TOP 10 WINNERS", value="\n".join(top_entries), inline=False)
+
+            if len(sorted_participants) > 10:
+                lb_embed.add_field(name="🎁 All Participants", value=f"All {len(sorted_participants)} received rewards!\nCheck DMs.", inline=False)
+
+            await self.quiz_channel.send(embed=lb_embed)
+            await log_to_discord(self.bot, "✅ Final leaderboard sent", "INFO")
+            await asyncio.sleep(3)
+
+            # ----- 6) REWARDS SUMMARY -----
+            summary_embed = discord.Embed(title="💰 Rewards Summary", color=discord.Color.gold())
+            successful = sum(1 for r in rewards.values() if r.get("gems", 0) > 0)
+            summary_embed.add_field(
+                name="📊 Distribution Stats",
+                value=f"**Successful:** {successful}/{len(sorted_participants)}",
+                inline=False
+            )
+
+            # ----- 7) SEND DMs -----
+            dm_count = 0
+            for uid, data in self.participants.items():
+                reward = rewards.get(uid, {})
+                if reward and reward.get("gems", 0) > 0:
+                    try:
+                        user = self.bot.get_user(int(uid))
+                        if user:
+                            balance = await self.currency.get_balance(uid)
+                            dm_embed = discord.Embed(
+                                title="🎉 Quiz Rewards!",
+                                description=f"**Final Score:** {data['score']} pts\n**Rank:** #{list(self.participants.keys()).index(uid)+1}",
+                                color=discord.Color.gold()
+                            )
+                            dm_embed.add_field(name="💰 Rewards", value=f"💎 +{reward['gems']} Gems", inline=False)
+                            dm_embed.add_field(name="📊 New Balance", value=f"💎 {balance['gems']} Gems", inline=False)
+                            await user.send(embed=dm_embed)
+                            dm_count += 1
+                    except Exception as e:
+                        await log_to_discord(self.bot, f"❌ DM failed for {uid}", "ERROR", e)
+
+            summary_embed.add_field(name="📨 DM Notifications", value=f"Sent to: **{dm_count}/{len(self.participants)}**", inline=False)
+            await self.quiz_channel.send(embed=summary_embed)
+            await log_to_discord(self.bot, f"✅ Rewards summary sent, DMs: {dm_count}/{len(self.participants)}", "INFO")
+
+        except Exception as e:
+            await log_to_discord(self.bot, "❌❌❌ end_quiz CRITICAL FAILURE", "CRITICAL", e)
+            try:
+                await self.quiz_channel.send("⚠️ An error occurred while finalizing the quiz. Please check logs.")
+            except:
+                pass
+        finally:
+            # ----- ALWAYS RESET -----
+            self._reset()
+            await log_to_discord(self.bot, "✅ Quiz system reset complete", "INFO")
 
     def _reset(self):
-        """Internal reset method."""
+        """Safely reset all state variables."""
         self.quiz_channel = None
         self.quiz_logs_channel = None
         self.current_question = 0
         self.participants = {}
         self.question_start_time = None
         self.quiz_running = False
+        self.countdown_task = None
+        self.question_timer = None
 
     def calculate_average_time(self, user_data):
         """Calculate average time for correct answers"""
