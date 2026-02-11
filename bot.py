@@ -1960,14 +1960,14 @@ async def balance_cmd(ctx):
 async def on_message(message):
     if message.author.bot:
         return
-    
-    # Check for quiz answers (any text answer)
-    if (quiz_system.quiz_running and 
-        message.channel == quiz_system.quiz_channel):
-        
-        # Process the answer silently (NO REACTIONS)
-        await quiz_system.process_answer(message.author, message.content)
-    
+
+    # Quiz answers
+    if quiz_system.quiz_running and message.channel == quiz_system.quiz_channel:
+        try:
+            await quiz_system.process_answer(message.author, message.content)
+        except Exception as e:
+            await log_to_discord(bot, f"❌ Error in on_message: {e}", "ERROR")
+
     await bot.process_commands(message)
 
 # --- HELP COMMAND ---
@@ -2018,117 +2018,6 @@ async def ping(ctx):
     await ctx.send("🏓 Pong!")
 
 
-# === EMERGENCY FIX COMMANDS ===
-@bot.command(name="emergencyfix")
-async def emergency_fix(ctx):
-    """Emergency database fix"""
-    import subprocess
-    
-    steps = []
-    
-    # Step 1: Check asyncpg
-    try:
-        import asyncpg
-        steps.append("✅ asyncpg is installed")
-    except:
-        steps.append("❌ asyncpg not installed")
-        # Try to install it
-        try:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "asyncpg"])
-            steps.append("✅ Installed asyncpg")
-        except:
-            steps.append("❌ Failed to install asyncpg")
-    
-    # Step 2: Check DATABASE_URL
-    if DATABASE_URL:
-        steps.append(f"✅ DATABASE_URL exists")
-        # Show first 50 chars
-        masked = DATABASE_URL
-        if '@' in DATABASE_URL:
-            # Mask password
-            parts = DATABASE_URL.split('@')
-            if ':' in parts[0]:
-                user_part = parts[0].split(':')
-                if len(user_part) >= 3:
-                    masked = f"{user_part[0]}:****@{parts[1]}"
-        steps.append(f"   Format: {masked[:80]}...")
-    else:
-        steps.append("❌ DATABASE_URL not found")
-    
-    await ctx.send("**Emergency Fix Report:**\n" + "\n".join(steps))
-
-@bot.command(name="railwayhelp")
-async def railway_help(ctx):
-    """Step-by-step Railway help"""
-    help_text = """
-**🎯 STEP-BY-STEP RAILWAY FIX:**
-
-**1. Check Services:**
-   - Go to Railway dashboard
-   - You should see TWO services:
-     • Your Discord bot
-     • A PostgreSQL database
-
-**2. If NO PostgreSQL:**
-   - Click "New" → "Database" → "PostgreSQL" → "Add"
-   - Wait 2 minutes for it to provision
-
-**3. Connect Database to Bot:**
-   - Click on your BOT service
-   - Go to "Variables" tab
-   - Look for `DATABASE_URL`
-   - If NOT there, click "New Variable":
-     • Name: `DATABASE_URL`
-     • Value: Get from PostgreSQL service → "Connect" tab
-     • Click "Add"
-
-**4. Restart Everything:**
-   - Restart BOTH services
-   - Wait 2 minutes
-   - Check logs for "✅ Database connected"
-
-**5. Test:**
-   - Run `!!testdb` in Discord
-   - Should see "✅ Database working!"
-    """
-    await ctx.send(help_text)
-
-@bot.command(name="testdb")
-async def test_db(ctx):
-    """Test database connection"""
-    user_id = str(ctx.author.id)
-    
-    # Add gems using the shared currency system
-    transaction = currency_system.add_gems(
-        user_id=user_id,
-        gems=10,
-        reason="Database test"
-    )
-    
-    if transaction:
-        balance = currency_system.get_balance(user_id)
-        await ctx.send(f"✅ **CURRENCY SYSTEM WORKING!**\nAdded 10 gems\nNew balance: **{balance['gems']} gems**")
-    else:
-        await ctx.send("❌ **Test failed completely**")
-
-@bot.command(name="checkenv")
-async def check_env(ctx):
-    """Check all database environment variables"""
-    import os
-    
-    db_vars = []
-    for key in sorted(os.environ.keys()):
-        if any(word in key.upper() for word in ['DB', 'DATABASE', 'POSTGRES', 'PG', 'SQL', 'URL', 'HOST', 'PORT', 'USER', 'PASS']):
-            value = os.environ[key]
-            if 'PASS' in key.upper() or 'PASSWORD' in key.upper():
-                db_vars.append(f"`{key}`: `*****`")
-            else:
-                db_vars.append(f"`{key}`: `{value}`")
-    
-    if db_vars:
-        await ctx.send("**Database Environment Variables:**\n" + "\n".join(db_vars[:10]))  # First 10
-    else:
-        await ctx.send("❌ No database environment variables found!")
 
 # === BOT STARTUP ===
 @bot.event
