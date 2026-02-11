@@ -728,6 +728,28 @@ async def reply_message(
         await ctx.send(f"⚠️ Error: {e}")
 # END -----
 
+# FOR DISCORD LOG----------------
+async def log_to_discord(bot, message, level="INFO"):
+    """Send a log message to #bot-logs channel."""
+    for guild in bot.guilds:
+        channel = discord.utils.get(guild.text_channels, name="bot-logs")
+        if channel:
+            try:
+                embed = discord.Embed(
+                    title=f"📋 Quiz Log – {level}",
+                    description=message[:2000],
+                    color=discord.Color.green() if level == "INFO" else discord.Color.red(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                await channel.send(embed=embed)
+                return
+            except:
+                pass
+    print(f"[{level}] {message}")  # fallback
+
+
+# END ---=====-=-=-=------
+
 # --- QUIZ SYSTEM CLASS ---
 class QuizSystem:
     def __init__(self, bot):
