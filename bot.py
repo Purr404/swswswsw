@@ -731,7 +731,7 @@ async def reply_message(
 
 # --- QUIZ SYSTEM CLASS ---
 class QuizSystem:
-    def __init__(self, bot):
+    def __init__(self, bot, currency_system):
         self.bot = bot
         self.currency = currency_system  # shared currency system
         self.quiz_questions = []
