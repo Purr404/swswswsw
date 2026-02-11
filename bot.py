@@ -1071,19 +1071,19 @@ class QuizSystem:
                 await leaderboard_message.edit(embed=updated_embed)
                 await asyncio.sleep(1)
         
-        await leaderboard_message.delete()
+            await leaderboard_message.delete()
         
-        # Reset answered_current for next question
-        for user_id in self.participants:
-            self.participants[user_id]["answered_current"] = False
+            # Reset answered_current for next question
+            for user_id in self.participants:
+                self.participants[user_id]["answered_current"] = False
         
-        # Move to next question
-        self.current_question += 1
-        await self.send_question()
-    else:
-        # This is the last question, go directly to end_quiz
-        print(f"🎯 Last question completed! Going to end_quiz...")
-        await self.end_quiz()
+            # Move to next question
+            self.current_question += 1
+            await self.send_question()
+        else:
+            # This is the last question, go directly to end_quiz
+            print(f"🎯 Last question completed! Going to end_quiz...")
+            await self.end_quiz()
     
     async def create_live_leaderboard(self, countdown=None):
         """Create a live leaderboard embed showing all participants"""
