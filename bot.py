@@ -1269,7 +1269,7 @@ class QuizSystem:
             medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
             medal = medals[i-1] if i <= len(medals) else f"{i}."
         
-                top_entries.append(
+            top_entries.append(
                 f"{medal} **{data['name']}**\n"
                 f"   Score: **{data['score']}** pts | Reward: 💎 **{gems_reward}** gems"
                 )
