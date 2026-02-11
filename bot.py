@@ -1002,7 +1002,7 @@ class QuizSystem:
 
         return rewards
 # === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
-quiz_system = QuizSystem(bot)
+quiz_system = QuizSystem(bot, currency_system)
 
 
 # HELPER FUNCTION FOR ADDING GEMS 
