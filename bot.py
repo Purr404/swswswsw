@@ -1220,9 +1220,9 @@ class QuizSystem:
 
             # --- fix missing keys ---
             for _, p in sorted_participants:
-            p.setdefault('correct_answers', 0)
-            p.setdefault('answers', [])
-            p.setdefault('score', 0)
+                p.setdefault('correct_answers', 0)
+                p.setdefault('answers', [])
+                p.setdefault('score', 0)
     
         
            
