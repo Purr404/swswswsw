@@ -1096,14 +1096,14 @@ class QuizSystem:
 
             lines = []
             for i, (uid, data) in enumerate(sorted_p):
-                status = "⏳ N/A"
+                status = "⏳"
                 attempts = [a for a in data["answers"] if a["question"] == self.current_question]
                 if attempts:
                     last = attempts[-1]
                     if last["correct"]:
                         status = f"✅ +{last['points']} pts ({last['time']}s)"
                     else:
-                        status = f"❌ Wrong ({len(attempts)} attempt{'s' if len(attempts)>1 else ''})"
+                        status = f"❌ Wrong answer({len(attempts)} attempt{'s' if len(attempts)>1 else ''})"
 
                 medal = self.get_rank_emoji(i+1) if i < 10 else f"{i+1}."
                 lines.append(f"{medal} **{data['name']}** – {data['score']} pts\n   {status}")
