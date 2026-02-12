@@ -920,7 +920,7 @@ class QuizSystem:
                 description=(
                     "```\n"
                     "• Type your answer in chat\n"
-                    "• Spelling matters – be exact!\n"
+                    "• Correct Spelling only!\n"
                     "• Faster answers = more points\n"
                     "• Multiple attempts allowed\n"
                     "```\n"
@@ -983,7 +983,7 @@ class QuizSystem:
 
     async def _timer_expired(self):
         """Called when the question time limit is reached."""
-        await log_to_discord(self.bot, f"⏰ Timer expired for question {self.current_question+1}", "INFO")
+        await log_to_discord(self.bot, f"⏳ Timer expired for question {self.current_question+1}", "INFO")
         await self.end_question()
 
     async def _run_countdown(self, total_time):
@@ -999,10 +999,10 @@ class QuizSystem:
                 bar = "🟩" * progress + "⬜" * (20 - progress)
 
                 for i, field in enumerate(embed.fields):
-                    if "⏰" in field.name:
+                    if "⏳" in field.name:
                         embed.set_field_at(
                             i,
-                            name=f"⏰ **{time_left:02d} SECONDS LEFT**",
+                            name=f"⏳ **{time_left:02d} SECONDS LEFT**",
                             value=f"```\n{bar}\n{time_left:02d} seconds\n```\n**Max Points:** {self.quiz_questions[self.current_question]['pts']} ⭐",
                             inline=False
                         )
