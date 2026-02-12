@@ -1169,7 +1169,7 @@ class QuizSystem:
 
             # --- SEND STATS & AUTO‑DELETE AFTER 5 SECONDS ---
             stats_msg = await self.quiz_channel.send(embed=embed)
-            self.bot.loop.create_task(self._delete_after(stats_msg, 5))
+            self.bot.loop.create_task(self._delete_after(stats_msg, 20))
             await log_to_discord(self.bot, "📊 Statistics embed will self‑destruct in 5s", "INFO")
 
             # --- LAST QUESTION? ---
@@ -1182,7 +1182,7 @@ class QuizSystem:
             lb_embed = await self.create_leaderboard()          # initial (no countdown yet)
             lb_msg = await self.quiz_channel.send(embed=lb_embed)
  
-            for seconds in range(10, 0, -1):                   # 🔥 10 seconds
+            for seconds in range(20, 0, -1):                   # 🔥 20 seconds
                 updated = await self.create_leaderboard(countdown=seconds)
                 await lb_msg.edit(embed=updated)
                 await asyncio.sleep(1)
@@ -1213,7 +1213,7 @@ class QuizSystem:
 
             # --- 10‑SECOND COUNTDOWN BAR (COLOR‑CODED) ---
             if countdown is not None:
-                total = 10  # exactly 10 seconds
+                total = 20  # exactly 20 seconds
                 progress = int((countdown / total) * 10)  # 10 blocks
                 ratio = countdown / total
 
