@@ -1308,6 +1308,32 @@ class QuizSystem:
             self._ending = False
             await log_to_discord(self.bot, "✅ Quiz system reset complete", "INFO")
 
+
+async def stop_quiz(self):
+    """Immediately stop the quiz and reset."""
+    await log_to_discord(self.bot, "🛑 stop_quiz() called", "INFO")
+    
+    self.quiz_running = False
+    self._ending = True  # Prevent end_quiz from running twice
+    
+    # Cancel countdown loop
+    if self.countdown_loop:
+        self.countdown_loop.cancel()
+        self.countdown_loop = None
+    
+    # Cancel any pending call_later timers (we can't cancel them directly, but we can ignore them)
+    self.question_start_time = None
+    
+    # Reset all state
+    self.quiz_channel = None
+    self.quiz_logs_channel = None
+    self.current_question = 0
+    self.participants = {}
+    self.question_timer = None
+    self._ending = False
+    
+    await log_to_discord(self.bot, "✅ Quiz stopped and reset", "INFO")
+
 # === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
 quiz_system = QuizSystem(bot)
 
@@ -1557,27 +1583,48 @@ async def quiz_start(ctx, channel: discord.TextChannel = None):
 @quiz_group.command(name="stop")
 @commands.has_permissions(manage_messages=True)
 async def quiz_stop(ctx):
-    """Stop current quiz"""
+    """Stop the currently running quiz immediately."""
+    # Check if quiz is running (using the global quiz_system)
     if not quiz_system.quiz_running:
-        await ctx.send("❌ No quiz is running!", delete_after=5)
+        await ctx.send("❌ No quiz is currently running!", delete_after=5)
         return
     
-    quiz_system.quiz_running = False
-    if quiz_system.question_timer:
-        quiz_system.question_timer.cancel()
+    # Confirm with the user
+    confirm = await ctx.send("⚠️ Are you sure you want to stop the quiz? This will **not** distribute rewards. (yes/no)")
     
-    await ctx.send("✅ Quiz stopped!")
-
-@quiz_group.command(name="leaderboard")
-async def quiz_leaderboard(ctx):
-    """Show current quiz leaderboard"""
-    if not quiz_system.participants:
-        await ctx.send("❌ No quiz data available!", delete_after=5)
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["yes", "no"]
+    
+    try:
+        reply = await bot.wait_for("message", timeout=15.0, check=check)
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Command timed out. Quiz continues.", delete_after=5)
         return
     
-    # Create leaderboard embed
-    embed = await quiz_system.create_live_leaderboard()
-    await ctx.send(embed=embed)
+    if reply.content.lower() == "no":
+        await ctx.send("✅ Quiz stop cancelled.", delete_after=5)
+        return
+    
+    # --- STOP THE QUIZ ---
+    await ctx.send("🛑 Stopping quiz...")
+    
+    try:
+        # Call the dedicated stop method
+        await quiz_system.stop_quiz()
+        
+        # Also delete the current question message if it exists
+        if hasattr(quiz_system, 'question_message') and quiz_system.question_message:
+            try:
+                await quiz_system.question_message.delete()
+            except:
+                pass
+        
+        await ctx.send("✅ Quiz has been stopped and reset.")
+        await log_to_discord(bot, f"Quiz manually stopped by {ctx.author}", "INFO")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error while stopping quiz: {str(e)[:100]}")
+        await log_to_discord(bot, f"Error in quiz_stop: {e}", "ERROR", e)
 
 @quiz_group.command(name="addq")
 @commands.has_permissions(administrator=True)
