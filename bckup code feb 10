@@ -844,16 +844,20 @@ class QuizSystem:
             random.shuffle(self.quiz_questions)
 
             embed = discord.Embed(
-                title="🎯 **QUIZ STARTING!**",
+                title="🎯 **Quiz Time!**",
                 description=(
-                    "**Open-Ended Quiz**\n"
-                    "Type your answers exactly!\n"
-                    "• Faster = more points\n"
+                    "```\n"
+                    "• Type your answer in chat\n"
+                    "• Correct spelling only!\n"
+                    "• Faster answers = more points\n"
                     "• Multiple attempts allowed\n"
-                    f"First question in **10 seconds**!"
+                "```\n"
+                    f"**First question starts in** ⏰ **10 seconds**"
                 ),
-                color=discord.Color.gold()
+                color=0xFFD700  # Gold
             )
+            embed.set_footer(text="Good luck! 🍀", icon_url=self.bot.user.display_avatar.url)
+
             start_msg = await channel.send(embed=embed)
             for i in range(10, 0, -1):
                 await start_msg.edit(content=f"⏰ **{i}...**")
@@ -874,7 +878,7 @@ class QuizSystem:
             self.question_start_time = datetime.now(timezone.utc)
 
             embed = discord.Embed(
-                title=f"❓ **Q{self.current_question+1}/{len(self.quiz_questions)}**",
+                title=f"❓ **QUESTION{self.current_question+1}/{len(self.quiz_questions)}**",
                 description=q["q"],
                 color=discord.Color.blue()
             )
@@ -1009,6 +1013,15 @@ class QuizSystem:
         """End current question, show stats, and move to next or end quiz."""
         await log_to_discord(self.bot, f"🔚 end_question() called for Q{self.current_question+1}", "INFO")
         try:
+            # --- DELETE THE QUESTION MESSAGE ---
+            if hasattr(self, 'question_message') and self.question_message:
+                try:
+                    await self.question_message.delete()
+                    await log_to_discord(self.bot, f"🗑️ Deleted question message for Q{self.current_question+1}", "INFO")
+                except Exception as e:
+                    await log_to_discord(self.bot, f"⚠️ Could not delete question message: {e}", "WARN")
+
+
             if self.countdown_loop:
                 self.countdown_loop.cancel()
             self.question_start_time = None
@@ -1037,7 +1050,7 @@ class QuizSystem:
 
             embed.add_field(
                 name="📊 Statistics",
-                value=f"**Participants:** {total_p}\n**Attempted:** {total_ans}\n**Correct:** {correct_cnt}\n"
+                value=f"**Participants:** {total_p}\n**Attempted:** {total_ans}\n"
                       f"**Accuracy:** {round(correct_cnt/total_ans*100,1) if total_ans else 0}%\n"
                       + (f"**Fastest:** {fastest_name} ({fastest}s)" if fastest_name else ""),
                 inline=False
@@ -1083,7 +1096,7 @@ class QuizSystem:
 
             lines = []
             for i, (uid, data) in enumerate(sorted_p):
-                status = "⏳ Not attempted"
+                status = "⏳ N/A"
                 attempts = [a for a in data["answers"] if a["question"] == self.current_question]
                 if attempts:
                     last = attempts[-1]
@@ -1163,6 +1176,30 @@ class QuizSystem:
     # ------------------------------------------------------------
     # END QUIZ – FULLY LOGGED
     # ------------------------------------------------------------
+
+    async def stop_quiz(self):
+        """Immediately stop the quiz and reset."""
+        await log_to_discord(self.bot, "🛑 stop_quiz() called", "INFO")  # ✅ self.bot first
+
+        self.quiz_running = False
+        self._ending = True
+
+        if self.countdown_loop:
+            self.countdown_loop.cancel()
+            self.countdown_loop = None
+
+        self.question_start_time = None
+
+        # Reset all state
+        self.quiz_channel = None
+        self.quiz_logs_channel = None
+        self.current_question = 0
+        self.participants = {}
+        self._ending = False
+
+        await log_to_discord(self.bot, "✅ Quiz stopped and reset", "INFO")  # ✅ self.bot first
+
+
     async def end_quiz(self):
         if self._ending:
             await log_to_discord(self.bot, "⚠️ end_quiz already in progress, ignoring", "WARN")
@@ -1184,7 +1221,7 @@ class QuizSystem:
             # --- 1. SHOW FINISHED MESSAGE ---
             try:
                 finish = discord.Embed(
-                    title="🏆 **QUIZ FINISHED!** 🏆",
+                    title="🏁 **QUIZ FINISHED!** 🏁",
                     description="Calculating final scores and rewards...",
                     color=discord.Color.gold()
                 )
@@ -1221,7 +1258,7 @@ class QuizSystem:
 
                 lb_embed.add_field(
                     name="📈 Quiz Statistics",
-                    value=f"**Participants:** {len(sorted_p)}\n**Questions:** {total_q}\n**Correct:** {total_correct}\n**Accuracy:** {accuracy}%",
+                    value=f"**Participants:** {len(sorted_p)}\n**Questions:** {total_q}\n**Accuracy:** {accuracy}%",
                     inline=False
                 )
 
@@ -1246,9 +1283,9 @@ class QuizSystem:
 
             # --- 6. REWARDS SUMMARY ---
             try:
-                summary = discord.Embed(title="💰 Rewards Summary", color=discord.Color.gold())
+                summary = discord.Embed(title="Quiz Rewards Distributed!", color=discord.Color.gold())
                 successful = sum(1 for r in rewards.values() if r.get("gems", 0) > 0)
-                summary.add_field(name="📊 Distribution", value=f"**Successful:** {successful}/{len(sorted_p)}", inline=False)
+                summary.add_field(name="Distribution count", value=f"*Successful:* {successful}/{len(sorted_p)}", inline=False)
                 await self.quiz_channel.send(embed=summary)
                 await log_to_discord(self.bot, "✅ Rewards summary sent", "INFO")
             except Exception as e:
@@ -1268,8 +1305,8 @@ class QuizSystem:
                                 description=f"**Final Score:** {data['score']} pts\n**Rank:** #{list(self.participants.keys()).index(uid)+1}",
                                 color=discord.Color.gold()
                             )
-                            dm.add_field(name="💰 Rewards", value=f"💎 +{reward['gems']} Gems", inline=False)
-                            dm.add_field(name="📊 New Balance", value=f"💎 {balance['gems']} Gems", inline=False)
+                            dm.add_field(name="*Rewards*", value=f"💎 +{reward['gems']} Gems", inline=False)
+                            dm.add_field(name="*New Balance*", value=f"💎 {balance['gems']} Gems", inline=False)
                             await user.send(embed=dm)
                             dm_count += 1
                     except Exception as e:
@@ -1294,6 +1331,7 @@ class QuizSystem:
             self.countdown_loop = None
             self._ending = False
             await log_to_discord(self.bot, "✅ Quiz system reset complete", "INFO")
+
 
 # === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
 quiz_system = QuizSystem(bot)
@@ -1544,27 +1582,64 @@ async def quiz_start(ctx, channel: discord.TextChannel = None):
 @quiz_group.command(name="stop")
 @commands.has_permissions(manage_messages=True)
 async def quiz_stop(ctx):
-    """Stop current quiz"""
+    """Stop the currently running quiz immediately."""
     if not quiz_system.quiz_running:
-        await ctx.send("❌ No quiz is running!", delete_after=5)
+        await ctx.send("❌ No quiz is currently running.", delete_after=5)
         return
-    
-    quiz_system.quiz_running = False
-    if quiz_system.question_timer:
-        quiz_system.question_timer.cancel()
-    
-    await ctx.send("✅ Quiz stopped!")
 
-@quiz_group.command(name="leaderboard")
-async def quiz_leaderboard(ctx):
-    """Show current quiz leaderboard"""
-    if not quiz_system.participants:
-        await ctx.send("❌ No quiz data available!", delete_after=5)
+    # Ask for confirmation
+    confirm = await ctx.send("⚠️ **Are you sure?** This will stop the quiz and **no rewards will be distributed**. Reply with `yes` or `no` (15 seconds).")
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["yes", "no"]
+
+    try:
+        reply = await bot.wait_for("message", timeout=15.0, check=check)
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Timeout – quiz continues.", delete_after=5)
         return
-    
-    # Create leaderboard embed
-    embed = await quiz_system.create_live_leaderboard()
-    await ctx.send(embed=embed)
+
+    if reply.content.lower() == "no":
+        await ctx.send("✅ Stop cancelled. Quiz continues.", delete_after=5)
+        return
+
+    # --- STOP THE QUIZ ---
+    await ctx.send("🛑 Stopping quiz...")
+
+    try:
+        # Remember the quiz channel before reset
+        quiz_channel = quiz_system.quiz_channel
+
+        # Stop the quiz (resets everything)
+        await quiz_system.stop_quiz()
+
+        # Delete the current question message if it exists
+        if hasattr(quiz_system, 'question_message') and quiz_system.question_message:
+            try:
+                await quiz_system.question_message.delete()
+            except:
+                pass
+
+        # Send notification to the original quiz channel
+        if quiz_channel:
+            embed = discord.Embed(
+                title="🛑 **Quiz Stopped**",
+                description=(
+                    f"The Quiz has been manually stopped by {ctx.author.mention}.\n"
+                    "**No rewards were distributed.**"
+                ),
+                color=discord.Color.red()
+            )
+            
+            await quiz_channel.send(embed=embed)
+
+        # Confirm in the command channel
+        await ctx.send("✅ Quiz has been successfully stopped and reset.")
+        await log_to_discord(bot, f"Quiz manually stopped by {ctx.author}", "INFO")
+
+    except Exception as e:
+        await ctx.send(f"❌ Error while stopping quiz: {str(e)[:100]}")
+        await log_to_discord(bot, f"Error in quiz_stop: {e}", "ERROR")
 
 @quiz_group.command(name="addq")
 @commands.has_permissions(administrator=True)
