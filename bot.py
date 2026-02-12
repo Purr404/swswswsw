@@ -1179,25 +1179,25 @@ class QuizSystem:
 
     async def stop_quiz(self):
         """Immediately stop the quiz and reset."""
-        await log_to_discord("🛑 stop_quiz() called", "INFO")  # <-- no 'bot' argument
-    
+        await log_to_discord(self.bot, "🛑 stop_quiz() called", "INFO")  # ✅ self.bot first
+
         self.quiz_running = False
         self._ending = True
-    
+
         if self.countdown_loop:
             self.countdown_loop.cancel()
             self.countdown_loop = None
-    
+
         self.question_start_time = None
-    
+
         # Reset all state
         self.quiz_channel = None
         self.quiz_logs_channel = None
         self.current_question = 0
         self.participants = {}
         self._ending = False
-    
-        await log_to_discord("✅ Quiz stopped and reset", "INFO")
+
+        await log_to_discord(self.bot, "✅ Quiz stopped and reset", "INFO")  # ✅ self.bot first
 
 
     async def end_quiz(self):
@@ -1586,39 +1586,39 @@ async def quiz_stop(ctx):
     if not quiz_system.quiz_running:
         await ctx.send("❌ No quiz is currently running!", delete_after=5)
         return
-    
+
     confirm = await ctx.send("⚠️ Are you sure you want to stop the quiz? This will **not** distribute rewards. (yes/no)")
-    
+
     def check(m):
         return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["yes", "no"]
-    
+
     try:
         reply = await bot.wait_for("message", timeout=15.0, check=check)
     except asyncio.TimeoutError:
         await ctx.send("⏰ Command timed out. Quiz continues.", delete_after=5)
         return
-    
+
     if reply.content.lower() == "no":
         await ctx.send("✅ Quiz stop cancelled.", delete_after=5)
         return
-    
+
     await ctx.send("🛑 Stopping quiz...")
-    
+
     try:
         await quiz_system.stop_quiz()
-        
+
         if hasattr(quiz_system, 'question_message') and quiz_system.question_message:
             try:
                 await quiz_system.question_message.delete()
             except:
                 pass
-        
+
         await ctx.send("✅ Quiz has been stopped and reset.")
-        await log_to_discord(f"Quiz manually stopped by {ctx.author}", "INFO")  # <-- no 'bot'
-        
+        await log_to_discord(bot, f"Quiz manually stopped by {ctx.author}", "INFO")  # ✅ bot first
+
     except Exception as e:
         await ctx.send(f"❌ Error while stopping quiz: {str(e)[:100]}")
-        await log_to_discord(f"Error in quiz_stop: {e}", "ERROR")
+        await log_to_discord(bot, f"Error in quiz_stop: {e}", "ERROR")  # ✅ bot first
 
 @quiz_group.command(name="addq")
 @commands.has_permissions(administrator=True)
