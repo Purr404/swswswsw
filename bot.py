@@ -924,7 +924,7 @@ class QuizSystem:
                     "• Faster answers = more points\n"
                     "• Multiple attempts allowed\n"
                     "```\n"
-                    f"**First question starts in** ⏰ **10 seconds**"
+                    f"**First question starts in** ⏰ **60 seconds**"
                 ),
                 color=0xFFD700
             )
@@ -934,7 +934,7 @@ class QuizSystem:
             embed.set_footer(text="Good luck! 🍀", icon_url=self.bot.user.display_avatar.url)
 
             start_msg = await channel.send(embed=embed)
-            for i in range(10, 0, -1):
+            for i in range(60, 0, -1):
                 await start_msg.edit(content=f"⏰ **{i}...**")
                 await asyncio.sleep(1)
             await start_msg.delete()
@@ -1169,7 +1169,7 @@ class QuizSystem:
 
             # --- SEND STATS & AUTO‑DELETE AFTER 5 SECONDS ---
             stats_msg = await self.quiz_channel.send(embed=embed)
-            self.bot.loop.create_task(self._delete_after(stats_msg, 20))
+            self.bot.loop.create_task(self._delete_after(stats_msg, 10))
             await log_to_discord(self.bot, "📊 Statistics embed will self‑destruct in 5s", "INFO")
 
             # --- LAST QUESTION? ---
@@ -1182,7 +1182,7 @@ class QuizSystem:
             lb_embed = await self.create_leaderboard()          # initial (no countdown yet)
             lb_msg = await self.quiz_channel.send(embed=lb_embed)
  
-            for seconds in range(20, 0, -1):                   # 🔥 20 seconds
+            for seconds in range(10, 0, -1):                   # 🔥 10 seconds
                 updated = await self.create_leaderboard(countdown=seconds)
                 await lb_msg.edit(embed=updated)
                 await asyncio.sleep(1)
@@ -1213,7 +1213,7 @@ class QuizSystem:
 
             # --- 10‑SECOND COUNTDOWN BAR (COLOR‑CODED) ---
             if countdown is not None:
-                total = 20  # exactly 20 seconds
+                total = 15  # exactly 20 seconds
                 progress = int((countdown / total) * 10)  # 10 blocks
                 ratio = countdown / total
 
