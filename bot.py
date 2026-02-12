@@ -1584,10 +1584,11 @@ async def quiz_start(ctx, channel: discord.TextChannel = None):
 async def quiz_stop(ctx):
     """Stop the currently running quiz immediately."""
     if not quiz_system.quiz_running:
-        await ctx.send("❌ No quiz is currently running!", delete_after=5)
+        await ctx.send("❌ No quiz is currently running.", delete_after=5)
         return
 
-    confirm = await ctx.send("⚠️ Are you sure you want to stop the quiz? This will **not** distribute rewards. (yes/no)")
+    # Ask for confirmation
+    confirm = await ctx.send("⚠️ **Are you sure?** This will stop the quiz and **no rewards will be distributed**. Reply with `yes` or `no` (15 seconds).")
 
     def check(m):
         return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() in ["yes", "no"]
@@ -1595,30 +1596,50 @@ async def quiz_stop(ctx):
     try:
         reply = await bot.wait_for("message", timeout=15.0, check=check)
     except asyncio.TimeoutError:
-        await ctx.send("⏰ Command timed out. Quiz continues.", delete_after=5)
+        await ctx.send("⏰ Timeout – quiz continues.", delete_after=5)
         return
 
     if reply.content.lower() == "no":
-        await ctx.send("✅ Quiz stop cancelled.", delete_after=5)
+        await ctx.send("✅ Stop cancelled. Quiz continues.", delete_after=5)
         return
 
+    # --- STOP THE QUIZ ---
     await ctx.send("🛑 Stopping quiz...")
 
     try:
+        # Remember the quiz channel before reset
+        quiz_channel = quiz_system.quiz_channel
+
+        # Stop the quiz (resets everything)
         await quiz_system.stop_quiz()
 
+        # Delete the current question message if it exists
         if hasattr(quiz_system, 'question_message') and quiz_system.question_message:
             try:
                 await quiz_system.question_message.delete()
             except:
                 pass
 
-        await ctx.send("✅ Quiz has been stopped and reset.")
-        await log_to_discord(bot, f"Quiz manually stopped by {ctx.author}", "INFO")  # ✅ bot first
+        # Send notification to the original quiz channel
+        if quiz_channel:
+            embed = discord.Embed(
+                title="🛑 **Quiz Stopped**",
+                description=(
+                    f"The quiz has been manually stopped by {ctx.author.mention}.\n"
+                    "**No rewards were distributed.**"
+                ),
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Use !!quiz start to begin a new round.")
+            await quiz_channel.send(embed=embed)
+
+        # Confirm in the command channel
+        await ctx.send("✅ Quiz has been successfully stopped and reset.")
+        await log_to_discord(bot, f"Quiz manually stopped by {ctx.author}", "INFO")
 
     except Exception as e:
         await ctx.send(f"❌ Error while stopping quiz: {str(e)[:100]}")
-        await log_to_discord(bot, f"Error in quiz_stop: {e}", "ERROR")  # ✅ bot first
+        await log_to_discord(bot, f"Error in quiz_stop: {e}", "ERROR")
 
 @quiz_group.command(name="addq")
 @commands.has_permissions(administrator=True)
