@@ -801,76 +801,76 @@ class QuizSystem:
     # QUESTION LOADING
     # ------------------------------------------------------------
     def load_questions(self):
-    """Load a large pool of categorized quiz questions."""
-    self.all_questions = [
-        # 🎨 Arts & Literature
-        {"cat": "🎨 Arts & Literature", "q": "Who painted the Mona Lisa?", "a": ["leonardo da vinci", "da vinci", "leonardo"], "pts": 300, "time": 30},
-        {"cat": "🎨 Arts & Literature", "q": "Who wrote 'Romeo and Juliet'?", "a": ["shakespeare", "william shakespeare"], "pts": 300, "time": 30},
-        {"cat": "🎨 Arts & Literature", "q": "Who painted The Starry Night?", "a": ["van gogh", "vincent van gogh"], "pts": 300, "time": 30},
-        {"cat": "🎨 Arts & Literature", "q": "What is the best‑selling book series of all time?", "a": ["harry potter"], "pts": 300, "time": 30},
-        {"cat": "🎨 Arts & Literature", "q": "Who sculpted David?", "a": ["michelangelo"], "pts": 300, "time": 30},
+        """Load a large pool of categorized quiz questions."""
+        self.all_questions = [
+            # 🎨 Arts & Literature
+            {"cat": "🎨 Arts & Literature", "q": "Who painted the Mona Lisa?", "a": ["leonardo da vinci", "da vinci", "leonardo"], "pts": 300, "time": 30},
+            {"cat": "🎨 Arts & Literature", "q": "Who wrote 'Romeo and Juliet'?", "a": ["shakespeare", "william shakespeare"], "pts": 300, "time": 30},
+            {"cat": "🎨 Arts & Literature", "q": "Who painted The Starry Night?", "a": ["van gogh", "vincent van gogh"], "pts": 300, "time": 30},
+            {"cat": "🎨 Arts & Literature", "q": "What is the best‑selling book series of all time?", "a": ["harry potter"], "pts": 300, "time": 30},
+            {"cat": "🎨 Arts & Literature", "q": "Who sculpted David?", "a": ["michelangelo"], "pts": 300, "time": 30},
 
-        # 🏛️ History
-        {"cat": "🏛️ History", "q": "In which year did the Titanic sink?", "a": ["1912"], "pts": 300, "time": 30},
-        {"cat": "🏛️ History", "q": "Who was the first US president?", "a": ["washington", "george washington"], "pts": 300, "time": 30},
-        {"cat": "🏛️ History", "q": "When did World War II end?", "a": ["1945"], "pts": 300, "time": 30},
-        {"cat": "🏛️ History", "q": "Who was the first man on the moon?", "a": ["armstrong", "neil armstrong"], "pts": 300, "time": 30},
-        {"cat": "🏛️ History", "q": "What year did the Berlin Wall fall?", "a": ["1989"], "pts": 300, "time": 30},
+            # 🏛️ History
+            {"cat": "🏛️ History", "q": "In which year did the Titanic sink?", "a": ["1912"], "pts": 300, "time": 30},
+            {"cat": "🏛️ History", "q": "Who was the first US president?", "a": ["washington", "george washington"], "pts": 300, "time": 30},
+            {"cat": "🏛️ History", "q": "When did World War II end?", "a": ["1945"], "pts": 300, "time": 30},
+            {"cat": "🏛️ History", "q": "Who was the first man on the moon?", "a": ["armstrong", "neil armstrong"], "pts": 300, "time": 30},
+            {"cat": "🏛️ History", "q": "What year did the Berlin Wall fall?", "a": ["1989"], "pts": 300, "time": 30},
 
-        # 🎵 Entertainment
-        {"cat": "🎵 Entertainment", "q": "Which band performed 'Bohemian Rhapsody'?", "a": ["queen"], "pts": 300, "time": 30},
-        {"cat": "🎵 Entertainment", "q": "What is the highest‑grossing film of all time?", "a": ["avatar"], "pts": 300, "time": 30},
-        {"cat": "🎵 Entertainment", "q": "Who created Mickey Mouse?", "a": ["disney", "walt disney"], "pts": 300, "time": 30},
-        {"cat": "🎵 Entertainment", "q": "What year was the first iPhone released?", "a": ["2007"], "pts": 300, "time": 30},
-        {"cat": "🎵 Entertainment", "q": "What is the name of the protagonist in 'The Legend of Zelda'?", "a": ["link"], "pts": 300, "time": 30},
+            # 🎵 Entertainment
+            {"cat": "🎵 Entertainment", "q": "Which band performed 'Bohemian Rhapsody'?", "a": ["queen"], "pts": 300, "time": 30},
+            {"cat": "🎵 Entertainment", "q": "What is the highest‑grossing film of all time?", "a": ["avatar"], "pts": 300, "time": 30},
+            {"cat": "🎵 Entertainment", "q": "Who created Mickey Mouse?", "a": ["disney", "walt disney"], "pts": 300, "time": 30},
+            {"cat": "🎵 Entertainment", "q": "What year was the first iPhone released?", "a": ["2007"], "pts": 300, "time": 30},
+            {"cat": "🎵 Entertainment", "q": "What is the name of the protagonist in 'The Legend of Zelda'?", "a": ["link"], "pts": 300, "time": 30},
 
-        # 🏅 Sports
-        {"cat": "🏅 Sports", "q": "How many players are on a soccer team?", "a": ["11"], "pts": 200, "time": 30},
-        {"cat": "🏅 Sports", "q": "What country won the FIFA World Cup in 2018?", "a": ["france"], "pts": 300, "time": 30},
-        {"cat": "🏅 Sports", "q": "What is the diameter of a basketball hoop in inches?", "a": ["18"], "pts": 400, "time": 30},
-        {"cat": "🏅 Sports", "q": "Who has won the most Olympic gold medals?", "a": ["phelps", "michael phelps"], "pts": 300, "time": 30},
-        {"cat": "🏅 Sports", "q": "What sport is played at Wimbledon?", "a": ["tennis"], "pts": 200, "time": 30},
+            # 🏅 Sports
+            {"cat": "🏅 Sports", "q": "How many players are on a soccer team?", "a": ["11"], "pts": 200, "time": 30},
+            {"cat": "🏅 Sports", "q": "What country won the FIFA World Cup in 2018?", "a": ["france"], "pts": 300, "time": 30},
+            {"cat": "🏅 Sports", "q": "What is the diameter of a basketball hoop in inches?", "a": ["18"], "pts": 400, "time": 30},
+            {"cat": "🏅 Sports", "q": "Who has won the most Olympic gold medals?", "a": ["phelps", "michael phelps"], "pts": 300, "time": 30},
+            {"cat": "🏅 Sports", "q": "What sport is played at Wimbledon?", "a": ["tennis"], "pts": 200, "time": 30},
 
-        # 🍔 Food & Drink
-        {"cat": "🍔 Food & Drink", "q": "What is the main ingredient in guacamole?", "a": ["avocado"], "pts": 200, "time": 30},
-        {"cat": "🍔 Food & Drink", "q": "Which country is famous for croissants?", "a": ["france"], "pts": 200, "time": 30},
-        {"cat": "🍔 Food & Drink", "q": "What type of pasta is shaped like small rice grains?", "a": ["orzo"], "pts": 400, "time": 30},
-        {"cat": "🍔 Food & Drink", "q": "What is the national drink of Japan?", "a": ["sake"], "pts": 300, "time": 30},
-        {"cat": "🍔 Food & Drink", "q": "What fruit is dried to make prunes?", "a": ["plum", "plums"], "pts": 300, "time": 30},
+            # 🍔 Food & Drink
+            {"cat": "🍔 Food & Drink", "q": "What is the main ingredient in guacamole?", "a": ["avocado"], "pts": 200, "time": 30},
+            {"cat": "🍔 Food & Drink", "q": "Which country is famous for croissants?", "a": ["france"], "pts": 200, "time": 30},
+            {"cat": "🍔 Food & Drink", "q": "What type of pasta is shaped like small rice grains?", "a": ["orzo"], "pts": 400, "time": 30},
+            {"cat": "🍔 Food & Drink", "q": "What is the national drink of Japan?", "a": ["sake"], "pts": 300, "time": 30},
+            {"cat": "🍔 Food & Drink", "q": "What fruit is dried to make prunes?", "a": ["plum", "plums"], "pts": 300, "time": 30},
 
-        # 📘 ENGLISH – Professional Precision
-        {"cat": "📘 Advanced English", "q": "Correct the sentence: The data suggests that the results is inaccurate.", "a": ["are"], "pts": 200, "time": 30},
-        {"cat": "📘 English", "q": "Provide the synonym of 'parsimonious'.", "a": ["stingy", "frugal"], "pts": 200, "time": 30},
-        {"cat": "📘 English", "q": "Provide the antonym of 'transient'.", "a": ["permanent", "lasting"], "pts": 200, "time": 30},
-        {"cat": "📘 English", "q": "What rhetorical device is used in: 'Time is a thief'?", "a": ["metaphor"], "pts": 200, "time": 30},
-        {"cat": "📘 English", "q": "Give the correct form: Neither the officers nor the chief ___ present.", "a": ["was"], "pts": 200, "time": 30},
+            # 📘 ENGLISH – Professional Precision
+            {"cat": "📘 Advanced English", "q": "Correct the sentence: The data suggests that the results is inaccurate.", "a": ["are"], "pts": 200, "time": 30},
+            {"cat": "📘 English", "q": "Provide the synonym of 'parsimonious'.", "a": ["stingy", "frugal"], "pts": 200, "time": 30},
+            {"cat": "📘 English", "q": "Provide the antonym of 'transient'.", "a": ["permanent", "lasting"], "pts": 200, "time": 30},
+            {"cat": "📘 English", "q": "What rhetorical device is used in: 'Time is a thief'?", "a": ["metaphor"], "pts": 200, "time": 30},
+            {"cat": "📘 English", "q": "Give the correct form: Neither the officers nor the chief ___ present.", "a": ["was"], "pts": 200, "time": 30},
 
-        # 🔤 WORD ANALOGY
-        {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Ephemeral is to Permanent as Mutable is to ___.", "a": ["immutable"], "pts": 200, "time": 30},
-        {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Prologue is to Epilogue as Prelude is to ___.", "a": ["postlude"], "pts": 200, "time": 30},
-        {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Catalyst is to Acceleration as Inhibitor is to ___.", "a": ["slowdown", "deceleration"], "pts": 200, "time": 30},
-        {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Architect is to Blueprint as Composer is to ___.", "a": ["score", "music score"], "pts": 200, "time": 30},
-        {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Veneer is to Surface as Core is to ___.", "a": ["center", "centre"], "pts": 200, "time": 30},
+            # 🔤 WORD ANALOGY
+            {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Ephemeral is to Permanent as Mutable is to ___.", "a": ["immutable"], "pts": 200, "time": 30},
+            {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Prologue is to Epilogue as Prelude is to ___.", "a": ["postlude"], "pts": 200, "time": 30},
+            {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Catalyst is to Acceleration as Inhibitor is to ___.", "a": ["slowdown", "deceleration"], "pts": 200, "time": 30},
+            {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Architect is to Blueprint as Composer is to ___.", "a": ["score", "music score"], "pts": 200, "time": 30},
+            {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Veneer is to Surface as Core is to ___.", "a": ["center", "centre"], "pts": 200, "time": 30},
 
-        # 🧠 LOGICAL REASONING
-        {"cat": "🧠 Logical Reasoning", "q": "All analysts are critical thinkers. Some critical thinkers are researchers. What can be logically inferred about analysts and researchers?", "a": ["some analysts may be researchers", "analysts may be researchers"], "pts": 200, "time": 60},
-        {"cat": "🧠 Logical Reasoning", "q": "If every efficient worker is punctual and some punctual workers are managers, what is a possible conclusion about efficient workers?", "a": ["some efficient workers may be managers", "efficient workers may be managers"], "pts": 200, "time": 60},
-        {"cat": "🧠 Logical Reasoning", "q": "If some metals are conductive and all conductive materials transmit electricity, what can be concluded about some metals?", "a": ["some metals transmit electricity"], "pts": 200, "time": 60},
-        {"cat": "🧠 Logical Reasoning", "q": "A is older than B. B is older than C. D is younger than C. Who is the youngest?", "a": ["d"], "pts": 200, "time": 30},
+            # 🧠 LOGICAL REASONING
+            {"cat": "🧠 Logical Reasoning", "q": "All analysts are critical thinkers. Some critical thinkers are researchers. What can be logically inferred about analysts and researchers?", "a": ["some analysts may be researchers", "analysts may be researchers"], "pts": 200, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "If every efficient worker is punctual and some punctual workers are managers, what is a possible conclusion about efficient workers?", "a": ["some efficient workers may be managers", "efficient workers may be managers"], "pts": 200, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "If some metals are conductive and all conductive materials transmit electricity, what can be concluded about some metals?", "a": ["some metals transmit electricity"], "pts": 200, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "A is older than B. B is older than C. D is younger than C. Who is the youngest?", "a": ["d"], "pts": 200, "time": 30},
 
-        # 🔢 NUMERICAL REASONING
-        {"cat": "🔢 Numerical Reasoning", "q": "Solve: 5x + 3 = 2x + 24.", "a": ["7"], "pts": 200, "time": 60},
-        {"cat": "🔢 Numerical Reasoning", "q": "A price was increased by 25% to 250. What was the original price?", "a": ["200"], "pts": 200, "time": 30},
-        {"cat": "🔢 Numerical Reasoning", "q": "If the ratio of men to women is 3:5 and there are 40 people, how many are men?", "a": ["15"], "pts": 200, "time": 60},
-        {"cat": "🔢 Numerical Reasoning", "q": "Find the next number: 2, 5, 11, 23, 47, ___.", "a": ["95"], "pts": 200, "time": 60},
-        {"cat": "🔢 Numerical Reasoning", "q": "If a train travels 180 km in 3 hours, how far will it travel in 5 hours at the same speed?", "a": ["300"], "pts": 200, "time": 60},
+            # 🔢 NUMERICAL REASONING
+            {"cat": "🔢 Numerical Reasoning", "q": "Solve: 5x + 3 = 2x + 24.", "a": ["7"], "pts": 200, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A price was increased by 25% to 250. What was the original price?", "a": ["200"], "pts": 200, "time": 30},
+            {"cat": "🔢 Numerical Reasoning", "q": "If the ratio of men to women is 3:5 and there are 40 people, how many are men?", "a": ["15"], "pts": 200, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "Find the next number: 2, 5, 11, 23, 47, ___.", "a": ["95"], "pts": 200, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If a train travels 180 km in 3 hours, how far will it travel in 5 hours at the same speed?", "a": ["300"], "pts": 200, "time": 60},
 
-        # 🧩 ABSTRACT & PATTERN ANALYSIS
-        {"cat": "🧩 Abstract Reasoning", "q": "Find the next letter sequence: B, E, I, N, T, ___.", "a": ["a"], "pts": 200, "time": 60},
-        {"cat": "🧩 Abstract Reasoning", "q": "Find the missing number: 1, 1, 2, 6, 24, 120, ___.", "a": ["720"], "pts": 200, "time": 60},
-        {"cat": "🧩 Abstract Reasoning", "q": "If TABLE = 40 (sum of letter positions), what is CHAIR?", "a": ["35"], "pts": 200, "time": 60},
-        {"cat": "🧩 Abstract Reasoning", "q": "Find the next number: 4, 9, 19, 39, 79, ___.", "a": ["159"], "pts": 200, "time": 60},
-        {"cat": "🧩 Abstract Reasoning", "q": "If RED = 27 and BLUE = 40 (sum of letters), what is GREEN?", "a": ["49"], "pts": 200, "time": 60},
+            # 🧩 ABSTRACT & PATTERN ANALYSIS
+            {"cat": "🧩 Abstract Reasoning", "q": "Find the next letter sequence: B, E, I, N, T, ___.", "a": ["a"], "pts": 200, "time": 60},
+            {"cat": "🧩 Abstract Reasoning", "q": "Find the missing number: 1, 1, 2, 6, 24, 120, ___.", "a": ["720"], "pts": 200, "time": 60},
+            {"cat": "🧩 Abstract Reasoning", "q": "If TABLE = 40 (sum of letter positions), what is CHAIR?", "a": ["35"], "pts": 200, "time": 60},
+            {"cat": "🧩 Abstract Reasoning", "q": "Find the next number: 4, 9, 19, 39, 79, ___.", "a": ["159"], "pts": 200, "time": 60},
+            {"cat": "🧩 Abstract Reasoning", "q": "If RED = 27 and BLUE = 40 (sum of letters), what is GREEN?", "a": ["49"], "pts": 200, "time": 60},
     ]
 
     # ------------------------------------------------------------
