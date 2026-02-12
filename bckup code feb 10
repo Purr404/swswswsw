@@ -1118,10 +1118,17 @@ class QuizSystem:
     # REWARD DISTRIBUTION
     # ------------------------------------------------------------
     async def distribute_quiz_rewards(self, sorted_participants):
+        """Give gems only to participants who scored > 0."""
         rewards = {}
         for rank, (uid, data) in enumerate(sorted_participants, 1):
+            # --- SKIP PARTICIPANTS WITH ZERO SCORE ---
+            if data["score"] <= 0:
+                await log_to_discord(self.bot, f"⏭️ Skipping {data['name']} – score 0, no reward", "INFO")
+                rewards[uid] = {"gems": 0, "rank": rank, "result": None}
+                continue
+
             try:
-                base = 50  # participation
+                base = 50  # participation (only for those who scored >0)
                 if rank == 1: base += 500
                 elif rank == 2: base += 250
                 elif rank == 3: base += 125
