@@ -1625,7 +1625,7 @@ async def quiz_stop(ctx):
             embed = discord.Embed(
                 title="🛑 **Quiz Stopped**",
                 description=(
-                    f"The quiz has been manually stopped by {ctx.author.mention}.\n"
+                    f"The Quiz has been manually stopped by {ctx.author.mention}.\n"
                     "**No rewards were distributed.**"
                 ),
                 color=discord.Color.red()
