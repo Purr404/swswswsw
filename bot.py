@@ -1197,7 +1197,7 @@ class QuizSystem:
             # --- 1. SHOW FINISHED MESSAGE ---
             try:
                 finish = discord.Embed(
-                    title="🏆 **QUIZ FINISHED!** 🏆",
+                    title="🏁 **QUIZ FINISHED!** 🏁",
                     description="Calculating final scores and rewards...",
                     color=discord.Color.gold()
                 )
@@ -1259,9 +1259,9 @@ class QuizSystem:
 
             # --- 6. REWARDS SUMMARY ---
             try:
-                summary = discord.Embed(title="💰 Quiz Rewards Distribute!", color=discord.Color.gold())
+                summary = discord.Embed(title="Quiz Rewards Distributed!", color=discord.Color.gold())
                 successful = sum(1 for r in rewards.values() if r.get("gems", 0) > 0)
-                summary.add_field(name="Distribution count", value=f"**Successful:** {successful}/{len(sorted_p)}", inline=False)
+                summary.add_field(name="Distribution count", value=f"*Successful:* {successful}/{len(sorted_p)}", inline=False)
                 await self.quiz_channel.send(embed=summary)
                 await log_to_discord(self.bot, "✅ Rewards summary sent", "INFO")
             except Exception as e:
