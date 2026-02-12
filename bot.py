@@ -1630,7 +1630,7 @@ async def quiz_stop(ctx):
                 ),
                 color=discord.Color.red()
             )
-            embed.set_footer(text="Use !!quiz start to begin a new round.")
+            
             await quiz_channel.send(embed=embed)
 
         # Confirm in the command channel
