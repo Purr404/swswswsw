@@ -1041,7 +1041,7 @@ class QuizSystem:
 
             embed.add_field(
                 name="📊 Statistics",
-                value=f"**Participants:** {total_p}\n**Attempted:** {total_ans}\n
+                value=f"**Participants:** {total_p}\n**Attempted:** {total_ans}\n"
                       f"**Accuracy:** {round(correct_cnt/total_ans*100,1) if total_ans else 0}%\n"
                       + (f"**Fastest:** {fastest_name} ({fastest}s)" if fastest_name else ""),
                 inline=False
