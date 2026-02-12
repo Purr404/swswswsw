@@ -1013,6 +1013,15 @@ class QuizSystem:
         """End current question, show stats, and move to next or end quiz."""
         await log_to_discord(self.bot, f"🔚 end_question() called for Q{self.current_question+1}", "INFO")
         try:
+            # --- DELETE THE QUESTION MESSAGE ---
+            if hasattr(self, 'question_message') and self.question_message:
+                try:
+                    await self.question_message.delete()
+                    await log_to_discord(self.bot, f"🗑️ Deleted question message for Q{self.current_question+1}", "INFO")
+                except Exception as e:
+                    await log_to_discord(self.bot, f"⚠️ Could not delete question message: {e}", "WARN")
+
+
             if self.countdown_loop:
                 self.countdown_loop.cancel()
             self.question_start_time = None
