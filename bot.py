@@ -856,9 +856,6 @@ class QuizSystem:
                 ),
                 color=0xFFD700  # Gold
             )
-            embed.set_author(name="Quiz Master", icon_url=self.bot.user.display_avatar.url)
-            if channel.guild.icon:
-                embed.set_thumbnail(url=channel.guild.icon.url)
             embed.set_footer(text="Good luck! 🍀", icon_url=self.bot.user.display_avatar.url)
 
             start_msg = await channel.send(embed=embed)
@@ -881,7 +878,7 @@ class QuizSystem:
             self.question_start_time = datetime.now(timezone.utc)
 
             embed = discord.Embed(
-                title=f"❓ **Q{self.current_question+1}/{len(self.quiz_questions)}**",
+                title=f"❓ **QUESTION{self.current_question+1}/{len(self.quiz_questions)}**",
                 description=q["q"],
                 color=discord.Color.blue()
             )
@@ -1044,7 +1041,7 @@ class QuizSystem:
 
             embed.add_field(
                 name="📊 Statistics",
-                value=f"**Participants:** {total_p}\n**Attempted:** {total_ans}\n**Correct:** {correct_cnt}\n"
+                value=f"**Participants:** {total_p}\n**Attempted:** {total_ans}\n
                       f"**Accuracy:** {round(correct_cnt/total_ans*100,1) if total_ans else 0}%\n"
                       + (f"**Fastest:** {fastest_name} ({fastest}s)" if fastest_name else ""),
                 inline=False
@@ -1090,7 +1087,7 @@ class QuizSystem:
 
             lines = []
             for i, (uid, data) in enumerate(sorted_p):
-                status = "⏳ Not attempted"
+                status = "⏳ N/A"
                 attempts = [a for a in data["answers"] if a["question"] == self.current_question]
                 if attempts:
                     last = attempts[-1]
@@ -1228,7 +1225,7 @@ class QuizSystem:
 
                 lb_embed.add_field(
                     name="📈 Quiz Statistics",
-                    value=f"**Participants:** {len(sorted_p)}\n**Questions:** {total_q}\n**Correct:** {total_correct}\n**Accuracy:** {accuracy}%",
+                    value=f"**Participants:** {len(sorted_p)}\n**Questions:** {total_q}\n**Accuracy:** {accuracy}%",
                     inline=False
                 )
 
@@ -1253,9 +1250,9 @@ class QuizSystem:
 
             # --- 6. REWARDS SUMMARY ---
             try:
-                summary = discord.Embed(title="💰 Rewards Summary", color=discord.Color.gold())
+                summary = discord.Embed(title="💰 Quiz Rewards Distribute!", color=discord.Color.gold())
                 successful = sum(1 for r in rewards.values() if r.get("gems", 0) > 0)
-                summary.add_field(name="📊 Distribution", value=f"**Successful:** {successful}/{len(sorted_p)}", inline=False)
+                summary.add_field(name="Distribution count", value=f"**Successful:** {successful}/{len(sorted_p)}", inline=False)
                 await self.quiz_channel.send(embed=summary)
                 await log_to_discord(self.bot, "✅ Rewards summary sent", "INFO")
             except Exception as e:
@@ -1275,8 +1272,8 @@ class QuizSystem:
                                 description=f"**Final Score:** {data['score']} pts\n**Rank:** #{list(self.participants.keys()).index(uid)+1}",
                                 color=discord.Color.gold()
                             )
-                            dm.add_field(name="💰 Rewards", value=f"💎 +{reward['gems']} Gems", inline=False)
-                            dm.add_field(name="📊 New Balance", value=f"💎 {balance['gems']} Gems", inline=False)
+                            dm.add_field(name="*Rewards*", value=f"💎 +{reward['gems']} Gems", inline=False)
+                            dm.add_field(name="*New Balance*", value=f"💎 {balance['gems']} Gems", inline=False)
                             await user.send(embed=dm)
                             dm_count += 1
                     except Exception as e:
