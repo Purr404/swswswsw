@@ -1116,7 +1116,7 @@ class QuizSystem:
     # END QUESTION / TRANSITION
     # ------------------------------------------------------------
     async def end_question(self):
-        """End current question, show stats, and move to next or end quiz."""
+        """End current question, show stats (auto‑delete), countdown 10s, next question."""
         await log_to_discord(self.bot, f"🔚 end_question() called for Q{self.current_question+1}", "INFO")
         try:
             # --- DELETE THE QUESTION MESSAGE ---
@@ -1127,18 +1127,19 @@ class QuizSystem:
                 except Exception as e:
                     await log_to_discord(self.bot, f"⚠️ Could not delete question message: {e}", "WARN")
 
-
+            # --- STOP COUNTDOWN TIMER ---
             if self.countdown_loop:
                 self.countdown_loop.cancel()
             self.question_start_time = None
 
             q = self.quiz_questions[self.current_question]
-            correct = ", ".join([a.capitalize() for a in q['a']])
+            correct = "`, `".join([a.capitalize() for a in q['a']])
 
+            # --- STATISTICS EMBED ---
             embed = discord.Embed(
-                title=f"✅ Question {self.current_question+1}/{len(self.quiz_questions)} Complete",
-                description=f"**Correct answer(s):** {correct}",
-                color=discord.Color.green()
+                title=f"✅ **Question {self.current_question+1}/{len(self.quiz_questions)} Complete**",
+                description=f"**Correct answer{'s' if len(q['a'])>1 else ''}:** `{correct}`",
+                color=0x32CD32
             )
 
             total_p = len(self.participants)
@@ -1154,41 +1155,53 @@ class QuizSystem:
                             fastest = ans["time"]
                             fastest_name = data["name"]
 
-            embed.add_field(
-                name="📊 Statistics",
-                value=f"**Participants:** {total_p}\n**Attempted:** {total_ans}\n"
-                      f"**Accuracy:** {round(correct_cnt/total_ans*100,1) if total_ans else 0}%\n"
-                      + (f"**Fastest:** {fastest_name} ({fastest}s)" if fastest_name else ""),
-                inline=False
-            )
-            await self.quiz_channel.send(embed=embed)
-            await asyncio.sleep(3)
+            stats = [
+                f"👥 **Participants:** {total_p}",
+                f"✏️ **Attempted:** {total_ans}",
+                f"✅ **Correct:** {correct_cnt}",
+                f"📊 **Accuracy:** {round(correct_cnt/total_ans*100,1) if total_ans else 0}%"
+            ]
+            if fastest_name:
+                stats.append(f"⚡ **Fastest:** {fastest_name} ({fastest}s)")
 
-            # LAST QUESTION?
+            embed.add_field(name="📋 Statistics", value="\n".join(stats), inline=False)
+            embed.set_footer(text=f"Question {self.current_question+1}/{len(self.quiz_questions)}")
+
+            # --- SEND STATS & AUTO‑DELETE AFTER 5 SECONDS ---
+            stats_msg = await self.quiz_channel.send(embed=embed)
+            self.bot.loop.create_task(self._delete_after(stats_msg, 5))
+            await log_to_discord(self.bot, "📊 Statistics embed will self‑destruct in 5s", "INFO")
+
+            # --- LAST QUESTION? ---
             if self.current_question + 1 == len(self.quiz_questions):
                 await log_to_discord(self.bot, "🏁 Last question finished, calling end_quiz()", "INFO")
                 await self.end_quiz()
                 return
 
-            # NOT LAST: show leaderboard + countdown
-            lb_embed = await self.create_leaderboard()
+            # --- NOT LAST: LEADERBOARD + 10‑SECOND COUNTDOWN ---
+            lb_embed = await self.create_leaderboard()          # initial (no countdown yet)
             lb_msg = await self.quiz_channel.send(embed=lb_embed)
-
-            for i in range(5, 0, -1):
-                updated = await self.create_leaderboard(countdown=i)
+ 
+            for seconds in range(10, 0, -1):                   # 🔥 10 seconds
+                updated = await self.create_leaderboard(countdown=seconds)
                 await lb_msg.edit(embed=updated)
                 await asyncio.sleep(1)
-            await lb_msg.delete()
 
-            # Reset for next question
+            await lb_msg.delete()
+            await log_to_discord(self.bot, "🗑️ Leaderboard deleted, moving to next question", "INFO")
+
+            # --- RESET FOR NEXT QUESTION ---
             for uid in self.participants:
                 self.participants[uid]["answered_current"] = False
 
             self.current_question += 1
             await self.send_question()
+
         except Exception as e:
             await log_to_discord(self.bot, "❌ end_question crashed – forcing end_quiz", "CRITICAL", e)
             await self.end_quiz()
+
+
 
     async def create_leaderboard(self, countdown=None):
         try:
@@ -1196,10 +1209,33 @@ class QuizSystem:
                 return discord.Embed(title="📊 Leaderboard", description="No participants yet!", color=discord.Color.blue())
 
             sorted_p = sorted(self.participants.items(), key=lambda x: x[1]["score"], reverse=True)
-            embed = discord.Embed(title="📊 LEADERBOARD", color=discord.Color.gold())
-            if countdown:
-                embed.description = f"**Next question in:** {countdown}s"
+            embed = discord.Embed(title="📊 **LEADERBOARD**", color=discord.Color.gold())
 
+            # --- 10‑SECOND COUNTDOWN BAR (COLOR‑CODED) ---
+            if countdown is not None:
+                total = 10  # exactly 10 seconds
+                progress = int((countdown / total) * 10)  # 10 blocks
+                ratio = countdown / total
+
+                # Choose bar color based on percentage remaining
+                if ratio > 0.75:
+                    bar_char = "🟩"  # Green
+                elif ratio > 0.50:
+                    bar_char = "🟨"  # Yellow
+                elif ratio > 0.25:
+                    bar_char = "🟧"  # Orange
+                else:
+                    bar_char = "🟥"  # Red
+
+                bar = bar_char * progress + "⬜" * (10 - progress)
+                embed.description = (
+                    f"⏳ **Next question in:** `{countdown}s`\n"
+                    f"```\n{bar}\n{countdown:02d} / {total:02d} seconds\n```"
+                )
+            else:
+                embed.description = "🏆 **Current standings**"
+
+            # --- RANKINGS WITH PER‑QUESTION STATUS (unchanged) ---
             lines = []
             for i, (uid, data) in enumerate(sorted_p):
                 status = "⏳"
@@ -1209,16 +1245,27 @@ class QuizSystem:
                     if last["correct"]:
                         status = f"✅ +{last['points']} pts ({last['time']}s)"
                     else:
-                        status = f"❌ Wrong answer({len(attempts)} attempt{'s' if len(attempts)>1 else ''})"
+                        status = f"❌ ({len(attempts)} attempt{'s' if len(attempts)>1 else ''})"
 
                 medal = self.get_rank_emoji(i+1) if i < 10 else f"{i+1}."
                 lines.append(f"{medal} **{data['name']}** – {data['score']} pts\n   {status}")
 
             embed.add_field(name="🏆 Rankings", value="\n".join(lines[:10]), inline=False)
+            embed.set_footer(text=f"Total participants: {len(self.participants)}")
             return embed
+
         except Exception as e:
             await log_to_discord(self.bot, "❌ create_leaderboard failed", "ERROR", e)
             return discord.Embed(title="⚠️ Leaderboard Error", color=discord.Color.red())
+
+
+    async def _delete_after(self, message, delay):
+        """Delete a message after `delay` seconds."""
+        await asyncio.sleep(delay)
+        try:
+            await message.delete()
+        except:
+            pass
 
     # ------------------------------------------------------------
     # REWARD DISTRIBUTION
