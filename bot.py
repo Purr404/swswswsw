@@ -802,7 +802,7 @@ class QuizSystem:
     # ------------------------------------------------------------
     def load_questions(self):
         """Load a large pool of categorized quiz questions."""
-        self.all_questions = [
+        self.quiz_questions = [
             # 🎨 Arts & Literature
             {"cat": "🎨 Arts & Literature", "q": "Who painted the Mona Lisa?", "a": ["leonardo da vinci", "da vinci", "leonardo"], "pts": 300, "time": 30},
             {"cat": "🎨 Arts & Literature", "q": "Who wrote 'Romeo and Juliet'?", "a": ["shakespeare", "william shakespeare"], "pts": 300, "time": 30},
