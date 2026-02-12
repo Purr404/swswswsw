@@ -844,16 +844,23 @@ class QuizSystem:
             random.shuffle(self.quiz_questions)
 
             embed = discord.Embed(
-                title="🎯 **QUIZ STARTING!**",
+                title="🎯 **Quiz Time!**",
                 description=(
-                    "**Open-Ended Quiz**\n"
-                    "Type your answers exactly!\n"
-                    "• Faster = more points\n"
+                    "```\n"
+                    "• Type your answer in chat\n"
+                    "• Correct spelling only!\n"
+                    "• Faster answers = more points\n"
                     "• Multiple attempts allowed\n"
-                    f"First question in **10 seconds**!"
+                "```\n"
+                    f"**First question starts in** ⏰ **10 seconds**"
                 ),
-                color=discord.Color.gold()
+                color=0xFFD700  # Gold
             )
+            embed.set_author(name="Quiz Master", icon_url=self.bot.user.display_avatar.url)
+            if channel.guild.icon:
+                embed.set_thumbnail(url=channel.guild.icon.url)
+            embed.set_footer(text="Good luck! 🍀", icon_url=self.bot.user.display_avatar.url)
+
             start_msg = await channel.send(embed=embed)
             for i in range(10, 0, -1):
                 await start_msg.edit(content=f"⏰ **{i}...**")
