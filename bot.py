@@ -843,25 +843,17 @@ class QuizSystem:
             self._ending = False
             random.shuffle(self.quiz_questions)
 
-            # --- REDESIGNED START EMBED ---
             embed = discord.Embed(
-                title="🎯 **Quiz Time!**",
+                title="🎯 **QUIZ STARTING!**",
                 description=(
-                    "```\n"
-                    "• Type your answer in chat\n"
-                    "• Correct spelling only!\n"
-                    "• Faster answers = more points\n"
+                    "**Open-Ended Quiz**\n"
+                    "Type your answers exactly!\n"
+                    "• Faster = more points\n"
                     "• Multiple attempts allowed\n"
-                    "```\n"
-                    f"**First question starts in** ⏰ **10 seconds**"
+                    f"First question in **10 seconds**!"
                 ),
-                color=0xFFD700  # Gold
+                color=discord.Color.gold()
             )
-            embed.set_author(name="Quiz Master", icon_url=self.bot.user.display_avatar.url)
-            if channel.guild.icon:
-                embed.set_thumbnail(url=channel.guild.icon.url)
-            embed.set_footer(text="Good luck! 🍀", icon_url=self.bot.user.display_avatar.url)
-
             start_msg = await channel.send(embed=embed)
             for i in range(10, 0, -1):
                 await start_msg.edit(content=f"⏰ **{i}...**")
@@ -881,20 +873,18 @@ class QuizSystem:
             q = self.quiz_questions[self.current_question]
             self.question_start_time = datetime.now(timezone.utc)
 
-            # --- REDESIGNED QUESTION EMBED ---
             embed = discord.Embed(
-                title=f"❓ **Question {self.current_question+1}/{len(self.quiz_questions)}**",
-                description=f"```\n{q['q']}\n```",
-                color=0x1E90FF  # Dodger Blue
+                title=f"❓ **Q{self.current_question+1}/{len(self.quiz_questions)}**",
+                description=q["q"],
+                color=discord.Color.blue()
             )
-            # Timer bar – dynamic, will be updated by _run_countdown
             embed.add_field(
-                name=f"⏳ **Time Left**",
-                value=f"```\n{'🟩'*20}\n{q['time']:02d} seconds\n```\n**Max Points:** ⭐ {q['pts']}",
+                name=f"⏰ **{q['time']:02d} SECONDS LEFT**",
+                value=f"```\n{'🟩'*20}\n{q['time']:02d} seconds\n```\n**Max Points:** {q['pts']} ⭐",
                 inline=False
             )
-            embed.set_footer(text="multiple attempts allowed", icon_url=self.bot.user.display_avatar.url)
-
+            embed.set_footer(text="Multiple attempts allowed")
+            self.question_message = await self.quiz_channel.send(embed=embed)
 
             # --- START COUNTDOWN LOOP (live bar update) ---
             if self.countdown_loop:
@@ -1029,7 +1019,7 @@ class QuizSystem:
             embed = discord.Embed(
                 title=f"✅ Question {self.current_question+1}/{len(self.quiz_questions)} Complete",
                 description=f"**Correct answer(s):** {correct}",
-                color=0x32CD32
+                color=discord.Color.green()
             )
 
             total_p = len(self.participants)
@@ -1087,8 +1077,7 @@ class QuizSystem:
                 return discord.Embed(title="📊 Leaderboard", description="No participants yet!", color=discord.Color.blue())
 
             sorted_p = sorted(self.participants.items(), key=lambda x: x[1]["score"], reverse=True)
-            embed = discord.Embed(title="📊 LEADERBOARD", color=0xFFD700
-            )
+            embed = discord.Embed(title="📊 LEADERBOARD", color=discord.Color.gold())
             if countdown:
                 embed.description = f"**Next question in:** {countdown}s"
 
@@ -1223,12 +1212,7 @@ class QuizSystem:
 
             # --- 5. BUILD FINAL LEADERBOARD ---
             try:
-                lb_embed = discord.Embed(
-                title="🏆 **Quiz Complete – Final Results**",
-                color=0xFFD700,
-                timestamp=datetime.now(timezone.utc)
-                )
-                if self.quiz_channel.guild.icon: lb_embed.set_thumbnail(url=self.quiz_channel.guild.icon.url)
+                lb_embed = discord.Embed(title="📊 **FINAL LEADERBOARD**", color=discord.Color.green())
 
                 total_q = len(self.quiz_questions)
                 total_correct = sum(p["correct_answers"] for _, p in sorted_p)
@@ -1236,12 +1220,8 @@ class QuizSystem:
                 accuracy = round(total_correct / total_attempts * 100, 1) if total_attempts else 0
 
                 lb_embed.add_field(
-                    name="📈 **Quiz Statistics**",
-                    value=f"```\n"
-                       f"Participants : {len(sorted_p)}\n"
-                       f"Questions    : {total_q}\n"
-                       f"Accuracy     : {accuracy}%\n"
-                       f"```",
+                    name="📈 Quiz Statistics",
+                    value=f"**Participants:** {len(sorted_p)}\n**Questions:** {total_q}\n**Correct:** {total_correct}\n**Accuracy:** {accuracy}%",
                     inline=False
                 )
 
@@ -1266,25 +1246,13 @@ class QuizSystem:
 
             # --- 6. REWARDS SUMMARY ---
             try:
-                summary = discord.Embed(
-                title="💰 **Rewards Distributed**",
-                color=0x32CD32
-                )
+                summary = discord.Embed(title="💰 Rewards Summary", color=discord.Color.gold())
                 successful = sum(1 for r in rewards.values() if r.get("gems", 0) > 0)
-                total_gems = sum(r.get("gems", 0) for r in rewards.values())
-                summary.add_field(
-                    name="📊 **Summary**",
-                    value=f"```\n"
-                          f"Successful : {successful}/{len(sorted_p)}\n"
-                          f"Total Gems : {total_gems}\n"
-                          f"```",
-                    inline=False
-                )
+                summary.add_field(name="📊 Distribution", value=f"**Successful:** {successful}/{len(sorted_p)}", inline=False)
                 await self.quiz_channel.send(embed=summary)
                 await log_to_discord(self.bot, "✅ Rewards summary sent", "INFO")
             except Exception as e:
                 await log_to_discord(self.bot, "⚠️ Failed to send rewards summary", "WARN", e)
-
 
             # --- 7. SEND DMs ---
             dm_count = 0
