@@ -802,7 +802,7 @@ class QuizSystem:
     # ------------------------------------------------------------
     def load_questions(self):
         """Load a large pool of categorized quiz questions."""
-        self.quiz_questions = [
+        self.all_questions = [
             # 🎨 Arts & Literature
             {"cat": "🎨 Arts & Literature", "q": "Who painted the Mona Lisa?", "a": ["leonardo da vinci", "da vinci", "leonardo"], "pts": 300, "time": 30},
             {"cat": "🎨 Arts & Literature", "q": "Who wrote 'Romeo and Juliet'?", "a": ["shakespeare", "william shakespeare"], "pts": 300, "time": 30},
@@ -905,21 +905,32 @@ class QuizSystem:
             self.participants = {}
             self.question_start_time = None
             self._ending = False
-            random.shuffle(self.quiz_questions)
 
+            # --- RANDOMLY SELECT 20 QUESTIONS FROM THE POOL ---
+            pool = self.all_questions
+            num_questions = min(20, len(pool))   # use 20 or fewer if pool is smaller
+            self.quiz_questions = random.sample(pool, num_questions)
+            random.shuffle(self.quiz_questions)   # extra shuffle for good measure
+
+            await log_to_discord(self.bot, f"📚 Selected {num_questions} randomquestions", "INFO")
+
+            # --- START EMBED (unchanged) ---
             embed = discord.Embed(
                 title="🎯 **Quiz Time!**",
                 description=(
                     "```\n"
                     "• Type your answer in chat\n"
-                    "• Correct spelling only!\n"
+                    "• Spelling matters – be exact!\n"
                     "• Faster answers = more points\n"
                     "• Multiple attempts allowed\n"
-                "```\n"
+                    "```\n"
                     f"**First question starts in** ⏰ **10 seconds**"
                 ),
-                color=0xFFD700  # Gold
+                color=0xFFD700
             )
+            embed.set_author(name="Quiz Master", icon_url=self.bot.user.display_avatar.url)
+            if channel.guild.icon:
+                embed.set_thumbnail(url=channel.guild.icon.url)
             embed.set_footer(text="Good luck! 🍀", icon_url=self.bot.user.display_avatar.url)
 
             start_msg = await channel.send(embed=embed)
@@ -927,6 +938,7 @@ class QuizSystem:
                 await start_msg.edit(content=f"⏰ **{i}...**")
                 await asyncio.sleep(1)
             await start_msg.delete()
+
             await self.send_question()
             await log_to_discord(self.bot, "✅ Quiz started", "INFO")
         except Exception as e:
