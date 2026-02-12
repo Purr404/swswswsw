@@ -928,7 +928,7 @@ class QuizSystem:
                 ),
                 color=0xFFD700
             )
-            embed.set_author(name="Quiz Master", icon_url=self.bot.user.display_avatar.url)
+
             if channel.guild.icon:
                 embed.set_thumbnail(url=channel.guild.icon.url)
             embed.set_footer(text="Good luck! 🍀", icon_url=self.bot.user.display_avatar.url)
@@ -987,32 +987,59 @@ class QuizSystem:
         await self.end_question()
 
     async def _run_countdown(self, total_time):
-        """Live countdown bar update (runs every second)."""
+        """Live countdown bar – updates every second with 4‑color progress."""
+        await log_to_discord(self.bot, f"⏳ Countdown started for {total_time}s", "INFO")
         while self.quiz_running and self.question_start_time:
-            elapsed = (datetime.now(timezone.utc) - self.question_start_time).seconds
-            time_left = total_time - elapsed
-            if time_left <= 0:
-                break
             try:
-                embed = self.question_message.embeds[0]
-                progress = int((time_left / total_time) * 20)
-                bar = "🟩" * progress + "⬜" * (20 - progress)
+                elapsed = (datetime.now(timezone.utc) - self.question_start_time).seconds
+                time_left = total_time - elapsed
+                if time_left <= 0:
+                    break
 
+                if not self.question_message:
+                    await log_to_discord(self.bot, "⚠️ Question message missing – stopping countdown", "WARN")
+                    break
+
+                embed = self.question_message.embeds[0]
+                progress = int((time_left / total_time) * 20)  # 20 blocks
+                ratio = time_left / total_time
+
+                # --- 4‑COLOR BAR (based on percentage) ---
+                if ratio > 0.75:               # > 75% time left
+                    bar_char = "🟩"            # Green
+                    embed_color = discord.Color.blue()
+                elif ratio > 0.50:             # 50% – 75%
+                    bar_char = "🟨"            # Yellow
+                    embed_color = discord.Color.green()
+                elif ratio > 0.25:             # 25% – 50%
+                    bar_char = "🟧"            # Orange
+                    embed_color = discord.Color.orange()
+                else:                          # < 25%
+                    bar_char = "🟥"            # Red
+                    embed_color = discord.Color.red()
+  
+                bar = bar_char * progress + "⬜" * (20 - progress)
+
+                # Update the timer field
                 for i, field in enumerate(embed.fields):
                     if "⏳" in field.name:
                         embed.set_field_at(
-                            i,
+                         i,
                             name=f"⏳ **{time_left:02d} SECONDS LEFT**",
-                            value=f"```\n{bar}\n{time_left:02d} seconds\n```\n**Max Points:** {self.quiz_questions[self.current_question]['pts']} ⭐",
+                            value=f"```\n{bar}\n{time_left:02d} seconds\n```\n**Max Points:** ⭐ {self.quiz_questions[self.current_question]['pts']}",
                             inline=False
                         )
                         break
 
-                embed.color = discord.Color.red() if time_left <= 10 else discord.Color.orange() if time_left <= 30 else discord.Color.blue()
+                # Set embed border color
+                embed.color = embed_color
+
                 await self.question_message.edit(embed=embed)
             except Exception as e:
-                await log_to_discord(self.bot, "⚠️ Countdown error (non-fatal)", "WARN", e)
+                await log_to_discord(self.bot, "⚠️ Countdown error (non‑fatal)", "WARN", e)
             await asyncio.sleep(1)
+
+        await log_to_discord(self.bot, "⏹️ Countdown finished", "INFO")
 
     # ------------------------------------------------------------
     # ANSWER PROCESSING
