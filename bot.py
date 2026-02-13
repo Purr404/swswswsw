@@ -74,6 +74,7 @@ for key, value in os.environ.items():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 bot.active_bags = {}
+bot.db_pool = None
 
 
 # LOG TO DISCORD--------------
@@ -226,10 +227,10 @@ class DatabaseSystem:
                             message_id BIGINT NOT NULL
                         )
                     ''')
-                    await conn.execute('''
-                        ALTER TABLE user_purchases 
-                        ADD COLUMN expires_at TYPE TIMESTAMPTZ
-                    ''')
+                    # Ensure expires_at column exists and is timezone‑aware
+                    await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
+# If the column already existed as TIMESTAMP (naive), convert it:
+                    await conn.execute('ALTER TABLE user_purchases ALTER COLUMN expires_at TYPE TIMESTAMPTZ')
 
                     # Optional indexes
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
