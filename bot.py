@@ -135,6 +135,7 @@ class DatabaseSystem:
                     max_size=3,
                     **strategy_args
                 )
+                bot.db_pool = self.pool   #  FORTUNE BAG POOL
 
                 # Test connection
                 async with self.pool.acquire() as conn:
