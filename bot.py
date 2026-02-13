@@ -206,6 +206,8 @@ class DatabaseSystem:
                             updated_at TIMESTAMP DEFAULT NOW()
                         )
                     ''')
+                    # Add guild_id column if not exists (for role removal on expiration)
+                    await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS guild_id BIGINT')
 
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_purchases (
@@ -3026,14 +3028,14 @@ class Shop(commands.Cog):
         async with self.bot.db_pool.acquire() as conn:
             if item_type == 'color':
                 await conn.execute("""
-                    INSERT INTO shop_items (name, description, price, type, role_id, color_hex)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                """, name, f"Color: {color_hex}", price, item_type, role_id, color_hex)
+                    INSERT INTO shop_items (name, description, price, type, role_id, color_hex, guild_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, name, f"Color: {color_hex}", price, item_type, role_id, color_hex, ctx.guild.id)
             else:
                 await conn.execute("""
-                    INSERT INTO shop_items (name, description, price, type, role_id)
-                    VALUES ($1, $2, $3, $4, $5)
-                """, name, f"Role: {role.name}", price, item_type, role_id)
+                    INSERT INTO shop_items (name, description, price, type, role_id, guild_id)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                """, name, f"Role: {role.name}", price, item_type, role_id, ctx.guild.id)
 
         await ctx.send(f"✅ Added **{name}** ({item_type}) for **{price} gems**.")
 
