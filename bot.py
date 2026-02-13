@@ -2503,11 +2503,14 @@ async def handle_open_bag(interaction: discord.Interaction):
         # Post leaderboard
         await post_leaderboard(bag, interaction.channel, bot)
 
+    balance = await currency_system.get_balance(str(interaction.user.id))
     await interaction.response.send_message(
-        f"You opened the bag and found **{awarded} gems**! {bag.remaining} diamonds remain.",
+        f"You opened the bag and found **{awarded} gems**! 💎\n"
+        f"**New balance:** {balance['gems']} gems\n"
+        f"{bag.remaining} gems remain in the bag.",
         ephemeral=True
     )
-#  END ------
+    #  END ------
 
 # === ERROR HANDLER ===
 @bot.event
