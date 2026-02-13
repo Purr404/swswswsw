@@ -2629,31 +2629,52 @@ class Shop(commands.Cog):
     # -------------------------------------------------------------------------
     @tasks.loop(hours=1)
     async def check_expired_purchases(self):
-        """Scan for expired purchases and remove corresponding roles."""
-        async with self.bot.db_pool.acquire() as conn:
-            # Fetch all expired purchases (expires_at < now)
-            rows = await conn.fetch("""
-                SELECT up.user_id, up.item_id, si.role_id, si.name
-                FROM user_purchases up
-                JOIN shop_items si ON up.item_id = si.item_id
-                WHERE up.expires_at < NOW()
-            """)
-            for row in rows:
-                user_id = int(row['user_id'])
-                guild = None
-                # Find which guild this role belongs to (we need guild context)
-                # This is tricky; we might store guild_id in shop_items.
-                # For now, we'll handle expiration on-demand when user tries to buy again.
-                # Alternatively, we can store guild_id in shop_items.
-                # Let's modify shop_items to include guild_id.
-                # But to keep it simple now, we'll just delete the purchase record.
-                # The role will be removed on next purchase attempt (or we can loop through all guilds).
-                # Better: store guild_id in shop_items. We'll add that later.
-                # For now, we'll just delete the record and role will linger – not ideal.
-                # Let's properly add guild_id.
+        """Remove expired purchases: delete record and remove role from user."""
+        if self.bot.db_pool is None:
+            print("⏳ check_expired_purchases: db_pool not ready, skipping.")
+            return
 
-            # Delete expired purchase records
-            await conn.execute("DELETE FROM user_purchases WHERE expires_at < NOW()")
+        try:
+            async with self.bot.db_pool.acquire() as conn:
+                # Fetch expired purchases with guild_id
+                rows = await conn.fetch("""
+                    SELECT up.user_id, up.item_id, si.role_id, si.guild_id, si.name
+                    FROM user_purchases up
+                    JOIN shop_items si ON up.item_id = si.item_id
+                    WHERE up.expires_at < NOW()
+                """)
+
+                for row in rows:
+                    user_id = row['user_id']
+                    guild_id = row['guild_id']
+                    role_id = row['role_id']
+                    item_name = row['name']
+
+                    guild = self.bot.get_guild(guild_id)
+                    if guild:
+                        member = guild.get_member(int(user_id))
+                        if member:
+                            role = guild.get_role(role_id)
+                            if role:
+                                try:
+                                    await member.remove_roles(role, reason="Shop item expired (7 days)")
+                                    print(f"✅ Removed expired role '{item_name}' from {member} (ID: {user_id})")
+                                except discord.Forbidden:
+                                    print(f"❌ No permission to remove role {role_id} from user {user_id} in guild {guild_id}")
+                                except Exception as e:
+                                    print(f"⚠️ Error removing role: {e}")
+                            else:
+                                print(f"⚠️ Role {role_id} not found in guild {guild_id}")
+                        else:
+                            print(f"⚠️ Member {user_id} not found in guild {guild_id}")
+                    else:
+                        print(f"⚠️ Guild {guild_id} not found")
+
+                # Delete all expired purchase records
+                result = await conn.execute("DELETE FROM user_purchases WHERE expires_at < NOW()")
+                print(f"🧹 Cleaned up {result.split()[1]} expired purchase records.")
+        except Exception as e:
+            print(f"❌ Error in check_expired_purchases: {e}")
 
     @check_expired_purchases.before_loop
     async def before_check_expired(self):
