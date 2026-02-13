@@ -624,7 +624,7 @@ user_selections = {}
 # FORTUNE BAG SYSTEM CLASS
 class FortuneBag:
     def __init__(self, message_id: int, channel_id: int, dropper_id: int,
-                 remaining: int = 6000, total: int = 6000, active: bool = True):
+                 remaining: int = 1000, total: int = 1000, active: bool = True):
         self.message_id = message_id
         self.channel_id = channel_id
         self.dropper_id = dropper_id
@@ -676,8 +676,8 @@ async def post_leaderboard(bag: FortuneBag, channel: discord.TextChannel, bot: c
         """, bag.message_id)
 
     embed = discord.Embed(
-        title="🏆 Fortune Bag Results",
-        description="The bag is empty! Here's who earned diamonds:",
+        title="💎🏆",
+        description="The bag is empty! Here's who earned gems:",
         color=discord.Color.green()
     )
 
@@ -685,7 +685,7 @@ async def post_leaderboard(bag: FortuneBag, channel: discord.TextChannel, bot: c
         user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
         embed.add_field(
             name=f"{idx}. {user.display_name}",
-            value=f"{row['earned']} diamonds",
+            value=f"{row['earned']} gems",
             inline=False
         )
         if idx == 1:
@@ -2353,12 +2353,6 @@ async def fortune_bag_to(ctx, channel: discord.TextChannel):
     # Optional: permission check – uncomment if you want to restrict
     # if not ctx.author.guild_permissions.administrator:
     #     return await ctx.send("❌ You need administrator permissions to drop a bag.")
-
-    embed = discord.Embed(
-        title="🎁 Fortune Bag",
-        description="**6000 diamonds** inside!\nClick the button to claim 1–100 diamonds.",
-        color=discord.Color.gold()
-    )
     embed.set_image(url="https://cdn.discordapp.com/attachments/1470664051242700800/1471739739525877830/IMG_20260213_132747.png?ex=699007f1&is=698eb671&hm=2cf5f3f5ae3c174b3bb83cec64b0ef8750a4cdfcac4010ec150e624936ea21c3&")  # Replace with your image
 
     view = discord.ui.View(timeout=None)
@@ -2510,7 +2504,7 @@ async def handle_open_bag(interaction: discord.Interaction):
         await post_leaderboard(bag, interaction.channel, bot)
 
     await interaction.response.send_message(
-        f"You opened the bag and found **{awarded} diamonds**! {bag.remaining} diamonds remain.",
+        f"You opened the bag and found **{awarded} gems**! {bag.remaining} diamonds remain.",
         ephemeral=True
     )
 #  END ------
