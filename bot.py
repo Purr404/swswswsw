@@ -665,6 +665,13 @@ class FortuneBag:
                         self.message_id
                     )
 
+        # 🔥 ADD THIS – give real gems to user's permanent balance
+        await currency_system.add_gems(
+            user_id=str(user_id),          # convert to string – your table uses TEXT
+            gems=amount,
+            reason="🎁 Fortune Bag"
+        )
+
         return amount
 
 async def post_leaderboard(bag: FortuneBag, channel: discord.TextChannel, bot: commands.Bot):
