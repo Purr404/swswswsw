@@ -225,8 +225,8 @@ class DatabaseSystem:
                         )
                     ''')
 
-                   # Optional indexes
-                   await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
+                    # Optional indexes
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
 
 
                     # Optional indexes for performance
