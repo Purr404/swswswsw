@@ -2519,7 +2519,7 @@ async def handle_open_bag(interaction: discord.Interaction):
     # --- CASE 2: User already claimed ---
     if awarded == -1:
         await interaction.response.send_message(
-            "You've already opened this bag!\nOnly one claim per user.",
+            "You've already opened this bag!\n",
             ephemeral=True
         )
         # Auto‑delete after 10 seconds
