@@ -2357,7 +2357,7 @@ async def fortune_bag_to(ctx, channel: discord.TextChannel):
         description="**6000 diamonds** inside!\nClick the button to claim 1–100 diamonds.",
         color=discord.Color.gold()
     )
-    embed.set_image(url="https://your-cdn.com/fortune-bag.png")  # Replace with your image
+    embed.set_image(url="https://cdn.discordapp.com/attachments/1470664051242700800/1471739739525877830/IMG_20260213_132747.png?ex=699007f1&is=698eb671&hm=2cf5f3f5ae3c174b3bb83cec64b0ef8750a4cdfcac4010ec150e624936ea21c3&")  # Replace with your image
 
     view = discord.ui.View(timeout=None)
     # Temporary custom_id – will be replaced after we have the message ID
