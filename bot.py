@@ -2471,15 +2471,12 @@ async def on_ready():
         print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         await load_active_bags()
         await load_shop_persistence(bot)
-    else:
-         print("⚠️ Database not connected – fortune bags will not be available.")
-
-    if connected:
-        print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         print("✅ Your data will persist across redeploys")
     else:
-        print("⚠️ Using JSON fallback storage")
+        print("⚠️ Database not connected – fortune bags and shop will not be available.")
         print("❌ Data may reset on redeploy")
+
+
     
     await bot.change_presence(
         activity=discord.Activity(
