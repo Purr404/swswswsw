@@ -5,6 +5,8 @@ import asyncio
 import random
 from datetime import datetime, timezone, timedelta
 import traceback   # used in log_to_discord
+import aiohttp
+import io
 
 # ULTIMATE ASYNCPG INSTALLER
 import subprocess
@@ -2356,43 +2358,48 @@ async def ping(ctx):
 # FORTUNE BAG COMMAND
 @bot.command(name='fortunebagto')
 async def fortune_bag_to(ctx, channel: discord.TextChannel):
-    """Send a fortune bag to the specified channel."""
-    # Optional: permission check – uncomment if you want to restrict
-    # if not ctx.author.guild_permissions.administrator:
-    #     return await ctx.send("❌ You need administrator permissions to drop a bag.")
-    embed.set_image(url="https://cdn.discordapp.com/attachments/1470664051242700800/1471739739525877830/IMG_20260213_132747.png?ex=699007f1&is=698eb671&hm=2cf5f3f5ae3c174b3bb83cec64b0ef8750a4cdfcac4010ec150e624936ea21c3&")  # Replace with your image
-
+    """Send a fortune bag image to the specified channel with a clickable button."""
+    # 1. Image URL – replace with your actual image URL
+    IMAGE_URL = "https://your-cdn.com/fortune-bag.png"
+    
+    # 2. Download the image and create a discord.File
+    async with aiohttp.ClientSession() as session:
+        async with session.get(IMAGE_URL) as resp:
+            if resp.status != 200:
+                return await ctx.send("❌ Failed to fetch fortune bag image.")
+            data = await resp.read()
+    
+    # 3. Send as a plain message with attachment
+    file = discord.File(io.BytesIO(data), filename="fortune-bag.png")
     view = discord.ui.View(timeout=None)
-    # Temporary custom_id – will be replaced after we have the message ID
     button = discord.ui.Button(
-        label="Open Bag",
+        label="🎁 Open Bag",  # You can set label to empty string if you want no text, but button needs some label.
         style=discord.ButtonStyle.primary,
-        custom_id=f"openbag_temp_{ctx.message.id}"
+        custom_id=f"openbag_temp_{ctx.message.id}"  # temporary, will update after we know message_id
     )
     view.add_item(button)
-
-    msg = await channel.send(embed=embed, view=view)
-
-    # Update button with permanent custom_id (message_id)
+    
+    msg = await channel.send(file=file, view=view)
+    
+    # 4. Update button custom_id to use the actual message_id
     view = discord.ui.View(timeout=None)
     button = discord.ui.Button(
-        label="Open Bag",
+        label="🎁 Open Bag",
         style=discord.ButtonStyle.primary,
         custom_id=f"openbag_{msg.id}"
     )
     view.add_item(button)
     await msg.edit(view=view)
-
-    # Store in database
-    bag = FortuneBag(msg.id, channel.id, ctx.author.id, 6000)
+    
+    # 5. Store in database (same as before)
+    bag = FortuneBag(msg.id, channel.id, ctx.author.id, 1000)
     async with bot.db_pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO fortune_bags (message_id, channel_id, remaining, total, dropper_id, active)
             VALUES ($1, $2, $3, $4, $5, $6)
         """, bag.message_id, bag.channel_id, bag.remaining, bag.total, bag.dropper_id, bag.active)
-
+    
     bot.active_bags[msg.id] = bag
-
     await ctx.send(f"✅ Fortune bag sent to {channel.mention}!", delete_after=5)
 
 
