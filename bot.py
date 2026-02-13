@@ -4,6 +4,7 @@ import json
 import asyncio
 import random
 from datetime import datetime, timezone, timedelta
+import traceback   # used in log_to_discord
 
 # ULTIMATE ASYNCPG INSTALLER
 import subprocess
