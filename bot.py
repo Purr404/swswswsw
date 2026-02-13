@@ -165,25 +165,32 @@ class DatabaseSystem:
                             balance_after INTEGER,
                             FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
                         )
+                    ''')                
+
+                    # FORTUNE BAG TABLES
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS fortune_bags (
+                        message_id BIGINT PRIMARY KEY,
+                        channel_id BIGINT NOT NULL,
+                        remaining INTEGER NOT NULL,
+                        total INTEGER NOT NULL DEFAULT 6000,
+                        dropper_id BIGINT NOT NULL,
+                        active BOOLEAN NOT NULL DEFAULT TRUE
+                        )
                     ''')
 
-                     # FORTUNE BAG TABLE
-                         CREATE TABLE IF NOT EXISTS fortune_bags (
-                             message_id BIGINT PRIMARY KEY,
-                             channel_id BIGINT NOT NULL,
-                             remaining INTEGER NOT NULL,
-                             total INTEGER NOT NULL DEFAULT 6000,
-                             dropper_id BIGINT NOT NULL,
-                             active BOOLEAN NOT NULL DEFAULT TRUE
-                         );
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS fortune_bag_participants (
+                        message_id BIGINT REFERENCES fortune_bags(message_id) ON DELETE CASCADE,
+                       user_id BIGINT NOT NULL,
+                       earned INTEGER NOT NULL,
+                       PRIMARY KEY (message_id, user_id)
+                        )
+                    ''')
 
-                         CREATE TABLE IF NOT EXISTS fortune_bag_participants (
-                             message_id BIGINT REFERENCES fortune_bags(message_id) ON DELETE CASCADE,
-                             user_id BIGINT NOT NULL,
-                             earned INTEGER NOT NULL,
-                             PRIMARY KEY (message_id, user_id)
-                         );
-                     # END FORTUNE BAG TABLE -------------
+                    # Optional indexes for performance
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_fortune_bags_active ON fortune_bags(active)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_participants_message_id ON fortune_bag_participants(message_id)')
 
                 self.using_database = True
                 print(f"🎉 Success with: {strategy_name}")
@@ -611,6 +618,33 @@ currency_system = CurrencySystem(db)
 user_selections = {}
 
 
+async def post_leaderboard(bag: FortuneBag, channel: discord.TextChannel, bot: commands.Bot):
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT user_id, earned FROM fortune_bag_participants
+            WHERE message_id = $1
+            ORDER BY earned DESC
+        """, bag.message_id)
+
+    embed = discord.Embed(
+        title="🏆 Fortune Bag Results",
+        description="The bag is empty! Here's who earned diamonds:",
+        color=discord.Color.green()
+    )
+
+    for idx, row in enumerate(rows, start=1):
+        user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
+        embed.add_field(
+            name=f"{idx}. {user.display_name}",
+            value=f"{row['earned']} diamonds",
+            inline=False
+        )
+        if idx == 1:
+            embed.set_thumbnail(url=user.display_avatar.url)
+
+    await channel.send(embed=embed)
+
+
 # FORTUNE BAG SYSTEM CLASS
 class FortuneBag:
     def __init__(self, message_id: int, channel_id: int, dropper_id: int,
@@ -656,33 +690,6 @@ class FortuneBag:
                     )
 
         return amount
-    #FORTUNE BAG LEADERBOARD
-    async def post_leaderboard(bag: FortuneBag, channel: discord.TextChannel, bot: commands.Bot):
-        async with bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT user_id, earned FROM fortune_bag_participants
-                WHERE message_id = $1
-                ORDER BY earned DESC
-            """, bag.message_id)
-
-        embed = discord.Embed(
-            title="🏆 Fortune Bag Results",
-            description="The bag is empty! Here's who earned diamonds:",
-            color=discord.Color.green()
-        )
-
-        for idx, row in enumerate(rows, start=1):
-            user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
-            embed.add_field(
-                name=f"{idx}. {user.display_name}",
-                value=f"{row['earned']} diamonds",
-                inline=False
-            )
-            if idx == 1:
-                embed.set_thumbnail(url=user.display_avatar.url)
-
-        await channel.send(embed=embed)
-
 
 # END FORTUNE BAG SYSTEM CLASS -------------
 
