@@ -192,14 +192,42 @@ class DatabaseSystem:
                        PRIMARY KEY (message_id, user_id)
                         )
                     ''')
-                    # SHOP TABLE
+                    # ========== SHOP SYSTEM TABLES ==========
                     await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS shop_messages (
-                        guild_id BIGINT PRIMARY KEY,
-                        channel_id BIGINT NOT NULL,
-                        message_id BIGINT NOT NULL
+                        CREATE TABLE IF NOT EXISTS shop_items (
+                            item_id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            description TEXT,
+                            price INTEGER NOT NULL CHECK (price > 0),
+                            type TEXT NOT NULL CHECK (type IN ('role', 'color')),
+                            role_id BIGINT,
+                            color_hex TEXT,
+                            created_at TIMESTAMP DEFAULT NOW(),
+                            updated_at TIMESTAMP DEFAULT NOW()
                         )
                     ''')
+
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_purchases (
+                            purchase_id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            item_id INTEGER REFERENCES shop_items(item_id) ON DELETE CASCADE,
+                            price_paid INTEGER NOT NULL,
+                            purchased_at TIMESTAMP DEFAULT NOW()
+                        )
+                    ''')
+
+                   await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS shop_messages (
+                            guild_id BIGINT PRIMARY KEY,
+                            channel_id BIGINT NOT NULL,
+                            message_id BIGINT NOT NULL
+                        )
+                    ''')
+
+                   # Optional indexes
+                   await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
+
 
                     # Optional indexes for performance
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_fortune_bags_active ON fortune_bags(active)')
@@ -910,383 +938,6 @@ async def log_to_discord(bot, message, level="INFO"):
 
 # END ---=====-=-=-=------
 
-# SHOP SYSTEM
-
-class Shop(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=69903e02&is=698eec82&hm=2efee7a4845963b5eedc45a24a7db034df602f55238f25b5a04168f520f2d38a&"  # Replace with your image
-
-    # -----------------------------------------------------------------
-    # PERSISTENT SHOP MESSAGE – Admin command to spawn the shop
-    # -----------------------------------------------------------------
-    @commands.command(name='summonshopto')
-    @commands.has_permissions(administrator=True)
-    async def summon_shop_to(self, ctx, channel: discord.TextChannel):
-        """Create a permanent shop interface in the specified channel."""
-        # 1. Download shop image
-        async with aiohttp.ClientSession() as session:
-            async with session.get(self.SHOP_IMAGE_URL) as resp:
-                if resp.status != 200:
-                    return await ctx.send("❌ Failed to fetch shop image.")
-                data = await resp.read()
-        file = discord.File(io.BytesIO(data), filename="shop.png")
-
-        # 2. Create embed with image
-        embed = discord.Embed(
-            title="🛒 **GEM SHOP**",
-            description="Click the button below to open the shop and browse items!",
-            color=discord.Color.gold()
-        )
-        embed.set_image(url="attachment://shop.png")
-
-        # 3. Persistent view with "Open Shop" button
-        view = discord.ui.View(timeout=None)
-        button = discord.ui.Button(
-            label="🛒 Open Shop",
-            style=discord.ButtonStyle.primary,
-            custom_id="shop_open_main"
-        )
-        view.add_item(button)
-
-        # 4. Send to target channel
-        msg = await channel.send(file=file, embed=embed, view=view)
-
-        # 5. Store in database
-        async with self.bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO shop_messages (guild_id, channel_id, message_id)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (guild_id) DO UPDATE
-                SET channel_id = $2, message_id = $3
-            """, ctx.guild.id, channel.id, msg.id)
-
-        await ctx.send(f"✅ Shop permanently summoned to {channel.mention}!", delete_after=5)
-        await ctx.message.delete(delay=5)
-
-    # -----------------------------------------------------------------
-    # LOAD SHOP MESSAGES ON BOT STARTUP
-    # -----------------------------------------------------------------
-    async def load_shop_messages(self):
-        """Reattach views to existing shop messages after bot restart."""
-        async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT guild_id, channel_id, message_id FROM shop_messages")
-        for row in rows:
-            guild = self.bot.get_guild(row['guild_id'])
-            if not guild:
-                continue
-            channel = guild.get_channel(row['channel_id'])
-            if not channel:
-                continue
-            try:
-                msg = await channel.fetch_message(row['message_id'])
-                view = discord.ui.View(timeout=None)
-                button = discord.ui.Button(
-                    label="🛒 Open Shop",
-                    style=discord.ButtonStyle.primary,
-                    custom_id="shop_open_main"
-                )
-                view.add_item(button)
-                await msg.edit(view=view)
-                print(f"✅ Reattached shop view in #{channel.name}")
-            except Exception as e:
-                print(f"⚠️ Failed to reattach shop message {row['message_id']}: {e}")
-
-    # -----------------------------------------------------------------
-    # INTERACTION HANDLER – All shop button clicks
-    # -----------------------------------------------------------------
-    @commands.Cog.listener()
-    async def on_interaction(self, interaction: discord.Interaction):
-        if interaction.type != discord.InteractionType.component:
-            return
-
-        custom_id = interaction.data["custom_id"]
-
-        # --- MAIN SHOP OPEN BUTTON ---
-        if custom_id == "shop_open_main":
-            await self.show_categories(interaction)
-
-        # --- CATEGORY SELECTION ---
-        elif custom_id.startswith("shop_category_"):
-            category = custom_id.replace("shop_category_", "")
-            await self.show_items(interaction, category)
-
-        # --- BACK TO CATEGORIES ---
-        elif custom_id == "shop_back_to_categories":
-            await self.show_categories(interaction)
-
-        # --- ITEM PURCHASE ---
-        elif custom_id.startswith("shop_buy_"):
-            item_id = int(custom_id.replace("shop_buy_", ""))
-            await self.purchase_item(interaction, item_id)
-
-    # -----------------------------------------------------------------
-    # SHOW CATEGORIES (Ephemeral)
-    # -----------------------------------------------------------------
-    async def show_categories(self, interaction: discord.Interaction):
-        """Display available shop categories as buttons."""
-        embed = discord.Embed(
-            title="🛍️ Shop Categories",
-            description="Select a category to browse items.",
-            color=discord.Color.blue()
-        )
-        view = discord.ui.View(timeout=300)  # 5 minutes timeout
-        # Add category buttons – you can extend this list
-        categories = [
-            ("🎨 Customization", "customization"),
-            # ("👔 Roles", "roles"),        # Add more as needed
-            # ("🎁 Special", "special")
-        ]
-        for label, cat_id in categories:
-            button = discord.ui.Button(
-                label=label,
-                style=discord.ButtonStyle.secondary,
-                custom_id=f"shop_category_{cat_id}"
-            )
-            view.add_item(button)
-
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-    # -----------------------------------------------------------------
-    # SHOW ITEMS FOR A CATEGORY (Ephemeral)
-    # -----------------------------------------------------------------
-    async def show_items(self, interaction: discord.Interaction, category: str):
-        """Fetch items from DB and display them as purchase buttons."""
-        async with self.bot.db_pool.acquire() as conn:
-            # For now, we map category to item type. Adjust as needed.
-            # 'customization' -> both 'role' and 'color' items; you can refine.
-            if category == "customization":
-                rows = await conn.fetch("""
-                    SELECT item_id, name, description, price, type 
-                    FROM shop_items 
-                    WHERE type IN ('role', 'color')
-                    ORDER BY price ASC
-                """)
-            else:
-                # Handle other categories later
-                rows = []
-
-        if not rows:
-            embed = discord.Embed(
-                title="🛍️ Shop – Customization",
-                description="No items available in this category yet.",
-                color=discord.Color.red()
-            )
-            view = discord.ui.View(timeout=300)
-            back = discord.ui.Button(
-                label="◀ Back to Categories",
-                style=discord.ButtonStyle.secondary,
-                custom_id="shop_back_to_categories"
-            )
-            view.add_item(back)
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-
-        embed = discord.Embed(
-            title="🛍️ Customization Items",
-            description="Click an item to purchase it with gems.",
-            color=discord.Color.gold()
-        )
-        view = discord.ui.View(timeout=300)
-
-        for row in rows:
-            item_type = "🎨 Color" if row['type'] == 'color' else "👔 Role"
-            label = f"{row['name']} – {row['price']} gems"
-            button = discord.ui.Button(
-                label=label[:80],  # Discord limit
-                style=discord.ButtonStyle.primary,
-                custom_id=f"shop_buy_{row['item_id']}"
-            )
-            view.add_item(button)
-
-        # Add Back button
-        back = discord.ui.Button(
-            label="◀ Back to Categories",
-            style=discord.ButtonStyle.secondary,
-            custom_id="shop_back_to_categories"
-        )
-        view.add_item(back)
-
-        await interaction.response.edit_message(embed=embed, view=view)
-
-    # -----------------------------------------------------------------
-    # PURCHASE ITEM
-    # -----------------------------------------------------------------
-    async def purchase_item(self, interaction: discord.Interaction, item_id: int):
-        """Complete the purchase: check gems, deduct, assign role/color, record."""
-        await interaction.response.defer(ephemeral=True, thinking=True)
-
-        # 1. Fetch item details
-        async with self.bot.db_pool.acquire() as conn:
-            item = await conn.fetchrow(
-                "SELECT * FROM shop_items WHERE item_id = $1",
-                item_id
-            )
-        if not item:
-            await interaction.followup.send("❌ This item no longer exists.", ephemeral=True)
-            return
-
-        user_id = str(interaction.user.id)
-
-        # 2. Check if user already owns this item? (Optional)
-        # You can add a check here if desired.
-
-        # 3. Check gem balance
-        balance = await currency_system.get_balance(user_id)
-        if balance['gems'] < item['price']:
-            embed = discord.Embed(
-                title="❌ Insufficient Gems",
-                description=f"You need **{item['price']} gems** to buy **{item['name']}**.\nYour balance: **{balance['gems']} gems**",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-
-        # 4. Assign role/color
-        guild = interaction.guild
-        member = interaction.user
-        role = guild.get_role(item['role_id'])
-        if not role:
-            await interaction.followup.send("❌ The role for this item no longer exists. Please contact an admin.", ephemeral=True)
-            return
-
-        try:
-            await member.add_roles(role, reason=f"Shop purchase: {item['name']}")
-        except discord.Forbidden:
-            await interaction.followup.send("❌ I don't have permission to assign that role.", ephemeral=True)
-            return
-        except Exception as e:
-            await interaction.followup.send(f"❌ Failed to assign role: {e}", ephemeral=True)
-            return
-
-        # 5. Deduct gems
-        success = await currency_system.deduct_gems(
-            user_id=user_id,
-            gems=item['price'],
-            reason=f"🛒 Purchased {item['name']}"
-        )
-        if not success:
-            # This should not happen because we already checked balance, but just in case
-            await interaction.followup.send("❌ Failed to deduct gems. Your balance may have changed.", ephemeral=True)
-            return
-
-        # 6. Record purchase in user_purchases
-        async with self.bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO user_purchases (user_id, item_id, price_paid)
-                VALUES ($1, $2, $3)
-            """, user_id, item_id, item['price'])
-
-        # 7. Success message
-        new_balance = await currency_system.get_balance(user_id)
-        embed = discord.Embed(
-            title="✅ Purchase Successful!",
-            description=f"You have bought **{item['name']}** for **{item['price']} gems**.",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="💰 New Balance", value=f"{new_balance['gems']} gems")
-        if item['type'] == 'color' and item.get('color_hex'):
-            embed.color = discord.Color(int(item['color_hex'].lstrip('#'), 16))
-        embed.set_footer(text="Thank you for shopping!")
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    # -----------------------------------------------------------------
-    # ADMIN COMMANDS – Add/remove/edit shop items (same as before)
-    # -----------------------------------------------------------------
-    @commands.group(name='shopadmin', invoke_without_command=True)
-    @commands.has_permissions(administrator=True)
-    async def shop_admin(self, ctx):
-        """Shop administration commands."""
-        embed = discord.Embed(
-            title="🛠️ Shop Admin",
-            description=(
-                "`!!shopadmin add role <name> <price> <role_id>`\n"
-                "`!!shopadmin add color <name> <price> <role_id> <hex>`\n"
-                "`!!shopadmin remove <item_id>`\n"
-                "`!!shopadmin edit price <item_id> <new_price>`\n"
-                "`!!shopadmin edit description <item_id> <new_desc>`"
-            ),
-            color=discord.Color.orange()
-        )
-        await ctx.send(embed=embed)
-
-    @shop_admin.command(name='add')
-    @commands.has_permissions(administrator=True)
-    async def shop_add(self, ctx, item_type: str, name: str, price: int, role_id: int, color_hex: str = None):
-        item_type = item_type.lower()
-        if item_type not in ('role', 'color'):
-            await ctx.send("❌ Type must be `role` or `color`.")
-            return
-
-        role = ctx.guild.get_role(role_id)
-        if not role:
-            await ctx.send(f"❌ Role with ID `{role_id}` not found.")
-            return
-
-        if item_type == 'color':
-            if not color_hex or not color_hex.startswith('#') or len(color_hex) != 7:
-                await ctx.send("❌ Color hex must be `#RRGGBB` (e.g., `#FF5733`).")
-                return
-
-        async with self.bot.db_pool.acquire() as conn:
-            if item_type == 'color':
-                await conn.execute("""
-                    INSERT INTO shop_items (name, description, price, type, role_id, color_hex)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                """, name, f"Color: {color_hex}", price, item_type, role_id, color_hex)
-            else:
-                await conn.execute("""
-                    INSERT INTO shop_items (name, description, price, type, role_id)
-                    VALUES ($1, $2, $3, $4, $5)
-                """, name, f"Role: {role.name}", price, item_type, role_id)
-
-        await ctx.send(f"✅ Added **{name}** ({item_type}) for **{price} gems**.")
-
-    @shop_admin.command(name='remove')
-    @commands.has_permissions(administrator=True)
-    async def shop_remove(self, ctx, item_id: int):
-        async with self.bot.db_pool.acquire() as conn:
-            result = await conn.execute("DELETE FROM shop_items WHERE item_id = $1", item_id)
-        if result == "DELETE 0":
-            await ctx.send(f"❌ Item #{item_id} not found.")
-        else:
-            await ctx.send(f"✅ Removed item #{item_id}.")
-
-    @shop_admin.command(name='edit')
-    @commands.has_permissions(administrator=True)
-    async def shop_edit(self, ctx, item_id: int, field: str, *, value: str):
-        field = field.lower()
-        if field not in ('price', 'description'):
-            await ctx.send("❌ Can only edit `price` or `description`.")
-            return
-
-        async with self.bot.db_pool.acquire() as conn:
-            if field == 'price':
-                try:
-                    val = int(value)
-                    if val <= 0:
-                        await ctx.send("❌ Price must be positive.")
-                        return
-                    await conn.execute("UPDATE shop_items SET price = $1 WHERE item_id = $2", val, item_id)
-                except ValueError:
-                    await ctx.send("❌ Price must be a number.")
-                    return
-            else:
-                await conn.execute("UPDATE shop_items SET description = $1 WHERE item_id = $2", value, item_id)
-
-        await ctx.send(f"✅ Updated `{field}` of item #{item_id}.")
-
-# -----------------------------------------------------------------
-# LOAD SHOP MESSAGES ON BOT STARTUP – call this in on_ready
-# -----------------------------------------------------------------
-async def load_shop_persistence(bot):
-    shop_cog = bot.get_cog('Shop')
-    if shop_cog:
-        await shop_cog.load_shop_messages()
-
-
-#END SHOP CLASS
 ## QUIZ SYSTEM-----------
 
 class QuizSystem:
@@ -2815,6 +2466,7 @@ async def on_ready():
     if connected:
         print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         await load_active_bags()
+        await load_shop_persistence(bot)
     else:
          print("⚠️ Database not connected – fortune bags will not be available.")
 
@@ -2952,6 +2604,371 @@ async def on_command_error(ctx, error):
         return
     print(f"Command error: {error}")
     await ctx.send(f"❌ Error: {str(error)[:100]}")
+
+
+
+
+
+
+
+# =============================================================================
+# SHOP SYSTEM – Persistent Interactive Shop
+# =============================================================================
+class Shop(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.SHOP_IMAGE_URL = "https://your-cdn.com/shop-banner.png"  # 🔁 REPLACE WITH YOUR IMAGE URL
+
+    # -------------------------------------------------------------------------
+    # LOAD PERSISTENT SHOP MESSAGES (called on bot restart)
+    # -------------------------------------------------------------------------
+    async def load_shop_messages(self):
+        """Reattach views to existing shop messages after bot restart."""
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT guild_id, channel_id, message_id FROM shop_messages")
+        for row in rows:
+            guild = self.bot.get_guild(row['guild_id'])
+            if not guild:
+                continue
+            channel = guild.get_channel(row['channel_id'])
+            if not channel:
+                continue
+            try:
+                msg = await channel.fetch_message(row['message_id'])
+                view = discord.ui.View(timeout=None)
+                button = discord.ui.Button(
+                    label="🛒 Open Shop",
+                    style=discord.ButtonStyle.primary,
+                    custom_id="shop_open_main"
+                )
+                view.add_item(button)
+                await msg.edit(view=view)
+                print(f"✅ Reattached shop view in #{channel.name}")
+            except Exception as e:
+                print(f"⚠️ Failed to reattach shop message {row['message_id']}: {e}")
+
+    # -------------------------------------------------------------------------
+    # ADMIN COMMAND – Summon the permanent shop to a channel
+    # -------------------------------------------------------------------------
+    @commands.command(name='summonshopto')
+    @commands.has_permissions(administrator=True)
+    async def summon_shop_to(self, ctx, channel: discord.TextChannel):
+        """Create a permanent shop interface in the specified channel."""
+        # Download shop image
+        async with aiohttp.ClientSession() as session:
+            async with session.get(self.SHOP_IMAGE_URL) as resp:
+                if resp.status != 200:
+                    return await ctx.send("❌ Failed to fetch shop image.")
+                data = await resp.read()
+        file = discord.File(io.BytesIO(data), filename="shop.png")
+
+        embed = discord.Embed(
+            title="🛒 **GEM SHOP**",
+            description="Click the button below to open the shop and browse items!",
+            color=discord.Color.gold()
+        )
+        embed.set_image(url="attachment://shop.png")
+
+        view = discord.ui.View(timeout=None)
+        button = discord.ui.Button(
+            label="🛒 Open Shop",
+            style=discord.ButtonStyle.primary,
+            custom_id="shop_open_main"
+        )
+        view.add_item(button)
+
+        msg = await channel.send(file=file, embed=embed, view=view)
+
+        # Store in database
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO shop_messages (guild_id, channel_id, message_id)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (guild_id) DO UPDATE
+                SET channel_id = $2, message_id = $3
+            """, ctx.guild.id, channel.id, msg.id)
+
+        await ctx.send(f"✅ Shop permanently summoned to {channel.mention}!", delete_after=5)
+        await ctx.message.delete(delay=5)
+
+    # -------------------------------------------------------------------------
+    # INTERACTION HANDLER – All shop button clicks
+    # -------------------------------------------------------------------------
+    @commands.Cog.listener()
+    async def on_interaction(self, interaction: discord.Interaction):
+        if interaction.type != discord.InteractionType.component:
+            return
+
+        custom_id = interaction.data["custom_id"]
+
+        if custom_id == "shop_open_main":
+            await self.show_categories(interaction)
+        elif custom_id.startswith("shop_category_"):
+            category = custom_id.replace("shop_category_", "")
+            await self.show_items(interaction, category)
+        elif custom_id == "shop_back_to_categories":
+            await self.show_categories(interaction)
+        elif custom_id.startswith("shop_buy_"):
+            item_id = int(custom_id.replace("shop_buy_", ""))
+            await self.purchase_item(interaction, item_id)
+
+    # -------------------------------------------------------------------------
+    # SHOW CATEGORIES (Ephemeral)
+    # -------------------------------------------------------------------------
+    async def show_categories(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="🛍️ Shop Categories",
+            description="Select a category to browse items.",
+            color=discord.Color.blue()
+        )
+        view = discord.ui.View(timeout=300)
+        # Add category buttons – extend this list as needed
+        categories = [
+            ("🎨 Customization", "customization"),
+            # ("👔 Roles", "roles"),
+            # ("🎁 Special", "special")
+        ]
+        for label, cat_id in categories:
+            button = discord.ui.Button(
+                label=label,
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"shop_category_{cat_id}"
+            )
+            view.add_item(button)
+
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    # -------------------------------------------------------------------------
+    # SHOW ITEMS FOR A CATEGORY (Ephemeral)
+    # -------------------------------------------------------------------------
+    async def show_items(self, interaction: discord.Interaction, category: str):
+        async with self.bot.db_pool.acquire() as conn:
+            if category == "customization":
+                rows = await conn.fetch("""
+                    SELECT item_id, name, description, price, type
+                    FROM shop_items
+                    WHERE type IN ('role', 'color')
+                    ORDER BY price ASC
+                """)
+            else:
+                rows = []
+
+        if not rows:
+            embed = discord.Embed(
+                title="🛍️ Shop – Customization",
+                description="No items available in this category yet.",
+                color=discord.Color.red()
+            )
+            view = discord.ui.View(timeout=300)
+            back = discord.ui.Button(
+                label="◀ Back to Categories",
+                style=discord.ButtonStyle.secondary,
+                custom_id="shop_back_to_categories"
+            )
+            view.add_item(back)
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+
+        embed = discord.Embed(
+            title="🛍️ Customization Items",
+            description="Click an item to purchase it with gems.",
+            color=discord.Color.gold()
+        )
+        view = discord.ui.View(timeout=300)
+
+        for row in rows:
+            label = f"{row['name']} – {row['price']} gems"
+            button = discord.ui.Button(
+                label=label[:80],
+                style=discord.ButtonStyle.primary,
+                custom_id=f"shop_buy_{row['item_id']}"
+            )
+            view.add_item(button)
+
+        back = discord.ui.Button(
+            label="◀ Back to Categories",
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_back_to_categories"
+        )
+        view.add_item(back)
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    # -------------------------------------------------------------------------
+    # PURCHASE ITEM
+    # -------------------------------------------------------------------------
+    async def purchase_item(self, interaction: discord.Interaction, item_id: int):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        async with self.bot.db_pool.acquire() as conn:
+            item = await conn.fetchrow(
+                "SELECT * FROM shop_items WHERE item_id = $1",
+                item_id
+            )
+        if not item:
+            await interaction.followup.send("❌ This item no longer exists.", ephemeral=True)
+            return
+
+        user_id = str(interaction.user.id)
+
+        # Check balance
+        balance = await currency_system.get_balance(user_id)
+        if balance['gems'] < item['price']:
+            embed = discord.Embed(
+                title="❌ Insufficient Gems",
+                description=f"You need **{item['price']} gems** to buy **{item['name']}**.\nYour balance: **{balance['gems']} gems**",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        # Assign role
+        guild = interaction.guild
+        member = interaction.user
+        role = guild.get_role(item['role_id'])
+        if not role:
+            await interaction.followup.send("❌ The role for this item no longer exists.", ephemeral=True)
+            return
+
+        try:
+            await member.add_roles(role, reason=f"Shop purchase: {item['name']}")
+        except discord.Forbidden:
+            await interaction.followup.send("❌ I don't have permission to assign that role.", ephemeral=True)
+            return
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to assign role: {e}", ephemeral=True)
+            return
+
+        # Deduct gems
+        success = await currency_system.deduct_gems(
+            user_id=user_id,
+            gems=item['price'],
+            reason=f"🛒 Purchased {item['name']}"
+        )
+        if not success:
+            await interaction.followup.send("❌ Failed to deduct gems. Your balance may have changed.", ephemeral=True)
+            return
+
+        # Record purchase
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO user_purchases (user_id, item_id, price_paid)
+                VALUES ($1, $2, $3)
+            """, user_id, item_id, item['price'])
+
+        # Success message
+        new_balance = await currency_system.get_balance(user_id)
+        embed = discord.Embed(
+            title="✅ Purchase Successful!",
+            description=f"You have bought **{item['name']}** for **{item['price']} gems**.",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="💰 New Balance", value=f"{new_balance['gems']} gems")
+        if item['type'] == 'color' and item.get('color_hex'):
+            embed.color = discord.Color(int(item['color_hex'].lstrip('#'), 16))
+        embed.set_footer(text="Thank you for shopping!")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # -------------------------------------------------------------------------
+    # ADMIN COMMANDS – Manage shop items
+    # -------------------------------------------------------------------------
+    @commands.group(name='shopadmin', invoke_without_command=True)
+    @commands.has_permissions(administrator=True)
+    async def shop_admin(self, ctx):
+        """Shop administration commands."""
+        embed = discord.Embed(
+            title="🛠️ Shop Admin",
+            description=(
+                "`!!shopadmin add role <name> <price> <role_id>`\n"
+                "`!!shopadmin add color <name> <price> <role_id> <hex>`\n"
+                "`!!shopadmin remove <item_id>`\n"
+                "`!!shopadmin edit price <item_id> <new_price>`\n"
+                "`!!shopadmin edit description <item_id> <new_desc>`"
+            ),
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
+
+    @shop_admin.command(name='add')
+    @commands.has_permissions(administrator=True)
+    async def shop_add(self, ctx, item_type: str, name: str, price: int, role_id: int, color_hex: str = None):
+        item_type = item_type.lower()
+        if item_type not in ('role', 'color'):
+            await ctx.send("❌ Type must be `role` or `color`.")
+            return
+
+        role = ctx.guild.get_role(role_id)
+        if not role:
+            await ctx.send(f"❌ Role with ID `{role_id}` not found.")
+            return
+
+        if item_type == 'color':
+            if not color_hex or not color_hex.startswith('#') or len(color_hex) != 7:
+                await ctx.send("❌ Color hex must be `#RRGGBB` (e.g., `#FF5733`).")
+                return
+
+        async with self.bot.db_pool.acquire() as conn:
+            if item_type == 'color':
+                await conn.execute("""
+                    INSERT INTO shop_items (name, description, price, type, role_id, color_hex)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                """, name, f"Color: {color_hex}", price, item_type, role_id, color_hex)
+            else:
+                await conn.execute("""
+                    INSERT INTO shop_items (name, description, price, type, role_id)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, name, f"Role: {role.name}", price, item_type, role_id)
+
+        await ctx.send(f"✅ Added **{name}** ({item_type}) for **{price} gems**.")
+
+    @shop_admin.command(name='remove')
+    @commands.has_permissions(administrator=True)
+    async def shop_remove(self, ctx, item_id: int):
+        async with self.bot.db_pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM shop_items WHERE item_id = $1", item_id)
+        if result == "DELETE 0":
+            await ctx.send(f"❌ Item #{item_id} not found.")
+        else:
+            await ctx.send(f"✅ Removed item #{item_id}.")
+
+    @shop_admin.command(name='edit')
+    @commands.has_permissions(administrator=True)
+    async def shop_edit(self, ctx, item_id: int, field: str, *, value: str):
+        field = field.lower()
+        if field not in ('price', 'description'):
+            await ctx.send("❌ Can only edit `price` or `description`.")
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            if field == 'price':
+                try:
+                    val = int(value)
+                    if val <= 0:
+                        await ctx.send("❌ Price must be positive.")
+                        return
+                    await conn.execute("UPDATE shop_items SET price = $1 WHERE item_id = $2", val, item_id)
+                except ValueError:
+                    await ctx.send("❌ Price must be a number.")
+                    return
+            else:
+                await conn.execute("UPDATE shop_items SET description = $1 WHERE item_id = $2", value, item_id)
+
+        await ctx.send(f"✅ Updated `{field}` of item #{item_id}.")
+
+
+
+# Add the shop cog to the bot
+bot.add_cog(Shop(bot))
+
+
+async def load_shop_persistence(bot):
+    shop_cog = bot.get_cog('Shop')
+    if shop_cog:
+        await shop_cog.load_shop_messages()
+
+
+
 
 # === RUN BOT ===
 if __name__ == "__main__":
