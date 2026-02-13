@@ -2989,10 +2989,8 @@ class Shop(commands.Cog):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
--------------------------------------------------
-
     # SHOP LOGS
--------------------------------------------------
+
     async def send_shop_log(self, guild: discord.Guild, user: discord.Member, item_name: str, price: int, balance: int):
         """Send a purchase log to the #shop-logs channel if it exists."""
         # Find channel named "shop logs" (case‑insensitive)
@@ -3016,9 +3014,9 @@ class Shop(commands.Cog):
             await channel.send(embed=embed)
         except Exception as e:
             print(f"⚠️ Failed to send shop log: {e}")
-------------------------------------------------
+
     #END SHOP LOGS
-------------------------------------------------
+
 
     # -------------------------------------------------------------------------
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
