@@ -176,7 +176,7 @@ class DatabaseSystem:
                         message_id BIGINT PRIMARY KEY,
                         channel_id BIGINT NOT NULL,
                         remaining INTEGER NOT NULL,
-                        total INTEGER NOT NULL DEFAULT 6000,
+                        total INTEGER NOT NULL DEFAULT 1000,
                         dropper_id BIGINT NOT NULL,
                         active BOOLEAN NOT NULL DEFAULT TRUE
                         )
