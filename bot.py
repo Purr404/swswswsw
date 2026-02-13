@@ -915,7 +915,7 @@ async def log_to_discord(bot, message, level="INFO"):
 class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.SHOP_IMAGE_URL = "https://your-cdn.com/shop-banner.png"  # Replace with your image
+        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=69903e02&is=698eec82&hm=2efee7a4845963b5eedc45a24a7db034df602f55238f25b5a04168f520f2d38a&"  # Replace with your image
 
     # -----------------------------------------------------------------
     # PERSISTENT SHOP MESSAGE – Admin command to spawn the shop
