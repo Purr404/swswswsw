@@ -618,33 +618,6 @@ currency_system = CurrencySystem(db)
 user_selections = {}
 
 
-async def post_leaderboard(bag: FortuneBag, channel: discord.TextChannel, bot: commands.Bot):
-    async with bot.db_pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT user_id, earned FROM fortune_bag_participants
-            WHERE message_id = $1
-            ORDER BY earned DESC
-        """, bag.message_id)
-
-    embed = discord.Embed(
-        title="🏆 Fortune Bag Results",
-        description="The bag is empty! Here's who earned diamonds:",
-        color=discord.Color.green()
-    )
-
-    for idx, row in enumerate(rows, start=1):
-        user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
-        embed.add_field(
-            name=f"{idx}. {user.display_name}",
-            value=f"{row['earned']} diamonds",
-            inline=False
-        )
-        if idx == 1:
-            embed.set_thumbnail(url=user.display_avatar.url)
-
-    await channel.send(embed=embed)
-
-
 # FORTUNE BAG SYSTEM CLASS
 class FortuneBag:
     def __init__(self, message_id: int, channel_id: int, dropper_id: int,
@@ -690,6 +663,33 @@ class FortuneBag:
                     )
 
         return amount
+
+async def post_leaderboard(bag: FortuneBag, channel: discord.TextChannel, bot: commands.Bot):
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT user_id, earned FROM fortune_bag_participants
+            WHERE message_id = $1
+            ORDER BY earned DESC
+        """, bag.message_id)
+
+    embed = discord.Embed(
+        title="🏆 Fortune Bag Results",
+        description="The bag is empty! Here's who earned diamonds:",
+        color=discord.Color.green()
+    )
+
+    for idx, row in enumerate(rows, start=1):
+        user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
+        embed.add_field(
+            name=f"{idx}. {user.display_name}",
+            value=f"{row['earned']} diamonds",
+            inline=False
+        )
+        if idx == 1:
+            embed.set_thumbnail(url=user.display_avatar.url)
+
+    await channel.send(embed=embed)
+
 
 # END FORTUNE BAG SYSTEM CLASS -------------
 
