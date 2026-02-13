@@ -226,7 +226,7 @@ class DatabaseSystem:
                     ''')
                     await conn.execute('''
                         ALTER TABLE user_purchases 
-                        ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ
+                        ADD COLUMN expires_at TYPE TIMESTAMPTZ
                     ''')
 
                     # Optional indexes
