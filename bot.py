@@ -2973,6 +2973,8 @@ class Shop(commands.Cog):
 
         # Success message
         new_balance = await currency_system.get_balance(user_id)
+        # Send log to #shop-logs
+        await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], new_balance['gems'])
         embed = discord.Embed(
             title="✅ Purchase Successful!",
             description=f"You have bought **{item['name']}** for **{item['price']} gems**.",
@@ -2985,6 +2987,38 @@ class Shop(commands.Cog):
         embed.set_footer(text="Thank you for shopping!")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+-------------------------------------------------
+
+    # SHOP LOGS
+-------------------------------------------------
+    async def send_shop_log(self, guild: discord.Guild, user: discord.Member, item_name: str, price: int, balance: int):
+        """Send a purchase log to the #shop-logs channel if it exists."""
+        # Find channel named "shop logs" (case‑insensitive)
+        channel = discord.utils.get(guild.text_channels, name="shop logs")
+        if not channel:
+            return  # No log channel found
+
+        embed = discord.Embed(
+            title="🛒 **Shop Purchase**",
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.add_field(name="👤 User", value=f"{user.mention} (`{user.id}`)", inline=False)
+        embed.add_field(name="📦 Item", value=item_name, inline=True)
+        embed.add_field(name="💎 Price", value=f"{price} gems", inline=True)
+        embed.add_field(name="💰 New Balance", value=f"{balance} gems", inline=True)
+        embed.set_thumbnail(url=user.display_avatar.url)
+        embed.set_footer(text="Shop Logger")
+
+        try:
+            await channel.send(embed=embed)
+        except Exception as e:
+            print(f"⚠️ Failed to send shop log: {e}")
+------------------------------------------------
+    #END SHOP LOGS
+------------------------------------------------
 
     # -------------------------------------------------------------------------
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
