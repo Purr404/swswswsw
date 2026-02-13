@@ -2360,7 +2360,7 @@ async def ping(ctx):
 async def fortune_bag_to(ctx, channel: discord.TextChannel):
     """Send a fortune bag image to the specified channel with a clickable button."""
     # 1. Image URL – replace with your actual image URL
-    IMAGE_URL = "https://your-cdn.com/fortune-bag.png"
+    IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471739739525877830/IMG_20260213_132747.png?ex=699007f1&is=698eb671&hm=2cf5f3f5ae3c174b3bb83cec64b0ef8750a4cdfcac4010ec150e624936ea21c3&"
     
     # 2. Download the image and create a discord.File
     async with aiohttp.ClientSession() as session:
