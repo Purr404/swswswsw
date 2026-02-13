@@ -217,7 +217,7 @@ class DatabaseSystem:
                         )
                     ''')
 
-                   await conn.execute('''
+                    await conn.execute('''
                         CREATE TABLE IF NOT EXISTS shop_messages (
                             guild_id BIGINT PRIMARY KEY,
                             channel_id BIGINT NOT NULL,
