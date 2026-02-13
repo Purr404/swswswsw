@@ -2721,8 +2721,8 @@ class Shop(commands.Cog):
         file = discord.File(io.BytesIO(data), filename="shop.png")
 
         embed = discord.Embed(
-            title="🛒 **GEM SHOP**",
-            description="Click the button below to open the shop and browse items!",
+            title="💎 **GEM SHOP**",
+            description="",
             color=discord.Color.gold()
         )
         embed.set_image(url="attachment://shop.png")
@@ -2813,7 +2813,7 @@ class Shop(commands.Cog):
             view = discord.ui.View(timeout=300)
             # Subcategories
             subcats = [
-                ("👔 Roles", "roles"),
+                ("🪯 Roles", "roles"),
                 ("🎨 Name Color Change", "colors")
             ]
             for label, sub_id in subcats:
