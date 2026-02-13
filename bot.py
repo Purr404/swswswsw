@@ -71,6 +71,7 @@ for key, value in os.environ.items():
 # --- Create the bot instance ---
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
+bot.active_bags = {}
 
 
 # LOG TO DISCORD--------------
@@ -2406,7 +2407,13 @@ async def on_ready():
     # Try to connect to database
     print("\n🔌 Attempting database connection...")
     connected = await db.smart_connect()
-    
+
+    if connected:
+        print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
+        await load_active_bags()
+    else:
+         print("⚠️ Database not connected – fortune bags will not be available.")
+
     if connected:
         print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         print("✅ Your data will persist across redeploys")
