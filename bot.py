@@ -644,6 +644,15 @@ class FortuneBag:
                 if not row or row['remaining'] <= 0:
                     return 0
 
+                # Check if user already claimed from this bag
+                existing = await conn.fetchval(
+                    "SELECT 1 FROM fortune_bag_participants WHERE message_id = $1 AND user_id = $2",
+                    self.message_id, user_id
+                )
+                if existing:
+                    return -1
+
+
                 amount = random.randint(1, min(100, row['remaining']))
                 new_remaining = row['remaining'] - amount
 
@@ -2491,39 +2500,62 @@ async def handle_open_bag(interaction: discord.Interaction):
     message_id = int(interaction.message.id)
     bag = bot.active_bags.get(message_id)
     if not bag or not bag.active:
-        await interaction.response.send_message("This bag is empty or expired.", ephemeral=True)
+        await interaction.response.send_message(
+            "This bag is empty!", 
+            ephemeral=True
+        )
         return
 
     awarded = await bag.award(bot, interaction.user.id)
 
+    # --- CASE 1: Bag empty ---
     if awarded == 0:
-        await interaction.response.send_message("The bag is already empty.", ephemeral=True)
+        await interaction.response.send_message(
+            "All Gems have already claimed!",
+            ephemeral=True
+        )
         return
 
-    # "Like" the dropper's profile – add a ❤️ reaction
+    # --- CASE 2: User already claimed ---
+    if awarded == -1:
+        await interaction.response.send_message(
+            "You've already opened this bag!\nOnly one claim per user.",
+            ephemeral=True
+        )
+        # Auto‑delete after 10 seconds
+        await asyncio.sleep(10)
+        await interaction.delete_original_response()
+        return
+
+    # --- CASE 3: Success ---
+    # Get user's updated gem balance
+    balance = await currency_system.get_balance(str(interaction.user.id))
+    
+    # Add ❤️ reaction to the bag message
     try:
         await interaction.message.add_reaction("❤️")
     except:
         pass
 
-    # If bag is now empty
+    # If bag became empty, disable button and post leaderboard
     if bag.remaining <= 0:
-        # Disable button
         view = discord.ui.View.from_message(interaction.message)
         for child in view.children:
             child.disabled = True
         await interaction.message.edit(view=view)
-
-        # Post leaderboard
         await post_leaderboard(bag, interaction.channel, bot)
 
-    balance = await currency_system.get_balance(str(interaction.user.id))
+    # Send ephemeral success message
     await interaction.response.send_message(
-        f"You opened the bag and found **{awarded} gems**! 💎\n"
-        f"**New balance:** {balance['gems']} gems\n"
-        f"{bag.remaining} gems remain in the bag.",
+        f"🎁 You opened the bag and found **{awarded} Gems**!\n"
+        f"💰 **New balance:** {balance['gems']} gems\n"
+        f"📦 {bag.remaining} Gems remain in the bag",
         ephemeral=True
     )
+
+    # Auto‑delete after 10 seconds
+    await asyncio.sleep(10)
+    await interaction.delete_original_response()
     #  END ------
 
 # === ERROR HANDLER ===
