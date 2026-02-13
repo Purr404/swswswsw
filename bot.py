@@ -224,6 +224,10 @@ class DatabaseSystem:
                             message_id BIGINT NOT NULL
                         )
                     ''')
+                    await conn.execute('''
+                        ALTER TABLE user_purchases 
+                        ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP
+                    ''')
 
                     # Optional indexes
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
