@@ -2547,9 +2547,9 @@ async def handle_open_bag(interaction: discord.Interaction):
 
     # Send ephemeral success message
     await interaction.response.send_message(
-        f"🎁 You opened the bag and found **{awarded} Gems**!\n"
-        f"💰 **New balance:** {balance['gems']} gems\n"
-        f"📦 {bag.remaining} Gems remain in the bag",
+        f"You opened the bag and found **{awarded} Gems**!\n"
+        f"**New balance:** {balance['gems']} gems\n"
+        f"{bag.remaining} Gems remain in the bag",
         ephemeral=True
     )
 
