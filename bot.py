@@ -2795,8 +2795,8 @@ class Shop(commands.Cog):
             view = discord.ui.View(timeout=300)
             # Subcategories
             subcats = [
-                ("👔 Buy Roles", "roles"),
-                ("🎨 Buy Name Color", "colors")
+                ("👔 Roles", "roles"),
+                ("🎨 Name Color Change", "colors")
             ]
             for label, sub_id in subcats:
                 button = discord.ui.Button(
@@ -2876,7 +2876,7 @@ class Shop(commands.Cog):
     # PURCHASE ITEM – with duplicate & expiration checks
     # -------------------------------------------------------------------------
     async def purchase_item(self, interaction: discord.Interaction, item_id: int):
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=True)
 
         # Fetch item details
         async with self.bot.db_pool.acquire() as conn:
