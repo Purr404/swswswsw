@@ -167,23 +167,23 @@ class DatabaseSystem:
                         )
                     ''')
 
-                    # FORTUNE BAG TABLE
-                        CREATE TABLE IF NOT EXISTS fortune_bags (
-                            message_id BIGINT PRIMARY KEY,
-                            channel_id BIGINT NOT NULL,
-                            remaining INTEGER NOT NULL,
-                            total INTEGER NOT NULL DEFAULT 6000,
-                            dropper_id BIGINT NOT NULL,
-                            active BOOLEAN NOT NULL DEFAULT TRUE
-                        );
+                     # FORTUNE BAG TABLE
+                         CREATE TABLE IF NOT EXISTS fortune_bags (
+                             message_id BIGINT PRIMARY KEY,
+                             channel_id BIGINT NOT NULL,
+                             remaining INTEGER NOT NULL,
+                             total INTEGER NOT NULL DEFAULT 6000,
+                             dropper_id BIGINT NOT NULL,
+                             active BOOLEAN NOT NULL DEFAULT TRUE
+                         );
 
-                        CREATE TABLE IF NOT EXISTS fortune_bag_participants (
-                            message_id BIGINT REFERENCES fortune_bags(message_id) ON DELETE CASCADE,
-                            user_id BIGINT NOT NULL,
-                            earned INTEGER NOT NULL,
-                            PRIMARY KEY (message_id, user_id)
-                        );
-                    # END FORTUNE BAG TABLE -------------
+                         CREATE TABLE IF NOT EXISTS fortune_bag_participants (
+                             message_id BIGINT REFERENCES fortune_bags(message_id) ON DELETE CASCADE,
+                             user_id BIGINT NOT NULL,
+                             earned INTEGER NOT NULL,
+                             PRIMARY KEY (message_id, user_id)
+                         );
+                     # END FORTUNE BAG TABLE -------------
 
                 self.using_database = True
                 print(f"🎉 Success with: {strategy_name}")
