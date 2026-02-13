@@ -167,6 +167,24 @@ class DatabaseSystem:
                         )
                     ''')
 
+                    # FORTUNE BAG TABLE
+                        CREATE TABLE IF NOT EXISTS fortune_bags (
+                            message_id BIGINT PRIMARY KEY,
+                            channel_id BIGINT NOT NULL,
+                            remaining INTEGER NOT NULL,
+                            total INTEGER NOT NULL DEFAULT 6000,
+                            dropper_id BIGINT NOT NULL,
+                            active BOOLEAN NOT NULL DEFAULT TRUE
+                        );
+
+                        CREATE TABLE IF NOT EXISTS fortune_bag_participants (
+                            message_id BIGINT REFERENCES fortune_bags(message_id) ON DELETE CASCADE,
+                            user_id BIGINT NOT NULL,
+                            earned INTEGER NOT NULL,
+                            PRIMARY KEY (message_id, user_id)
+                        );
+                    # END FORTUNE BAG TABLE -------------
+
                 self.using_database = True
                 print(f"🎉 Success with: {strategy_name}")
                 print("✅ Database connected and ready!")
@@ -591,6 +609,82 @@ currency_system = CurrencySystem(db)
 
 # --- 2. Store user selections ---
 user_selections = {}
+
+
+# FORTUNE BAG SYSTEM CLASS
+class FortuneBag:
+    def __init__(self, message_id: int, channel_id: int, dropper_id: int,
+                 remaining: int = 6000, total: int = 6000, active: bool = True):
+        self.message_id = message_id
+        self.channel_id = channel_id
+        self.dropper_id = dropper_id
+        self.remaining = remaining
+        self.total = total
+        self.active = active
+
+    async def award(self, bot: commands.Bot, user_id: int) -> int:
+        async with bot.db_pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "SELECT remaining FROM fortune_bags WHERE message_id = $1 FOR UPDATE",
+                    self.message_id
+                )
+                if not row or row['remaining'] <= 0:
+                    return 0
+
+                amount = random.randint(1, min(100, row['remaining']))
+                new_remaining = row['remaining'] - amount
+
+                await conn.execute(
+                    "UPDATE fortune_bags SET remaining = $1 WHERE message_id = $2",
+                    new_remaining, self.message_id
+                )
+
+                await conn.execute("""
+                    INSERT INTO fortune_bag_participants (message_id, user_id, earned)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (message_id, user_id)
+                    DO UPDATE SET earned = fortune_bag_participants.earned + $3
+                """, self.message_id, user_id, amount)
+
+                self.remaining = new_remaining
+                if new_remaining <= 0:
+                    self.active = False
+                    await conn.execute(
+                        "UPDATE fortune_bags SET active = FALSE WHERE message_id = $1",
+                        self.message_id
+                    )
+
+        return amount
+    #FORTUNE BAG LEADERBOARD
+    async def post_leaderboard(bag: FortuneBag, channel: discord.TextChannel, bot: commands.Bot):
+        async with bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, earned FROM fortune_bag_participants
+                WHERE message_id = $1
+                ORDER BY earned DESC
+            """, bag.message_id)
+
+        embed = discord.Embed(
+            title="🏆 Fortune Bag Results",
+            description="The bag is empty! Here's who earned diamonds:",
+            color=discord.Color.green()
+        )
+
+        for idx, row in enumerate(rows, start=1):
+            user = bot.get_user(row['user_id']) or await bot.fetch_user(row['user_id'])
+            embed.add_field(
+                name=f"{idx}. {user.display_name}",
+                value=f"{row['earned']} diamonds",
+                inline=False
+            )
+            if idx == 1:
+                embed.set_thumbnail(url=user.display_avatar.url)
+
+        await channel.send(embed=embed)
+
+
+# END FORTUNE BAG SYSTEM CLASS -------------
 
 # --- 3. ANNOUNCEMENT SYSTEM CLASS ---
 class AnnouncementSystem:
@@ -2242,6 +2336,57 @@ async def ping(ctx):
     """Check if bot is alive"""
     await ctx.send("🏓 Pong!")
 
+# FORTUNE BAG COMMAND
+@bot.command(name='fortunebagto')
+async def fortune_bag_to(ctx, channel: discord.TextChannel):
+    """Send a fortune bag to the specified channel."""
+    # Optional: permission check – uncomment if you want to restrict
+    # if not ctx.author.guild_permissions.administrator:
+    #     return await ctx.send("❌ You need administrator permissions to drop a bag.")
+
+    embed = discord.Embed(
+        title="🎁 Fortune Bag",
+        description="**6000 diamonds** inside!\nClick the button to claim 1–100 diamonds.",
+        color=discord.Color.gold()
+    )
+    embed.set_image(url="https://your-cdn.com/fortune-bag.png")  # Replace with your image
+
+    view = discord.ui.View(timeout=None)
+    # Temporary custom_id – will be replaced after we have the message ID
+    button = discord.ui.Button(
+        label="Open Bag",
+        style=discord.ButtonStyle.primary,
+        custom_id=f"openbag_temp_{ctx.message.id}"
+    )
+    view.add_item(button)
+
+    msg = await channel.send(embed=embed, view=view)
+
+    # Update button with permanent custom_id (message_id)
+    view = discord.ui.View(timeout=None)
+    button = discord.ui.Button(
+        label="Open Bag",
+        style=discord.ButtonStyle.primary,
+        custom_id=f"openbag_{msg.id}"
+    )
+    view.add_item(button)
+    await msg.edit(view=view)
+
+    # Store in database
+    bag = FortuneBag(msg.id, channel.id, ctx.author.id, 6000)
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO fortune_bags (message_id, channel_id, remaining, total, dropper_id, active)
+            VALUES ($1, $2, $3, $4, $5, $6)
+        """, bag.message_id, bag.channel_id, bag.remaining, bag.total, bag.dropper_id, bag.active)
+
+    bot.active_bags[msg.id] = bag
+
+    await ctx.send(f"✅ Fortune bag sent to {channel.mention}!", delete_after=5)
+
+
+# END------
+
 
 
 # === BOT STARTUP ===
@@ -2267,6 +2412,92 @@ async def on_ready():
         )
     )
     print("\n🤖 Bot is ready!")
+
+
+# FORTUNE BAG ON READY
+async def load_active_bags():
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT message_id, channel_id, remaining, total, dropper_id FROM fortune_bags WHERE active = TRUE"
+        )
+    for row in rows:
+        bag = FortuneBag(
+            message_id=row['message_id'],
+            channel_id=row['channel_id'],
+            dropper_id=row['dropper_id'],
+            remaining=row['remaining'],
+            total=row['total']
+        )
+        bot.active_bags[bag.message_id] = bag
+
+        # Re‑attach view
+        channel = bot.get_channel(bag.channel_id)
+        if channel:
+            try:
+                msg = await channel.fetch_message(bag.message_id)
+                view = discord.ui.View(timeout=None)
+                button = discord.ui.Button(
+                    label="Open Bag",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"openbag_{bag.message_id}"
+                )
+                view.add_item(button)
+                await msg.edit(view=view)
+            except discord.NotFound:
+                async with bot.db_pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE fortune_bags SET active = FALSE WHERE message_id = $1",
+                        bag.message_id
+                    )
+
+bot.setup_hook = lambda: bot.loop.create_task(load_active_bags())
+
+# END ------
+
+# FORTUNE BAG HANDLER
+
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    if interaction.type == discord.InteractionType.component:
+        custom_id = interaction.data["custom_id"]
+        if custom_id.startswith("openbag_"):
+            await handle_open_bag(interaction)
+
+async def handle_open_bag(interaction: discord.Interaction):
+    message_id = int(interaction.message.id)
+    bag = bot.active_bags.get(message_id)
+    if not bag or not bag.active:
+        await interaction.response.send_message("This bag is empty or expired.", ephemeral=True)
+        return
+
+    awarded = await bag.award(bot, interaction.user.id)
+
+    if awarded == 0:
+        await interaction.response.send_message("The bag is already empty.", ephemeral=True)
+        return
+
+    # "Like" the dropper's profile – add a ❤️ reaction
+    try:
+        await interaction.message.add_reaction("❤️")
+    except:
+        pass
+
+    # If bag is now empty
+    if bag.remaining <= 0:
+        # Disable button
+        view = discord.ui.View.from_message(interaction.message)
+        for child in view.children:
+            child.disabled = True
+        await interaction.message.edit(view=view)
+
+        # Post leaderboard
+        await post_leaderboard(bag, interaction.channel, bot)
+
+    await interaction.response.send_message(
+        f"You opened the bag and found **{awarded} diamonds**! {bag.remaining} diamonds remain.",
+        ephemeral=True
+    )
+#  END ------
 
 # === ERROR HANDLER ===
 @bot.event
