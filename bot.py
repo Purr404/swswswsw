@@ -2632,7 +2632,9 @@ class Shop(commands.Cog):
     @tasks.loop(hours=1)
     async def check_expired_purchases(self):
         """Remove expired purchases: delete record and remove role from user."""
-        if self.bot.db_pool is None:
+        # Wait for bot to be fully ready and db_pool to be set
+        await self.bot.wait_until_ready()
+        if not hasattr(self.bot, 'db_pool') or self.bot.db_pool is None:
             print("⏳ check_expired_purchases: db_pool not ready, skipping.")
             return
 
@@ -2677,11 +2679,6 @@ class Shop(commands.Cog):
                 print(f"🧹 Cleaned up {result.split()[1]} expired purchase records.")
         except Exception as e:
             print(f"❌ Error in check_expired_purchases: {e}")
-
-    @check_expired_purchases.before_loop
-    async def before_check_expired(self):
-        await self.bot.wait_until_ready()
-
     # -------------------------------------------------------------------------
     # LOAD PERSISTENT SHOP MESSAGES
     # -------------------------------------------------------------------------
