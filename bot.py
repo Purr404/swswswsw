@@ -2851,6 +2851,8 @@ class Shop(commands.Cog):
             await self.purchase_item(interaction, item_id)
         elif custom_id == "carriage_ride_book":
             await self.handle_carriage_ride(interaction)
+        elif custom_id == "shop_open_secret":
+            await self.show_secret_items(interaction)
 
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES
@@ -3295,8 +3297,11 @@ class Shop(commands.Cog):
         await ctx.send(f"✅ Carriage role set to {role.mention}")
 
 
-# Add the shop cog to the bot
-bot.add_cog(Shop(bot))
+async def setup():
+    await bot.add_cog(Shop(bot))
+    print("✅ Shop cog added")
+
+asyncio.create_task(setup())
 
 async def load_secret_shop_persistence(bot):
     shop_cog = bot.get_cog('Shop')
