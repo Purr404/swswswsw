@@ -227,10 +227,19 @@ class DatabaseSystem:
                             message_id BIGINT NOT NULL
                         )
                     ''')
+                    # Secret shop tables
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS bot_config (
                             key TEXT PRIMARY KEY,
                             value TEXT
+                        )
+                    ''')
+                    await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS is_secret BOOLEAN DEFAULT FALSE')
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS secret_shop_messages (
+                        guild_id BIGINT PRIMARY KEY,
+                        channel_id BIGINT NOT NULL,
+                        message_id BIGINT NOT NULL
                         )
                     ''')
                     # Ensure expires_at column exists and is timezone‑aware
@@ -2480,6 +2489,7 @@ async def on_ready():
         print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         await load_active_bags()
         await load_shop_persistence(bot)
+        await load_secret_shop_persistence(bot)
         print("✅ Your data will persist across redeploys")
     else:
         print("⚠️ Database not connected – fortune bags and shop will not be available.")
@@ -3105,6 +3115,50 @@ embed.set_image(url="https://your-cdn.com/carriage-banner.png")
 
 # END SECRET SHOP ------
 
+    async def handle_carriage_ride(self, interaction: discord.Interaction):
+        # Double‑check they still have the role
+        async with self.bot.db_pool.acquire() as conn:
+            carriage_role_id_str = await conn.fetchval("SELECT value FROM bot_config WHERE key = 'carriage_role_id'")
+        if not carriage_role_id_str:
+            await interaction.response.send_message("Carriage ride not configured.", ephemeral=True)
+            return
+        carriage_role_id = int(carriage_role_id_str)
+        role = interaction.guild.get_role(carriage_role_id)
+        if not role or role not in interaction.user.roles:
+            await interaction.response.send_message("You no longer have access to the Carriage ride.", ephemeral=True)
+            return
+
+        # Show the modal
+        modal = CarriageRideModal(self, carriage_role_id)
+        await interaction.response.send_modal(modal)
+
+
+    async def load_secret_shop_messages(self):
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT guild_id, channel_id, message_id FROM secret_shop_messages")
+        for row in rows:
+            guild = self.bot.get_guild(row['guild_id'])
+            if not guild:
+                continue
+            channel = guild.get_channel(row['channel_id'])
+            if not channel:
+                continue
+            try:
+                msg = await channel.fetch_message(row['message_id'])
+                view = discord.ui.View(timeout=None)
+                button = discord.ui.Button(
+                    label="Open Secret Shop",
+                    style=discord.ButtonStyle.success,
+                    custom_id="shop_open_secret"
+                )
+                view.add_item(button)
+                await msg.edit(view=view)
+                print(f"✅ Reattached secret shop view in #{channel.name}")
+            except Exception as e:
+                print(f"⚠️ Failed to reattach secret shop message {row['message_id']}: {e}")
+
+
+
 
     # SHOP LOGS
 
@@ -3235,6 +3289,10 @@ embed.set_image(url="https://your-cdn.com/carriage-banner.png")
 # Add the shop cog to the bot
 bot.add_cog(Shop(bot))
 
+async def load_secret_shop_persistence(bot):
+    shop_cog = bot.get_cog('Shop')
+    if shop_cog:
+        await shop_cog.load_secret_shop_messages()
 
 async def load_shop_persistence(bot):
     shop_cog = bot.get_cog('Shop')
