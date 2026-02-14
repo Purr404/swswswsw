@@ -2546,7 +2546,6 @@ async def load_active_bags():
                         bag.message_id
                     )
 
-bot.setup_hook = lambda: bot.loop.create_task(load_active_bags())
 
 # END ------
 
