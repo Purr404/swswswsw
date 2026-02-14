@@ -2690,6 +2690,8 @@ class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=69903e02&is=698eec82&hm=2efee7a4845963b5eedc45a24a7db034df602f55238f25b5a04168f520f2d38a&"  # 🔁 REPLACE
+    async def cog_load(self):
+        """Called when the cog is loaded – safe to start background tasks."""
         self.check_expired_purchases.start()
 
     def cog_unload(self):
@@ -2748,6 +2750,10 @@ class Shop(commands.Cog):
                 print(f"🧹 Cleaned up {result.split()[1]} expired purchase records.")
         except Exception as e:
             print(f"❌ Error in check_expired_purchases: {e}")
+
+    @check_expired_purchases.before_loop
+    async def before_check_expired(self):
+        await self.bot.wait_until_ready()
     # -------------------------------------------------------------------------
     # LOAD PERSISTENT SHOP MESSAGES
     # -------------------------------------------------------------------------
