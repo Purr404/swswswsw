@@ -1,7 +1,3 @@
-import subprocess
-import sys
-
-subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py==2.3.0"])
 import os
 import sys
 import json
@@ -229,21 +225,6 @@ class DatabaseSystem:
                             guild_id BIGINT PRIMARY KEY,
                             channel_id BIGINT NOT NULL,
                             message_id BIGINT NOT NULL
-                        )
-                    ''')
-                    # Secret shop tables
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS bot_config (
-                            key TEXT PRIMARY KEY,
-                            value TEXT
-                        )
-                    ''')
-                    await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS is_secret BOOLEAN DEFAULT FALSE')
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS secret_shop_messages (
-                        guild_id BIGINT PRIMARY KEY,
-                        channel_id BIGINT NOT NULL,
-                        message_id BIGINT NOT NULL
                         )
                     ''')
                     # Ensure expires_at column exists and is timezone‑aware
@@ -2493,7 +2474,6 @@ async def on_ready():
         print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         await load_active_bags()
         await load_shop_persistence(bot)
-        await load_secret_shop_persistence(bot)
         print("✅ Your data will persist across redeploys")
     else:
         print("⚠️ Database not connected – fortune bags and shop will not be available.")
@@ -2546,6 +2526,7 @@ async def load_active_bags():
                         bag.message_id
                     )
 
+bot.setup_hook = lambda: bot.loop.create_task(load_active_bags())
 
 # END ------
 
@@ -2630,56 +2611,8 @@ async def on_command_error(ctx, error):
 
 
 
-# TREASURE CARRIAGE --------
 
-class CarriageRideModal(discord.ui.Modal, title="Treasure Carriage Ride"):
-    ign = discord.ui.TextInput(
-        label="In-Game Name",
-        placeholder="Your IGN",
-        required=True,
-        max_length=50
-    )
-    ride_time = discord.ui.TextInput(
-        label="Ride Time",
-        placeholder="e.g., 15:30 UTC or Tomorrow 8pm",
-        required=True,
-        max_length=50
-    )
 
-    def __init__(self, cog, role_id):
-        super().__init__()
-        self.cog = cog
-        self.role_id = role_id
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
-        # Remove the role
-        role = interaction.guild.get_role(self.role_id)
-        if role and role in interaction.user.roles:
-            try:
-                await interaction.user.remove_roles(role, reason="Carriage ride used")
-            except discord.Forbidden:
-                await interaction.followup.send("Could not remove role due to permissions.", ephemeral=True)
-                return
-
-        # Log to admin‑logs channel (optional)
-        admin_channel = discord.utils.get(interaction.guild.text_channels, name="admin-logs")
-        if admin_channel:
-            embed = discord.Embed(
-                title="🚂 Carriage Ride Booked",
-                description=f"**User:** {interaction.user.mention} (`{interaction.user.id}`)\n**IGN:** {self.ign.value}\n**Ride Time:** {self.ride_time.value}",
-                color=discord.Color.blue()
-            )
-            await admin_channel.send(embed=embed)
-
-        # Send confirmation to user
-        embed = discord.Embed(
-            title="✅ Ride Booked!",
-            description=f"Your Treasure Carriage ride has been scheduled.\n**IGN:** {self.ign.value}\n**Time:** {self.ride_time.value}",
-            color=discord.Color.green()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 # =============================================================================
@@ -2689,8 +2622,6 @@ class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=69903e02&is=698eec82&hm=2efee7a4845963b5eedc45a24a7db034df602f55238f25b5a04168f520f2d38a&"  # 🔁 REPLACE
-    async def cog_load(self):
-        """Called when the cog is loaded – safe to start background tasks."""
         self.check_expired_purchases.start()
 
     def cog_unload(self):
@@ -2749,10 +2680,6 @@ class Shop(commands.Cog):
                 print(f"🧹 Cleaned up {result.split()[1]} expired purchase records.")
         except Exception as e:
             print(f"❌ Error in check_expired_purchases: {e}")
-
-    @check_expired_purchases.before_loop
-    async def before_check_expired(self):
-        await self.bot.wait_until_ready()
     # -------------------------------------------------------------------------
     # LOAD PERSISTENT SHOP MESSAGES
     # -------------------------------------------------------------------------
@@ -2848,10 +2775,6 @@ class Shop(commands.Cog):
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
-        elif custom_id == "carriage_ride_book":
-            await self.handle_carriage_ride(interaction)
-        elif custom_id == "shop_open_secret":
-            await self.show_secret_items(interaction)
 
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES
@@ -3065,110 +2988,6 @@ class Shop(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-# SECRET SHOP ----------
-    async def show_secret_items(self, interaction: discord.Interaction):
-        # Fetch carriage role ID from bot_config
-        async with self.bot.db_pool.acquire() as conn:
-            carriage_role_id_str = await conn.fetchval("SELECT value FROM bot_config WHERE key = 'carriage_role_id'")
-
-        # If user has the carriage role, show the ride interface
-        if carriage_role_id_str:
-            carriage_role_id = int(carriage_role_id_str)
-            carriage_role = interaction.guild.get_role(carriage_role_id)
-            if carriage_role and carriage_role in interaction.user.roles:
-                embed = discord.Embed(
-                    title="Treasure Carriage Ride",
-                    description="Click the button below to schedule your ride.\nYou will be asked for your IGN and preferred ride time.",
-                    color=discord.Color.gold()
-                )
-                # Banner image – replace with your actual URL
-                embed.set_image(url="https://cdn.discordapp.com/attachments/1470664051242700800/1472251685090103544/1000005273-removebg-preview.png?ex=6991e4ba&is=6990933a&hm=d71224097bba50301246d083c8b660962fb4e36d9830cf3cc35514354087fce6&")
-                view = discord.ui.View(timeout=300)
-                button = discord.ui.Button(
-                    label="🎟️ Book Ride",
-                    style=discord.ButtonStyle.success,
-                    custom_id="carriage_ride_book"
-                )
-                view.add_item(button)
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-                return
-
-        # Otherwise, show regular secret items (if any)
-        async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT item_id, name, description, price, type, color_hex
-                FROM shop_items
-                WHERE is_secret = TRUE
-                ORDER BY price ASC
-            """)
-
-        if not rows:
-            await interaction.response.send_message("No secret items available.", ephemeral=True)
-            return
-
-        embed = discord.Embed(
-            title="Secret Shop",
-            description="Select an item to purchase.",
-            color=discord.Color.purple()
-        )
-        view = discord.ui.View(timeout=300)
-        for row in rows:
-            label = f"{row['name']} – {row['price']} gems"
-            button = discord.ui.Button(
-                label=label[:80],
-                style=discord.ButtonStyle.primary,
-                custom_id=f"shop_buy_secret_{row['item_id']}"
-            )
-            view.add_item(button)
-
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-
-# END SECRET SHOP ------
-
-    async def handle_carriage_ride(self, interaction: discord.Interaction):
-        # Double‑check they still have the role
-        async with self.bot.db_pool.acquire() as conn:
-            carriage_role_id_str = await conn.fetchval("SELECT value FROM bot_config WHERE key = 'carriage_role_id'")
-        if not carriage_role_id_str:
-            await interaction.response.send_message("Carriage ride not configured.", ephemeral=True)
-            return
-        carriage_role_id = int(carriage_role_id_str)
-        role = interaction.guild.get_role(carriage_role_id)
-        if not role or role not in interaction.user.roles:
-            await interaction.response.send_message("You no longer have access to the Carriage ride.", ephemeral=True)
-            return
-
-        # Show the modal
-        modal = CarriageRideModal(self, carriage_role_id)
-        await interaction.response.send_modal(modal)
-
-
-    async def load_secret_shop_messages(self):
-        async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT guild_id, channel_id, message_id FROM secret_shop_messages")
-        for row in rows:
-            guild = self.bot.get_guild(row['guild_id'])
-            if not guild:
-                continue
-            channel = guild.get_channel(row['channel_id'])
-            if not channel:
-                continue
-            try:
-                msg = await channel.fetch_message(row['message_id'])
-                view = discord.ui.View(timeout=None)
-                button = discord.ui.Button(
-                    label="Open Secret Shop",
-                    style=discord.ButtonStyle.success,
-                    custom_id="shop_open_secret"
-                )
-                view.add_item(button)
-                await msg.edit(view=view)
-                print(f"✅ Reattached secret shop view in #{channel.name}")
-            except Exception as e:
-                print(f"⚠️ Failed to reattach secret shop message {row['message_id']}: {e}")
-
-
-
 
     # SHOP LOGS
 
@@ -3284,28 +3103,10 @@ class Shop(commands.Cog):
 
         await ctx.send(f"✅ Updated `{field}` of item #{item_id}.")
 
-    @shop_admin.command(name='setcarriagerole')
-    @commands.has_permissions(administrator=True)
-    async def set_carriage_role(self, ctx, role: discord.Role):
-        """Set the role that grants access to the Carriage ride in the secret shop."""
-        async with self.bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO bot_config (key, value) VALUES ('carriage_role_id', $1)
-                ON CONFLICT (key) DO UPDATE SET value = $1
-            """, str(role.id))
-        await ctx.send(f"✅ Carriage role set to {role.mention}")
 
+# Add the shop cog to the bot
+bot.add_cog(Shop(bot))
 
-async def setup():
-    await bot.add_cog(Shop(bot))
-    print("✅ Shop cog added")
-
-asyncio.create_task(setup())
-
-async def load_secret_shop_persistence(bot):
-    shop_cog = bot.get_cog('Shop')
-    if shop_cog:
-        await shop_cog.load_secret_shop_messages()
 
 async def load_shop_persistence(bot):
     shop_cog = bot.get_cog('Shop')
