@@ -1,3 +1,5 @@
+import subprocess
+subprocess.check_call([sys.executable, "-m", "pip", "install", "discord.py==2.3.0"])
 import os
 import sys
 import json
