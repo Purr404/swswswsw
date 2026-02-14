@@ -3071,8 +3071,7 @@ class Shop(commands.Cog):
                     color=discord.Color.gold()
                 )
                 # Banner image – replace with your actual URL
-        
-embed.set_image(url="https://cdn.discordapp.com/attachments/1470664051242700800/1472251685090103544/1000005273-removebg-preview.png?ex=6991e4ba&is=6990933a&hm=d71224097bba50301246d083c8b660962fb4e36d9830cf3cc35514354087fce6&")
+                embed.set_image(url="https://cdn.discordapp.com/attachments/1470664051242700800/1472251685090103544/1000005273-removebg-preview.png?ex=6991e4ba&is=6990933a&hm=d71224097bba50301246d083c8b660962fb4e36d9830cf3cc35514354087fce6&")
                 view = discord.ui.View(timeout=300)
                 button = discord.ui.Button(
                     label="🎟️ Book Ride",
