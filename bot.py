@@ -2611,8 +2611,56 @@ async def on_command_error(ctx, error):
 
 
 
+# TREASURE CARRIAGE --------
 
+class CarriageRideModal(discord.ui.Modal, title="Treasure Carriage Ride"):
+    ign = discord.ui.TextInput(
+        label="In-Game Name",
+        placeholder="Your IGN",
+        required=True,
+        max_length=50
+    )
+    ride_time = discord.ui.TextInput(
+        label="Ride Time",
+        placeholder="e.g., 15:30 UTC or Tomorrow 8pm",
+        required=True,
+        max_length=50
+    )
 
+    def __init__(self, cog, role_id):
+        super().__init__()
+        self.cog = cog
+        self.role_id = role_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        # Remove the role
+        role = interaction.guild.get_role(self.role_id)
+        if role and role in interaction.user.roles:
+            try:
+                await interaction.user.remove_roles(role, reason="Carriage ride used")
+            except discord.Forbidden:
+                await interaction.followup.send("Could not remove role due to permissions.", ephemeral=True)
+                return
+
+        # Log to admin‑logs channel (optional)
+        admin_channel = discord.utils.get(interaction.guild.text_channels, name="admin-logs")
+        if admin_channel:
+            embed = discord.Embed(
+                title="🚂 Carriage Ride Booked",
+                description=f"**User:** {interaction.user.mention} (`{interaction.user.id}`)\n**IGN:** {self.ign.value}\n**Ride Time:** {self.ride_time.value}",
+                color=discord.Color.blue()
+            )
+            await admin_channel.send(embed=embed)
+
+        # Send confirmation to user
+        embed = discord.Embed(
+            title="✅ Ride Booked!",
+            description=f"Your Treasure Carriage ride has been scheduled.\n**IGN:** {self.ign.value}\n**Time:** {self.ride_time.value}",
+            color=discord.Color.green()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 # =============================================================================
