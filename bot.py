@@ -56,6 +56,9 @@ except Exception as e:
 
 import discord
 print("discord.py version:", discord.__version__)
+print("discord.__file__:", discord.__file__)
+print("discord.ui dir:", dir(discord.ui))
+print("Has TextInput?", hasattr(discord.ui, 'TextInput'))
 from discord.ext import commands, tasks
 from typing import Optional
 
