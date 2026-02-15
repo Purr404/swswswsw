@@ -3041,139 +3041,106 @@ class Shop(commands.Cog):
 
     # SECRET SHOP ===============
     async def secret_shop_button(self, interaction: discord.Interaction, purchase_id: int):
-        """Handle the 'Open Secret Shop' button click – show a modal."""
-        # Verify the purchase exists and is not used
+        """Start DM booking process."""
         async with self.bot.db_pool.acquire() as conn:
             purchase = await conn.fetchrow(
                 "SELECT * FROM user_purchases WHERE purchase_id = $1 AND used = FALSE",
                 purchase_id
             )
         if not purchase:
-            await interaction.response.send_message(
-                "❌ This ticket has already been used or no longer exists.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ Ticket already used.", ephemeral=True)
             return
 
-        # Show modal to collect IGN and ride time
-        modal = CarriageBookingModal(self.bot, purchase_id, interaction.user.id)
-        await interaction.response.send_modal(modal)
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.user.send("🚂 **Treasure Carriage Booking**\nPlease reply with your **in‑game name** (IGN).")
+            self.booking_sessions[interaction.user.id] = {"purchase_id": purchase_id, "step": "ign"}
+            await interaction.followup.send("📨 Check your DMs to continue.", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send("❌ I can't DM you. Enable DMs and try again.", ephemeral=True)
 
-    # Define the modal class (outside the cog, but inside the same file)
-    class CarriageBookingModal(discord.ui.Modal, title="Treasure Carriage Booking"):
-        def __init__(self, bot, purchase_id: int, user_id: int):
-            super().__init__()
-            self.bot = bot
-            self.purchase_id = purchase_id
-            self.user_id = user_id
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not isinstance(message.channel, discord.DMChannel):
+            return
+        user_id = message.author.id
+        if user_id not in self.booking_sessions:
+            return
 
-        ign = discord.ui.TextInput(
-            label="In‑Game Name",
-            placeholder="Enter your IGN (max 32 chars)",
-            max_length=32,
-            required=True
-        )
-        ride_time = discord.ui.TextInput(
-            label="Ride Time (UTC)",
-            placeholder="YYYY-MM-DD HH:MM  (e.g., 2025-03-20 18:30)",
-            max_length=16,
-            required=True
-        )
+        session = self.booking_sessions[user_id]
 
-        async def on_submit(self, interaction: discord.Interaction):
-            # Validate time format
+        if session["step"] == "ign":
+            ign = message.content.strip()
+            if len(ign) > 32:
+                await message.channel.send("❌ IGN too long (max 32). Try again:")
+                return
+            session["ign"] = ign
+            session["step"] = "time"
+            await message.channel.send("✅ Got it. Now provide **ride time** in UTC: `YYYY-MM-DD HH:MM`")
+
+        elif session["step"] == "time":
             try:
-                ride_datetime = datetime.strptime(self.ride_time.value, "%Y-%m-%d %H:%M")
-                ride_datetime = ride_datetime.replace(tzinfo=timezone.utc)
-                if ride_datetime < datetime.now(timezone.utc):
-                    await interaction.response.send_message(
-                        "❌ Ride time must be in the future.",
-                        ephemeral=True
-                    )
+                dt = datetime.strptime(message.content.strip(), "%Y-%m-%d %H:%M")
+                dt = dt.replace(tzinfo=timezone.utc)
+                if dt < datetime.now(timezone.utc):
+                    await message.channel.send("❌ Time must be in future. Try again:")
                     return
             except ValueError:
-                await interaction.response.send_message(
-                    "❌ Invalid time format. Please use `YYYY-MM-DD HH:MM` (UTC).",
-                    ephemeral=True
-                )
+                await message.channel.send("❌ Invalid format. Use `YYYY-MM-DD HH:MM`")
                 return
 
-            # Store booking, mark purchase as used, remove role
+            # Save booking
+            purchase_id = session["purchase_id"]
+            ign = session["ign"]
             async with self.bot.db_pool.acquire() as conn:
                 async with conn.transaction():
-                    # Insert booking
                     await conn.execute("""
                         INSERT INTO carriage_bookings (user_id, ign, ride_time, purchase_id)
                         VALUES ($1, $2, $3, $4)
-                    """, str(interaction.user.id), self.ign.value, ride_datetime, self.purchase_id)
+                    """, str(user_id), ign, dt, purchase_id)
+                    await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
 
-                    # Mark purchase as used
-                    await conn.execute(
-                        "UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1",
-                        self.purchase_id
-                    )
-
-            # Remove the role from the member
-            # Fetch item_id from purchase to get role_id
+            # Remove role
             async with self.bot.db_pool.acquire() as conn:
-                item_id = await conn.fetchval(
-                    "SELECT item_id FROM user_purchases WHERE purchase_id = $1",
-                    self.purchase_id
-                )
-                if item_id:
-                    role_id = await conn.fetchval(
-                        "SELECT role_id FROM shop_items WHERE item_id = $1",
-                        item_id
-                    )
-                else:
-                    role_id = None
+                row = await conn.fetchrow("""
+                    SELECT si.role_id, si.guild_id
+                    FROM shop_items si
+                    JOIN user_purchases up ON up.item_id = si.item_id
+                    WHERE up.purchase_id = $1
+                """, purchase_id)
 
-            if role_id:
-                role = interaction.guild.get_role(role_id)
-                if role:
-                    try:
-                        await interaction.user.remove_roles(role, reason="Carriage ticket used")
-                    except Exception as e:
-                        # Log but don't fail
-                        print(f"⚠️ Could not remove role after carriage use: {e}")
+            if row:
+                guild = self.bot.get_guild(row['guild_id'])
+                if guild:
+                    member = guild.get_member(user_id)
+                    if member:
+                        role = guild.get_role(row['role_id'])
+                        if role:
+                            try:
+                                await member.remove_roles(role, reason="Carriage used")
+                            except Exception as e:
+                                print(f"Role removal failed: {e}")
 
-            # Delete the original ephemeral secret shop message (the one with the button)
-            # Since we can't directly delete the original followup, we edit it to remove the button and show success.
-            # But we don't have a reference to that message. Instead, we can send a new ephemeral confirming booking.
-            # The original message will remain but the button will be useless because purchase is now used.
-            # To clean up, we can try to fetch the original interaction's original message (not possible via followup easily).
-            # Simpler: send a confirmation and the user can dismiss the old message manually.
-            # Alternatively, we can disable the button on the original message if we stored its message_id.
-            # Since we didn't store, we'll just send a success and the button will give "used" if clicked again.
+            # Confirm to user
+            embed = discord.Embed(title="✅ Booking Confirmed!", color=discord.Color.green())
+            embed.description = f"**IGN:** {ign}\n**Ride Time:** <t:{int(dt.timestamp())}:F>\n\nThe role has been removed."
+            await message.channel.send(embed=embed)
 
-            # Send confirmation
-            embed = discord.Embed(
-                title="✅ Booking Confirmed!",
-                description=(
-                    f"Your Treasure Carriage ride has been booked!\n"
-                    f"**IGN:** {self.ign.value}\n"
-                    f"**Ride Time:** <t:{int(ride_datetime.timestamp())}:F>\n\n"
-                    f"The Treasure Carriage role has been removed from your profile."
-                ),
-                color=discord.Color.green()
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            # Notify admins
+            if row and (guild := self.bot.get_guild(row['guild_id'])):
+                log_channel = discord.utils.get(guild.text_channels, name="carriage-logs")
+                if log_channel:
+                    log_embed = discord.Embed(title="🚂 New Carriage Booking", color=discord.Color.blue())
+                    log_embed.add_field(name="User", value=f"{member.mention} (`{user_id}`)" if member else f"`{user_id}`")
+                    log_embed.add_field(name="IGN", value=ign)
+                    log_embed.add_field(name="Ride Time", value=f"<t:{int(dt.timestamp())}:F>")
+                    log_embed.add_field(name="Purchase ID", value=str(purchase_id))
+                    if member:
+                    log_embed.set_thumbnail(url=member.display_avatar.url)
+                    await log_channel.send(embed=log_embed)
 
-            # Log to a #carriage-logs channel if it exists
-            channel = discord.utils.get(interaction.guild.text_channels, name="carriage-logs")
-            if channel:
-                log_embed = discord.Embed(
-                    title="🚂 Carriage Booking",
-                    color=discord.Color.blue(),
-                    timestamp=datetime.now(timezone.utc)
-                )
-                log_embed.add_field(name="User", value=f"{interaction.user.mention} (`{interaction.user.id}`)")
-                log_embed.add_field(name="IGN", value=self.ign.value)
-                log_embed.add_field(name="Ride Time", value=f"<t:{int(ride_datetime.timestamp())}:F>")
-                log_embed.add_field(name="Purchase ID", value=str(self.purchase_id))
-                log_embed.set_thumbnail(url=interaction.user.display_avatar.url)
-                await channel.send(embed=log_embed)
-
+            # Clean up session
+            del self.booking_sessions[user_id]
 # END SECRET SHOP =================
 
 
