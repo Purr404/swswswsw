@@ -2637,7 +2637,7 @@ async def on_command_error(ctx, error):
 class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=69903e02&is=698eec82&hm=2efee7a4845963b5eedc45a24a7db034df602f55238f25b5a04168f520f2d38a&"  # 🔁 REPLACE
+        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=6992e102&is=69918f82&hm=8a7bf535085e1dd0af98d977c5cc9766ecf463b73dbb5330444ff739b62c3571&"  # 🔁 REPLACE
         self.check_expired_purchases.start()
 
     def cog_unload(self):
