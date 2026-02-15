@@ -3111,9 +3111,9 @@ class Shop(commands.Cog):
             # Remove the role from the member
             # Fetch item_id from purchase to get role_id
             async with self.bot.db_pool.acquire() as conn:
-                 item_id = await conn.fetchval(
-                "SELECT item_id FROM user_purchases WHERE purchase_id = $1",
-                self.purchase_id
+                item_id = await conn.fetchval(
+                    "SELECT item_id FROM user_purchases WHERE purchase_id = $1",
+                    self.purchase_id
                 )
                 if item_id:
                     role_id = await conn.fetchval(
@@ -3123,7 +3123,7 @@ class Shop(commands.Cog):
                 else:
                     role_id = None
 
-             if role_id:
+            if role_id:
                 role = interaction.guild.get_role(role_id)
                 if role:
                     try:
@@ -3307,3 +3307,4 @@ if __name__ == "__main__":
     else:
         print("❌ ERROR: No TOKEN found in environment variables!")
         print("💡 Set TOKEN environment variable in Railway")
+
