@@ -2796,9 +2796,8 @@ class Shop(commands.Cog):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
         elif custom_id.startswith("secret_shop_"):
-            purchase_id = int(custom_id.replace("secret_shop_", ""))
+            purchase_id = int(custom_id.split("_")[2])
             await self.secret_shop_button(interaction, purchase_id)
-
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES
     # -------------------------------------------------------------------------
@@ -2936,7 +2935,7 @@ class Shop(commands.Cog):
         async with self.bot.db_pool.acquire() as conn:
             active = await conn.fetchval("""
                 SELECT 1 FROM user_purchases
-                WHERE user_id = $1 AND item_id = $2 AND expires_at > $3
+                WHERE user_id = $1 AND item_id = $2 AND expires_at > $3 AND used = FALSE
             """, user_id, item_id, now)
         if active:
             embed = discord.Embed(
@@ -2989,9 +2988,10 @@ class Shop(commands.Cog):
         # Record purchase with expiration (7 days from now)
         expires_at = now + timedelta(days=7)
         async with self.bot.db_pool.acquire() as conn:
-            await conn.execute("""
+            purchase_id = await conn.fetchval("""
                 INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
                 VALUES ($1, $2, $3, $4)
+                RETURNING purchase_id
             """, user_id, item_id, item['price'], expires_at)
 
         # --- SPECIAL CASE: Treasure Carriage ---
