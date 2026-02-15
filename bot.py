@@ -2774,6 +2774,9 @@ class Shop(commands.Cog):
             return
 
         custom_id = interaction.data["custom_id"]
+        if custom_id.startswith("secret_shop_"):
+            purchase_id = int(custom_id.split("_")[2])
+            await self.secret_shop_button(interaction, purchase_id)
 
         if custom_id == "shop_open_main":
             await self.show_main_categories(interaction)
