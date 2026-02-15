@@ -2642,6 +2642,7 @@ class Shop(commands.Cog):
 
     def cog_unload(self):
         self.check_expired_purchases.cancel()
+        self.booking_sessions = {}
 
     # -------------------------------------------------------------------------
     # BACKGROUND TASK: Remove expired roles every hour
