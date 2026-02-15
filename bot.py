@@ -3000,17 +3000,17 @@ class Shop(commands.Cog):
             # Send ephemeral message with a button to open the secret shop
             view = discord.ui.View(timeout=300)
             button = discord.ui.Button(
-                label="🚂 Open Secret Shop",
+                label="Continue",
                 style=discord.ButtonStyle.primary,
                 custom_id=f"secret_shop_{purchase_id}"
             )
             view.add_item(button)
 
             embed = discord.Embed(
-                title="🎫 Treasure Carriage Ticket Purchased!",
+                title="🎫 Treasure Carriage Seat Purchased!",
                 description=(
-                    f"You have bought a **Treasure Carriage** ticket for **{item['price']} gems**.\n"
-                    f"Your role has been assigned. Click the button below to open the **Secret Shop** "
+                    f"You have bought a **Treasure Carriage** Seat for **{item['price']} gems**.\n"
+                    f"Click the button below to continue"
                     f"and book your ride (in‑game name + time).\n\n"
                     f"⚠️ This button will disappear after use or after 5 minutes of inactivity."
                 ),
@@ -3057,9 +3057,9 @@ class Shop(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.user.send("🚂 **Treasure Carriage Booking**\nPlease reply with your **in‑game name** (IGN).")
+            await interaction.user.send("**Treasure Carriage Booking**\nPlease reply with your **in‑game name** (IGN).")
             self.booking_sessions[interaction.user.id] = {"purchase_id": purchase_id, "step": "ign"}
-            await interaction.followup.send("📨 Check your DMs to continue.", ephemeral=True)
+            await interaction.followup.send("📨 Check your DM to continue.", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("❌ I can't DM you. Enable DMs and try again.", ephemeral=True)
 
@@ -3144,8 +3144,8 @@ class Shop(commands.Cog):
                                 print(f"[DEBUG TIME] Role removal error: {e}")
 
             # Confirm to user
-            embed = discord.Embed(title="✅ Booking Confirmed!", color=discord.Color.green())
-            embed.description = f"**IGN:** {ign}\n**Ride Time:** <t:{int(dt.timestamp())}:F>\n\nThe role has been removed."
+            embed = discord.Embed(title="✅ Schedule Confirmed!", color=discord.Color.green())
+            embed.description = f"**IGN:** {ign}\n**Ride Time:** <t:{int(dt.timestamp())}:F>\n\nYour ride has been scheduled. Please wait for confirmation."
             await message.channel.send(embed=embed)
             print("[DEBUG TIME] Confirmation sent")
 
