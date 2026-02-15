@@ -3010,13 +3010,13 @@ class Shop(commands.Cog):
                 title="🎫 Treasure Carriage Seat Purchased!",
                 description=(
                     f"You have bought a **Treasure Carriage** Seat for **{item['price']} gems**.\n"
-                    f"Click the button below to continue"
+                    f"Click the button below to continue " 
                     f"and book your ride (in‑game name + time).\n\n"
                     f"⚠️ This button will disappear after use or after 5 minutes of inactivity."
                 ),
                 color=discord.Color.gold()
             )
-            embed.set_footer(text="The role will be removed after you book your ride.")
+            embed.set_footer(text="The item will be removed after you book your ride.")
 
             # Store the purchase_id in the view for later use? Not needed, it's in custom_id.
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
