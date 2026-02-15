@@ -3263,58 +3263,62 @@ class Shop(commands.Cog):
 
 # TEMPORARY COMMAND
 
-@commands.command(name='clear_carriage')
-@commands.has_permissions(administrator=True)
-async def clear_carriage(self, ctx, user: discord.Member = None):
-    """Admin only: Clear the Treasure Carriage purchase for a user (mark as used)."""
-    print(f"[DEBUG] clear_carriage called by {ctx.author}")
-    await ctx.send("Command received, processing...")   # temporary
-    target = user or ctx.author
-    user_id = str(target.id)
-    
-    async with self.bot.db_pool.acquire() as conn:
-        # Find the active Treasure Carriage purchase
-        row = await conn.fetchrow("""
-            SELECT up.purchase_id 
-            FROM user_purchases up
-            JOIN shop_items si ON up.item_id = si.item_id
-            WHERE up.user_id = $1 
-              AND si.name ILIKE '%treasure carriage%' 
-              AND up.used = FALSE 
-              AND up.expires_at > NOW()
-            LIMIT 1
-        """, user_id)
-        
-        if not row:
-            await ctx.send(f"❌ No active Treasure Carriage purchase found for {target.mention}.")
-            return
-        
-        purchase_id = row['purchase_id']
-        
-        # Mark as used (or you could DELETE, but marking used is safer)
-        await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
-        
-        # Also try to remove the role if still present
-        guild = ctx.guild
-        member = guild.get_member(target.id)
-        if member:
-            # Find the role from shop_items
-            role_row = await conn.fetchrow("""
-                SELECT si.role_id 
-                FROM shop_items si
-                JOIN user_purchases up ON up.item_id = si.item_id
-                WHERE up.purchase_id = $1
-            """, purchase_id)
-            if role_row:
-                role = guild.get_role(role_row['role_id'])
-                if role and role in member.roles:
-                    try:
-                        await member.remove_roles(role, reason="Cleared by admin")
-                    except:
-                        pass
-        
-    await ctx.send(f"✅ Cleared Treasure Carriage purchase for {target.mention}. They can now buy it again.")
+    @commands.command(name='clear_carriage')
+    @commands.has_permissions(administrator=True)
+    async def clear_carriage(self, ctx, user: discord.Member = None):
+        """Admin only: Clear the Treasure Carriage purchase for a user (mark as used)."""
+        print(f"[DEBUG] clear_carriage called by {ctx.author}")
+        await ctx.send("Command received, processing...")   # temporary
 
+        target = user or ctx.author
+        user_id = str(target.id)
+
+        # Check database connection
+        if not self.bot.db_pool:
+            await ctx.send("❌ Database not connected.")
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            # Find the active Treasure Carriage purchase
+            row = await conn.fetchrow("""
+                SELECT up.purchase_id 
+                FROM user_purchases up
+                JOIN shop_items si ON up.item_id = si.item_id
+                WHERE up.user_id = $1 
+                  AND si.name ILIKE '%treasure carriage%' 
+                  AND up.used = FALSE 
+                  AND up.expires_at > NOW()
+                LIMIT 1
+            """, user_id)
+
+            if not row:
+                await ctx.send(f"❌ No active Treasure Carriage purchase found for {target.mention}.")
+                return
+
+            purchase_id = row['purchase_id']
+
+            # Mark as used
+            await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
+
+            # Remove role if still present
+            guild = ctx.guild
+            member = guild.get_member(target.id)
+            if member:
+                role_row = await conn.fetchrow("""
+                    SELECT si.role_id 
+                    FROM shop_items si
+                    JOIN user_purchases up ON up.item_id = si.item_id
+                    WHERE up.purchase_id = $1
+                """, purchase_id)
+                if role_row:
+                    role = guild.get_role(role_row['role_id'])
+                    if role and role in member.roles:
+                        try:
+                            await member.remove_roles(role, reason="Cleared by admin")
+                        except Exception as e:
+                            print(f"Role removal error: {e}")
+
+        await ctx.send(f"✅ Cleared Treasure Carriage purchase for {target.mention}. They can now buy it again.")
 
 # Add the shop cog to the bot
 bot.add_cog(Shop(bot))
