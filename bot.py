@@ -3102,12 +3102,13 @@ class Shop(commands.Cog):
             print(f"[DEBUG TIME] Purchase ID: {purchase_id}, IGN: {ign}")
 
             try:
+                dt_naive = dt.replace(tzinfo=None)  # remove timezone
                 async with self.bot.db_pool.acquire() as conn:
                     async with conn.transaction():
                         await conn.execute("""
                             INSERT INTO carriage_bookings (user_id, ign, ride_time, purchase_id)
                             VALUES ($1, $2, $3, $4)
-                        """, str(user_id), ign, dt, purchase_id)
+                        """, str(user_id), ign, dt_naive, purchase_id)
                         await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
                 print("[DEBUG TIME] Database insert/update succeeded")
             except Exception as e:
