@@ -2639,10 +2639,11 @@ class Shop(commands.Cog):
         self.bot = bot
         self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=6992e102&is=69918f82&hm=8a7bf535085e1dd0af98d977c5cc9766ecf463b73dbb5330444ff739b62c3571&"  # 🔁 REPLACE
         self.check_expired_purchases.start()
+        self.booking_sessions = {}
 
     def cog_unload(self):
         self.check_expired_purchases.cancel()
-        self.booking_sessions = {}
+        
 
     # -------------------------------------------------------------------------
     # BACKGROUND TASK: Remove expired roles every hour
