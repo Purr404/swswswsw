@@ -3267,6 +3267,8 @@ class Shop(commands.Cog):
 @commands.has_permissions(administrator=True)
 async def clear_carriage(self, ctx, user: discord.Member = None):
     """Admin only: Clear the Treasure Carriage purchase for a user (mark as used)."""
+    print(f"[DEBUG] clear_carriage called by {ctx.author}")
+    await ctx.send("Command received, processing...")   # temporary
     target = user or ctx.author
     user_id = str(target.id)
     
