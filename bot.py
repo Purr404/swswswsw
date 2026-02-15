@@ -3151,19 +3151,19 @@ class Shop(commands.Cog):
             # Notify admins
             if row and (guild := self.bot.get_guild(row['guild_id'])):
                 log_channel = discord.utils.get(guild.text_channels, name="carriage-logs")
-                 if log_channel:
-                     try:
-                         log_embed = discord.Embed(title="🚂 New Carriage Booking", color=discord.Color.blue())
-                         log_embed.add_field(name="User", value=f"{member.mention} (`{user_id}`)" if member else f"`{user_id}`")
-                         log_embed.add_field(name="IGN", value=ign)
-                         log_embed.add_field(name="Ride Time", value=f"<t:{int(dt.timestamp())}:F>")
-                         log_embed.add_field(name="Purchase ID", value=str(purchase_id))
-                         if member:
-                             log_embed.set_thumbnail(url=member.display_avatar.url)
-                         await log_channel.send(embed=log_embed)
-                         print("[DEBUG TIME] Admin log sent")
-                     except Exception as e:
-                         print(f"[DEBUG TIME] Admin log error: {e}")
+                if log_channel:
+                    try:
+                        log_embed = discord.Embed(title="🚂 New Carriage Booking", color=discord.Color.blue())
+                        log_embed.add_field(name="User", value=f"{member.mention} (`{user_id}`)" if member else f"`{user_id}`")
+                        log_embed.add_field(name="IGN", value=ign)
+                        log_embed.add_field(name="Ride Time", value=f"<t:{int(dt.timestamp())}:F>")
+                        log_embed.add_field(name="Purchase ID", value=str(purchase_id))
+                        if member:
+                            log_embed.set_thumbnail(url=member.display_avatar.url)
+                        await log_channel.send(embed=log_embed)
+                        print("[DEBUG TIME] Admin log sent")
+                    except Exception as e:
+                        print(f"[DEBUG TIME] Admin log error: {e}")
 
             # Clean up session
             del self.booking_sessions[user_id]
