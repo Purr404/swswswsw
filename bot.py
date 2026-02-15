@@ -3139,7 +3139,7 @@ class Shop(commands.Cog):
                     log_embed.add_field(name="Ride Time", value=f"<t:{int(dt.timestamp())}:F>")
                     log_embed.add_field(name="Purchase ID", value=str(purchase_id))
                     if member:
-                    log_embed.set_thumbnail(url=member.display_avatar.url)
+                        log_embed.set_thumbnail(url=member.display_avatar.url)
                     await log_channel.send(embed=log_embed)
 
             # Clean up session
