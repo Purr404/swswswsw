@@ -55,6 +55,7 @@ except Exception as e:
     ASYNCPG_AVAILABLE = True  # Might still work
 
 import discord
+print("discord.py version:", discord.__version__)
 from discord.ext import commands, tasks
 from typing import Optional
 
