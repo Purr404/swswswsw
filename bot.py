@@ -3083,35 +3083,51 @@ class Shop(commands.Cog):
             await message.channel.send("✅ Got it. Now provide **ride time** in UTC: `YYYY-MM-DD HH:MM`")
 
         elif session["step"] == "time":
+            print(f"[DEBUG TIME] Received: '{message.content}'")
             try:
                 dt = datetime.strptime(message.content.strip(), "%Y-%m-%d %H:%M")
                 dt = dt.replace(tzinfo=timezone.utc)
                 if dt < datetime.now(timezone.utc):
                     await message.channel.send("❌ Time must be in future. Try again:")
                     return
-            except ValueError:
+                print("[DEBUG TIME] Parsed successfully:", dt)
+            except ValueError as e:
+                print(f"[DEBUG TIME] Parse error: {e}")
                 await message.channel.send("❌ Invalid format. Use `YYYY-MM-DD HH:MM`")
                 return
 
             # Save booking
             purchase_id = session["purchase_id"]
             ign = session["ign"]
-            async with self.bot.db_pool.acquire() as conn:
-                async with conn.transaction():
-                    await conn.execute("""
-                        INSERT INTO carriage_bookings (user_id, ign, ride_time, purchase_id)
-                        VALUES ($1, $2, $3, $4)
-                    """, str(user_id), ign, dt, purchase_id)
-                    await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
+            print(f"[DEBUG TIME] Purchase ID: {purchase_id}, IGN: {ign}")
+
+            try:
+                async with self.bot.db_pool.acquire() as conn:
+                    async with conn.transaction():
+                        await conn.execute("""
+                            INSERT INTO carriage_bookings (user_id, ign, ride_time, purchase_id)
+                            VALUES ($1, $2, $3, $4)
+                        """, str(user_id), ign, dt, purchase_id)
+                        await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
+                print("[DEBUG TIME] Database insert/update succeeded")
+            except Exception as e:
+                print(f"[DEBUG TIME] Database error: {e}")
+                await message.channel.send("❌ Database error – booking failed. Please contact an admin.")
+                return
 
             # Remove role
-            async with self.bot.db_pool.acquire() as conn:
-                row = await conn.fetchrow("""
-                    SELECT si.role_id, si.guild_id
-                    FROM shop_items si
-                    JOIN user_purchases up ON up.item_id = si.item_id
-                    WHERE up.purchase_id = $1
-                """, purchase_id)
+            try:
+                async with self.bot.db_pool.acquire() as conn:
+                    row = await conn.fetchrow("""
+                        SELECT si.role_id, si.guild_id
+                        FROM shop_items si
+                        JOIN user_purchases up ON up.item_id = si.item_id
+                        WHERE up.purchase_id = $1
+                    """, purchase_id)
+                print(f"[DEBUG TIME] Role row: {row}")
+            except Exception as e:
+                print(f"[DEBUG TIME] Role fetch error: {e}")
+                row = None
 
             if row:
                 guild = self.bot.get_guild(row['guild_id'])
@@ -3122,29 +3138,37 @@ class Shop(commands.Cog):
                         if role:
                             try:
                                 await member.remove_roles(role, reason="Carriage used")
+                                print("[DEBUG TIME] Role removed")
                             except Exception as e:
-                                print(f"Role removal failed: {e}")
+                                print(f"[DEBUG TIME] Role removal error: {e}")
 
             # Confirm to user
             embed = discord.Embed(title="✅ Booking Confirmed!", color=discord.Color.green())
             embed.description = f"**IGN:** {ign}\n**Ride Time:** <t:{int(dt.timestamp())}:F>\n\nThe role has been removed."
             await message.channel.send(embed=embed)
+            print("[DEBUG TIME] Confirmation sent")
 
             # Notify admins
             if row and (guild := self.bot.get_guild(row['guild_id'])):
                 log_channel = discord.utils.get(guild.text_channels, name="carriage-logs")
-                if log_channel:
-                    log_embed = discord.Embed(title="🚂 New Carriage Booking", color=discord.Color.blue())
-                    log_embed.add_field(name="User", value=f"{member.mention} (`{user_id}`)" if member else f"`{user_id}`")
-                    log_embed.add_field(name="IGN", value=ign)
-                    log_embed.add_field(name="Ride Time", value=f"<t:{int(dt.timestamp())}:F>")
-                    log_embed.add_field(name="Purchase ID", value=str(purchase_id))
-                    if member:
-                        log_embed.set_thumbnail(url=member.display_avatar.url)
-                    await log_channel.send(embed=log_embed)
+                 if log_channel:
+                     try:
+                         log_embed = discord.Embed(title="🚂 New Carriage Booking", color=discord.Color.blue())
+                         log_embed.add_field(name="User", value=f"{member.mention} (`{user_id}`)" if member else f"`{user_id}`")
+                         log_embed.add_field(name="IGN", value=ign)
+                         log_embed.add_field(name="Ride Time", value=f"<t:{int(dt.timestamp())}:F>")
+                         log_embed.add_field(name="Purchase ID", value=str(purchase_id))
+                         if member:
+                             log_embed.set_thumbnail(url=member.display_avatar.url)
+                         await log_channel.send(embed=log_embed)
+                         print("[DEBUG TIME] Admin log sent")
+                     except Exception as e:
+                         print(f"[DEBUG TIME] Admin log error: {e}")
 
             # Clean up session
             del self.booking_sessions[user_id]
+            print("[DEBUG TIME] Session deleted")
+
 # END SECRET SHOP =================
 
 
