@@ -3169,6 +3169,7 @@ class Shop(commands.Cog):
             del self.booking_sessions[user_id]
             print("[DEBUG TIME] Session deleted")
 
+
 # END SECRET SHOP =================
 
 
