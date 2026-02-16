@@ -2775,9 +2775,6 @@ class Shop(commands.Cog):
             return
 
         custom_id = interaction.data["custom_id"]
-        if custom_id.startswith("secret_shop_"):
-            purchase_id = int(custom_id.split("_")[2])
-            await self.secret_shop_button(interaction, purchase_id)
 
         if custom_id == "shop_open_main":
             await self.show_main_categories(interaction)
@@ -2790,9 +2787,7 @@ class Shop(commands.Cog):
         elif custom_id == "shop_back_to_main":
             await self.show_main_categories(interaction)
         elif custom_id == "shop_back_to_sub":
-            # Need to know which main category to go back to – we'll store it in custom_id later.
-            # Simpler: just go back to main categories.
-            await self.show_main_categories(interaction)
+            await self.show_main_categories(interaction)  # Simplified
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
