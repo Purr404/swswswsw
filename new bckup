@@ -55,6 +55,10 @@ except Exception as e:
     ASYNCPG_AVAILABLE = True  # Might still work
 
 import discord
+print("discord.py version:", discord.__version__)
+print("discord.__file__:", discord.__file__)
+print("discord.ui dir:", dir(discord.ui))
+print("Has TextInput?", hasattr(discord.ui, 'TextInput'))
 from discord.ext import commands, tasks
 from typing import Optional
 
@@ -227,10 +231,22 @@ class DatabaseSystem:
                             message_id BIGINT NOT NULL
                         )
                     ''')
+                    # Create carriage_bookings table
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS carriage_bookings (
+                            booking_id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            ign TEXT NOT NULL,
+                            ride_time TIMESTAMP NOT NULL,
+                            booked_at TIMESTAMP DEFAULT NOW(),
+                            purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE CASCADE
+                        )
+                    ''')
                     # Ensure expires_at column exists and is timezone‑aware
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
 # If the column already existed as TIMESTAMP (naive), convert it:
                     await conn.execute('ALTER TABLE user_purchases ALTER COLUMN expires_at TYPE TIMESTAMPTZ')
+                    await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS used BOOLEAN DEFAULT FALSE')
 
                     # Optional indexes
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
@@ -2414,7 +2430,7 @@ async def ping(ctx):
 async def fortune_bag_to(ctx, channel: discord.TextChannel):
     """Send a fortune bag image to the specified channel with a clickable button."""
     # 1. Image URL – replace with your actual image URL
-    IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471739739525877830/IMG_20260213_132747.png?ex=699007f1&is=698eb671&hm=2cf5f3f5ae3c174b3bb83cec64b0ef8750a4cdfcac4010ec150e624936ea21c3&"
+    IMAGE_URL = "https://image2url.com/r2/default/images/1771341429734-6e403054-e4a3-4ef3-9207-f4b24f390a3e.png"
     
     # 2. Download the image and create a discord.File
     async with aiohttp.ClientSession() as session:
@@ -2621,11 +2637,13 @@ async def on_command_error(ctx, error):
 class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=69903e02&is=698eec82&hm=2efee7a4845963b5eedc45a24a7db034df602f55238f25b5a04168f520f2d38a&"  # 🔁 REPLACE
+        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=6992e102&is=69918f82&hm=8a7bf535085e1dd0af98d977c5cc9766ecf463b73dbb5330444ff739b62c3571&"  # 🔁 REPLACE
         self.check_expired_purchases.start()
+        self.booking_sessions = {}
 
     def cog_unload(self):
         self.check_expired_purchases.cancel()
+        
 
     # -------------------------------------------------------------------------
     # BACKGROUND TASK: Remove expired roles every hour
@@ -2769,13 +2787,13 @@ class Shop(commands.Cog):
         elif custom_id == "shop_back_to_main":
             await self.show_main_categories(interaction)
         elif custom_id == "shop_back_to_sub":
-            # Need to know which main category to go back to – we'll store it in custom_id later.
-            # Simpler: just go back to main categories.
-            await self.show_main_categories(interaction)
+            await self.show_main_categories(interaction)  # Simplified
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
-
+        elif custom_id.startswith("secret_shop_"):
+            purchase_id = int(custom_id.split("_")[2])
+            await self.secret_shop_button(interaction, purchase_id)
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES
     # -------------------------------------------------------------------------
@@ -2913,7 +2931,7 @@ class Shop(commands.Cog):
         async with self.bot.db_pool.acquire() as conn:
             active = await conn.fetchval("""
                 SELECT 1 FROM user_purchases
-                WHERE user_id = $1 AND item_id = $2 AND expires_at > $3
+                WHERE user_id = $1 AND item_id = $2 AND expires_at > $3 AND used = FALSE
             """, user_id, item_id, now)
         if active:
             embed = discord.Embed(
@@ -2966,10 +2984,41 @@ class Shop(commands.Cog):
         # Record purchase with expiration (7 days from now)
         expires_at = now + timedelta(days=7)
         async with self.bot.db_pool.acquire() as conn:
-            await conn.execute("""
+            purchase_id = await conn.fetchval("""
                 INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
                 VALUES ($1, $2, $3, $4)
+                RETURNING purchase_id
             """, user_id, item_id, item['price'], expires_at)
+
+        # --- SPECIAL CASE: Treasure Carriage ---
+        if item['name'].lower() == "treasure carriage":  # case-insensitive match
+            # Send ephemeral message with a button to open the secret shop
+            view = discord.ui.View(timeout=300)
+            button = discord.ui.Button(
+                label="Continue",
+                style=discord.ButtonStyle.primary,
+                custom_id=f"secret_shop_{purchase_id}"
+            )
+            view.add_item(button)
+
+            embed = discord.Embed(
+                title="🎫 Treasure Carriage Seat Purchased!",
+                description=(
+                    f"You have bought a **Treasure Carriage** Seat for **{item['price']} gems**.\n"
+                    f"Click the button below to continue " 
+                    f"and book your ride (in‑game name + time).\n\n"
+                    f"⚠️ This button will disappear after use or after 5 minutes of inactivity."
+                ),
+                color=discord.Color.gold()
+            )
+            embed.set_footer(text="The item will be removed after you book your ride.")
+
+            # Store the purchase_id in the view for later use? Not needed, it's in custom_id.
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+            # Log the purchase normally as well
+            await self.send_shop_log(guild, member, item['name'], item['price'], balance['gems'] - item['price'])
+            return  # stop here – don't send the normal success embed
 
         # Success message
         new_balance = await currency_system.get_balance(user_id)
@@ -2987,6 +3036,137 @@ class Shop(commands.Cog):
         embed.set_footer(text="Thank you for shopping!")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+    # SECRET SHOP ===============
+    async def secret_shop_button(self, interaction: discord.Interaction, purchase_id: int):
+        """Start DM booking process."""
+        async with self.bot.db_pool.acquire() as conn:
+            purchase = await conn.fetchrow(
+                "SELECT * FROM user_purchases WHERE purchase_id = $1 AND used = FALSE",
+                purchase_id
+            )
+        if not purchase:
+            await interaction.response.send_message("❌ Ticket already used.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.user.send("**Treasure Carriage Booking**\nPlease reply with your **in‑game name** (IGN).")
+            self.booking_sessions[interaction.user.id] = {"purchase_id": purchase_id, "step": "ign"}
+            await interaction.followup.send("📨 Check your DM to continue.", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send("❌ I can't DM you. Enable DMs and try again.", ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        if message.author.bot or not isinstance(message.channel, discord.DMChannel):
+            return
+        user_id = message.author.id
+        if user_id not in self.booking_sessions:
+            return
+
+        session = self.booking_sessions[user_id]
+
+        if session["step"] == "ign":
+            ign = message.content.strip()
+            if len(ign) > 32:
+                await message.channel.send("❌ IGN too long (max 32). Try again:")
+                return
+            session["ign"] = ign
+            session["step"] = "time"
+            await message.channel.send("✅ Got it. Now provide **ride time** in UTC: `YYYY-MM-DD HH:MM`")
+
+        elif session["step"] == "time":
+            print(f"[DEBUG TIME] Received: '{message.content}'")
+            try:
+                dt = datetime.strptime(message.content.strip(), "%Y-%m-%d %H:%M")
+                dt = dt.replace(tzinfo=timezone.utc)
+                if dt < datetime.now(timezone.utc):
+                    await message.channel.send("❌ Time must be in future. Try again:")
+                    return
+                print("[DEBUG TIME] Parsed successfully:", dt)
+            except ValueError as e:
+                print(f"[DEBUG TIME] Parse error: {e}")
+                await message.channel.send("❌ Invalid format. Use `YYYY-MM-DD HH:MM`")
+                return
+
+            # Save booking
+            purchase_id = session["purchase_id"]
+            ign = session["ign"]
+            print(f"[DEBUG TIME] Purchase ID: {purchase_id}, IGN: {ign}")
+
+            try:
+                dt_naive = dt.replace(tzinfo=None)  # remove timezone
+                async with self.bot.db_pool.acquire() as conn:
+                    async with conn.transaction():
+                        await conn.execute("""
+                            INSERT INTO carriage_bookings (user_id, ign, ride_time, purchase_id)
+                            VALUES ($1, $2, $3, $4)
+                        """, str(user_id), ign, dt_naive, purchase_id)
+                        await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
+                print("[DEBUG TIME] Database insert/update succeeded")
+            except Exception as e:
+                print(f"[DEBUG TIME] Database error: {e}")
+                await message.channel.send("❌ Database error – booking failed. Please contact an admin.")
+                return
+
+            # Remove role
+            try:
+                async with self.bot.db_pool.acquire() as conn:
+                    row = await conn.fetchrow("""
+                        SELECT si.role_id, si.guild_id
+                        FROM shop_items si
+                        JOIN user_purchases up ON up.item_id = si.item_id
+                        WHERE up.purchase_id = $1
+                    """, purchase_id)
+                print(f"[DEBUG TIME] Role row: {row}")
+            except Exception as e:
+                print(f"[DEBUG TIME] Role fetch error: {e}")
+                row = None
+
+            if row:
+                guild = self.bot.get_guild(row['guild_id'])
+                if guild:
+                    member = guild.get_member(user_id)
+                    if member:
+                        role = guild.get_role(row['role_id'])
+                        if role:
+                            try:
+                                await member.remove_roles(role, reason="Carriage used")
+                                print("[DEBUG TIME] Role removed")
+                            except Exception as e:
+                                print(f"[DEBUG TIME] Role removal error: {e}")
+
+            # Confirm to user
+            embed = discord.Embed(title="✅ Schedule Confirmed!", color=discord.Color.green())
+            embed.description = f"**IGN:** {ign}\n**Ride Time:** <t:{int(dt.timestamp())}:F>\n\nYour ride has been scheduled. Please wait for confirmation."
+            await message.channel.send(embed=embed)
+            print("[DEBUG TIME] Confirmation sent")
+
+            # Notify admins
+            if row and (guild := self.bot.get_guild(row['guild_id'])):
+                log_channel = discord.utils.get(guild.text_channels, name="carriage-logs")
+                if log_channel:
+                    try:
+                        log_embed = discord.Embed(title="🚂 New Carriage Booking", color=discord.Color.blue())
+                        log_embed.add_field(name="User", value=f"{member.mention} (`{user_id}`)" if member else f"`{user_id}`")
+                        log_embed.add_field(name="IGN", value=ign)
+                        log_embed.add_field(name="Ride Time", value=f"<t:{int(dt.timestamp())}:F>")
+                        log_embed.add_field(name="Purchase ID", value=str(purchase_id))
+                        if member:
+                            log_embed.set_thumbnail(url=member.display_avatar.url)
+                        await log_channel.send(embed=log_embed)
+                        print("[DEBUG TIME] Admin log sent")
+                    except Exception as e:
+                        print(f"[DEBUG TIME] Admin log error: {e}")
+
+            # Clean up session
+            del self.booking_sessions[user_id]
+            print("[DEBUG TIME] Session deleted")
+
+
+# END SECRET SHOP =================
 
 
     # SHOP LOGS
@@ -3103,6 +3283,64 @@ class Shop(commands.Cog):
 
         await ctx.send(f"✅ Updated `{field}` of item #{item_id}.")
 
+# TEMPORARY COMMAND
+
+    @commands.command(name='clear_carriage')
+    @commands.has_permissions(administrator=True)
+    async def clear_carriage(self, ctx, user: discord.Member = None):
+        """Admin only: Clear the Treasure Carriage purchase for a user (mark as used)."""
+        print(f"[DEBUG] clear_carriage called by {ctx.author}")
+        await ctx.send("Command received, processing...")   # temporary
+
+        target = user or ctx.author
+        user_id = str(target.id)
+
+        # Check database connection
+        if not self.bot.db_pool:
+            await ctx.send("❌ Database not connected.")
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            # Find the active Treasure Carriage purchase
+            row = await conn.fetchrow("""
+                SELECT up.purchase_id 
+                FROM user_purchases up
+                JOIN shop_items si ON up.item_id = si.item_id
+                WHERE up.user_id = $1 
+                  AND si.name ILIKE '%treasure carriage%' 
+                  AND up.used = FALSE 
+                  AND up.expires_at > NOW()
+                LIMIT 1
+            """, user_id)
+
+            if not row:
+                await ctx.send(f"❌ No active Treasure Carriage purchase found for {target.mention}.")
+                return
+
+            purchase_id = row['purchase_id']
+
+            # Mark as used
+            await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
+
+            # Remove role if still present
+            guild = ctx.guild
+            member = guild.get_member(target.id)
+            if member:
+                role_row = await conn.fetchrow("""
+                    SELECT si.role_id 
+                    FROM shop_items si
+                    JOIN user_purchases up ON up.item_id = si.item_id
+                    WHERE up.purchase_id = $1
+                """, purchase_id)
+                if role_row:
+                    role = guild.get_role(role_row['role_id'])
+                    if role and role in member.roles:
+                        try:
+                            await member.remove_roles(role, reason="Cleared by admin")
+                        except Exception as e:
+                            print(f"Role removal error: {e}")
+
+        await ctx.send(f"✅ Cleared Treasure Carriage purchase for {target.mention}. They can now buy it again.")
 
 # Add the shop cog to the bot
 bot.add_cog(Shop(bot))
@@ -3124,3 +3362,4 @@ if __name__ == "__main__":
     else:
         print("❌ ERROR: No TOKEN found in environment variables!")
         print("💡 Set TOKEN environment variable in Railway")
+
