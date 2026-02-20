@@ -3287,7 +3287,6 @@ class Shop(commands.Cog):
 
     @commands.command(name='myweapon')
     async def my_weapon(self, ctx):
-        """Show your most recently acquired weapon."""
         user_id = str(ctx.author.id)
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow("""
@@ -3304,19 +3303,20 @@ class Shop(commands.Cog):
             return
 
         desc = row['description'] or "No description available."
-        # Wrap to ~50 characters per line (adjust as needed)
-        wrapped_desc = "\n".join(textwrap.wrap(desc, width=30))
-        embed = discord.Embed(
-            title=row['name'],
-            description=f"*{wrapped_desc}*",   # still italic
-            color=discord.Color.red()
-            )
-        embed.add_field(name="Attack", value=f"+{row['attack']}", inline=True)
+        # Wrap to match image width (adjust width as needed)
+        wrapped_desc = "\n".join(textwrap.wrap(desc, width=45))
 
+        embed = discord.Embed(
+            title=f"{row['name']} (+{row['attack']} ATK)",   # Attack in title
+            description=f"*{wrapped_desc}*",                # Italic description
+            color=discord.Color.red()
+        )
         if row['image_url']:
-            embed.set_image(url=row['image_url'])
+            embed.set_image(url=row['image_url'])            # Full image below
 
         await ctx.send(embed=embed)
+
+
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
     # -------------------------------------------------------------------------
     @commands.group(name='shopadmin', invoke_without_command=True)
