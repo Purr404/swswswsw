@@ -3053,27 +3053,28 @@ class Shop(commands.Cog):
 
         # --- WEAPON PURCHASE (random attack) ---
         if item['type'] == 'weapon':
-            attack = random.randint(50, 450)
+            attack = random.randint(50, 500)
             async with self.bot.db_pool.acquire() as conn:
                 await conn.execute("""
-                INSERT INTO user_weapons (user_id, weapon_item_id, attack)
-                VALUES ($1, $2, $3)
-            """, user_id, item_id, attack)
+                    INSERT INTO user_weapons (user_id, weapon_item_id, attack)
+                    VALUES ($1, $2, $3)
+                """, user_id, item_id, attack)
 
-            embed = discord.Embed(
-                title="⚔️ Weapon Acquired!",
-                description=f"You obtained **{item['name']}** with **+{attack} Attack**!",
-                color=discord.Color.red()
-            )
-            if item.get('image_url'):
-                embed.set_image(url=item['image_url'])
-            embed.set_footer(text="May it serve you well in battle!")
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-            embed.add_field(name="💰 New Balance", value=f"{balance['gems'] - item['price']} gems")
-            embed.set_footer(text="May it serve you well in battle!")
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return   # stop – don't send normal success
+        # Wrap description to match image width (optional but tidy)
+        desc = item.get('description') or "No description available."
+        wrapped_desc = "\n".join(textwrap.wrap(desc, width=45))
+
+        embed = discord.Embed(
+            title=f"{item['name']} (+{attack} ATK)",   # Attack in title
+            description=f"*{wrapped_desc}*",           # Italic description
+            color=discord.Color.red()
+        )
+        if item.get('image_url'):
+            embed.set_image(url=item['image_url'])     # Full image below
+        embed.set_footer(text="Added to your collection!")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
 
         # --- SPECIAL CASE: Treasure Carriage ---
         if item['name'].lower() == "treasure carriage":  # case-insensitive match
