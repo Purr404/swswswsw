@@ -2816,7 +2816,7 @@ class Shop(commands.Cog):
         # Main categories (you can add more later)
         main_cats = [
             ("🎨 Customization", "customization"),
-            # ("🎁 Special", "special")
+            ("🗡️ Weapons", "weapons")
         ]
         for label, cat_id in main_cats:
             button = discord.ui.Button(
@@ -2843,6 +2843,17 @@ class Shop(commands.Cog):
                 ("🪯 Roles", "roles"),
                 ("🎨 Name Color Change", "colors")
             ]
+        elif main_cat == "weapons":
+              embed = discord.Embed(
+                  title="⚔️ Weapons Shop",
+                  description="Choose a weapon to purchase. Each weapon gets a random attack bonus!",
+                  color=discord.Color.red()
+            )
+            view = discord.ui.View(timeout=300)
+            # For now, we'll just show all weapons directly (no subcategories)
+            # Call a method to list weapon items
+            await self.show_weapon_items(interaction, embed, view)
+
             for label, sub_id in subcats:
                 button = discord.ui.Button(
                     label=label,
@@ -2916,6 +2927,39 @@ class Shop(commands.Cog):
         view.add_item(back)
 
         await interaction.response.edit_message(embed=embed, view=view)
+
+
+    async def show_weapon_items(self, interaction: discord.Interaction, embed, view):
+        """Display all weapon items."""
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT item_id, name, description, price
+                FROM shop_items
+                WHERE type = 'weapon'
+                ORDER BY price ASC
+            """)
+
+        if not rows:
+            embed.description = "No weapons available yet."
+            back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+            view.add_item(back)
+            await interaction.response.edit_message(embed=embed, view=view)
+            return
+
+        for row in rows:
+            label = f"{row['name']} – {row['price']} gems"
+            button = discord.ui.Button(
+                label=label[:80],
+                style=discord.ButtonStyle.primary,
+                custom_id=f"shop_buy_{row['item_id']}"
+            )
+            view.add_item(button)
+
+        back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+        view.add_item(back)
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
 
     # -------------------------------------------------------------------------
     # PURCHASE ITEM – with duplicate & expiration checks
@@ -2998,6 +3042,25 @@ class Shop(commands.Cog):
                 VALUES ($1, $2, $3, $4)
                 RETURNING purchase_id
             """, user_id, item_id, item['price'], expires_at)
+
+        # --- WEAPON PURCHASE (random attack) ---
+        if item['type'] == 'weapon':
+            attack = random.randint(1, 10)
+            async with self.bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                INSERT INTO user_weapons (user_id, weapon_item_id, attack)
+                VALUES ($1, $2, $3)
+            """, user_id, item_id, attack)
+
+            embed = discord.Embed(
+                title="⚔️ Weapon Acquired!",
+                description=f"You obtained **{item['name']}** with **+{attack} Attack**!",
+                color=discord.Color.red()
+            )
+            embed.add_field(name="💰 New Balance", value=f"{balance['gems'] - item['price']} gems")
+            embed.set_footer(text="May it serve you well in battle!")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return   # stop – don't send normal success
 
         # --- SPECIAL CASE: Treasure Carriage ---
         if item['name'].lower() == "treasure carriage":  # case-insensitive match
@@ -3207,7 +3270,33 @@ class Shop(commands.Cog):
     #END SHOP LOGS
 
 
-    # -------------------------------------------------------------------------
+    #
+
+    @commands.command(name='myweapons')
+    async def my_weapons(self, ctx):
+        """List all weapons you own with their attack stats."""
+        user_id = str(ctx.author.id)
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT si.name, uw.attack, uw.purchased_at
+                FROM user_weapons uw
+                JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+            """, user_id)
+
+        if not rows:
+            await ctx.send("You don't own any weapons yet.")
+            return
+
+        embed = discord.Embed(title="🗡️ Your Weapons", color=discord.Color.red())
+        for row in rows:
+            embed.add_field(
+                name=row['name'],
+                value=f"Attack +{row['attack']} (bought <t:{int(row['purchased_at'].timestamp())}:R>)",
+                inline=False
+            )
+        await ctx.send(embed=embed) -------------------------------------------------------------------------
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
     # -------------------------------------------------------------------------
     @commands.group(name='shopadmin', invoke_without_command=True)
@@ -3228,33 +3317,41 @@ class Shop(commands.Cog):
 
     @shop_admin.command(name='add')
     @commands.has_permissions(administrator=True)
-    async def shop_add(self, ctx, item_type: str, name: str, price: int, role_id: int, color_hex: str = None):
+    async def shop_add(self, ctx, item_type: str, name: str, price: int, role_id: int = None, color_hex: str = None):
         item_type = item_type.lower()
-        if item_type not in ('role', 'color'):
-            await ctx.send("❌ Type must be `role` or `color`.")
+        if item_type not in ('role', 'color', 'weapon'):
+            await ctx.send("❌ Type must be `role`, `color`, or `weapon`.")
             return
 
-        role = ctx.guild.get_role(role_id)
-        if not role:
-            await ctx.send(f"❌ Role with ID `{role_id}` not found.")
+        if item_type == 'role' and not role_id:
+            await ctx.send("❌ For role items, you must provide a role_id.")
             return
+        if item_type == 'color' and (not role_id or not color_hex):
+            await ctx.send("❌ For color items, you must provide role_id and color_hex.")
+            return
+        if item_type == 'weapon':
+            # For weapons, role_id and color_hex are ignored – set to None
+            role_id = None
+            color_hex = None
+
+        # Validate role if given
+        if role_id:
+            role = ctx.guild.get_role(role_id)
+            if not role:
+                await ctx.send(f"❌ Role with ID `{role_id}` not found.")
+                return
 
         if item_type == 'color':
-            if not color_hex or not color_hex.startswith('#') or len(color_hex) != 7:
-                await ctx.send("❌ Color hex must be `#RRGGBB` (e.g., `#FF5733`).")
+            if not color_hex.startswith('#') or len(color_hex) != 7:
+                await ctx.send("❌ Color hex must be `#RRGGBB`.")
                 return
 
         async with self.bot.db_pool.acquire() as conn:
-            if item_type == 'color':
-                await conn.execute("""
-                    INSERT INTO shop_items (name, description, price, type, role_id, color_hex, guild_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                """, name, f"Color: {color_hex}", price, item_type, role_id, color_hex, ctx.guild.id)
-            else:
-                await conn.execute("""
-                    INSERT INTO shop_items (name, description, price, type, role_id, guild_id)
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                """, name, f"Role: {role.name}", price, item_type, role_id, ctx.guild.id)
+            await conn.execute("""
+                INSERT INTO shop_items (name, description, price, type, role_id, color_hex, guild_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """, name, f"Weapon: {name}" if item_type=='weapon' else f"{item_type.capitalize()}: {name}", 
+               price, item_type, role_id, color_hex, ctx.guild.id)
 
         await ctx.send(f"✅ Added **{name}** ({item_type}) for **{price} gems**.")
 
