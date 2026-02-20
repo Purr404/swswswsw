@@ -256,6 +256,9 @@ class DatabaseSystem:
                             purchased_at TIMESTAMP DEFAULT NOW()
                         )
                     ''')
+                    # Add purchase_id column to user_weapons if not exists
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL')
+
                     # Ensure expires_at column exists and is timezone‑aware
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
 # If the column already existed as TIMESTAMP (naive), convert it:
