@@ -242,6 +242,15 @@ class DatabaseSystem:
                             purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE CASCADE
                         )
                     ''')
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_weapons (
+                            id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            weapon_item_id INTEGER REFERENCES shop_items(item_id) ON DELETE CASCADE,
+                            attack INTEGER NOT NULL,
+                            purchased_at TIMESTAMP DEFAULT NOW()
+                        )
+                    ''')
                     # Ensure expires_at column exists and is timezone‑aware
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
 # If the column already existed as TIMESTAMP (naive), convert it:
