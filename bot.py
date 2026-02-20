@@ -242,6 +242,10 @@ class DatabaseSystem:
                             purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE CASCADE
                         )
                     ''')
+
+                    # Allow 'weapon' as a valid type
+                    await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
+                    await conn.execute('ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check CHECK (type IN (\'role\', \'color\', \'weapon\'))')
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_weapons (
                             id SERIAL PRIMARY KEY,
