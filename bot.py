@@ -3061,7 +3061,7 @@ class Shop(commands.Cog):
                 await conn.execute("""
                     INSERT INTO user_weapons (user_id, weapon_item_id, attack)
                     VALUES ($1, $2, $3)
-                """, user_id, item_id, attack)
+                """, user_id, item_id, attack, purchase_id) 
 
         # Wrap description to match image width (optional but tidy)
         desc = item.get('description') or "No description available."
@@ -3474,11 +3474,11 @@ class Shop(commands.Cog):
     @commands.command(name='adminremoveweapon')
     @commands.has_permissions(administrator=True)
     async def admin_remove_weapon(self, ctx, weapon_id: int):
-        """Remove a weapon by its unique ID (admin only)."""
+        """Remove a weapon by its unique ID and allow re-purchase (admin only)."""
         async with self.bot.db_pool.acquire() as conn:
-            # Get weapon info before deleting (for confirmation message)
+            # Get weapon info and linked purchase_id
             row = await conn.fetchrow("""
-                SELECT uw.id, si.name, uw.user_id
+                SELECT uw.id, si.name, uw.user_id, uw.purchase_id
                 FROM user_weapons uw
                 JOIN shop_items si ON uw.weapon_item_id = si.item_id
                 WHERE uw.id = $1
@@ -3488,16 +3488,19 @@ class Shop(commands.Cog):
                 await ctx.send(f"❌ Weapon with ID `{weapon_id}` not found.")
                 return
 
-            # Delete it
+            # Delete the weapon
             await conn.execute("DELETE FROM user_weapons WHERE id = $1", weapon_id)
 
-        # Try to get the user object for a nice mention
+            # Mark the associated purchase as used so the item can be bought again
+            if row['purchase_id']:
+                await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", row['purchase_id'])
+
         user = self.bot.get_user(int(row['user_id']))
         user_mention = user.mention if user else f"User ID {row['user_id']}"
 
         embed = discord.Embed(
             title="✅ Weapon Removed",
-            description=f"Removed **{row['name']}** (ID: {weapon_id}) from {user_mention}.",
+            description=f"Removed **{row['name']}** (ID: {weapon_id}) from {user_mention}. They can now buy it again.",
             color=discord.Color.green()
         )
         await ctx.send(embed=embed)
