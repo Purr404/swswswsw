@@ -3010,22 +3010,23 @@ class Shop(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
-        # Assign role
+        # Role assignment only for role/color items, not weapons
         guild = interaction.guild
         member = interaction.user
-        role = guild.get_role(item['role_id'])
-        if not role:
-            await interaction.followup.send("❌ The role for this item no longer exists.", ephemeral=True)
-            return
 
-        try:
-            await member.add_roles(role, reason=f"Shop purchase: {item['name']}")
-        except discord.Forbidden:
-            await interaction.followup.send("❌ I don't have permission to assign that role.", ephemeral=True)
-            return
-        except Exception as e:
-            await interaction.followup.send(f"❌ Failed to assign role: {e}", ephemeral=True)
-            return
+        if item['type'] != 'weapon':
+            role = guild.get_role(item['role_id'])
+            if not role:
+                await interaction.followup.send("❌ The role for this item no longer exists.", ephemeral=True)
+                return
+            try:
+                await member.add_roles(role, reason=f"Shop purchase: {item['name']}")
+            except discord.Forbidden:
+                await interaction.followup.send("❌ I don't have permission to assign that role.", ephemeral=True)
+                return
+            except Exception as e:
+                await interaction.followup.send(f"❌ Failed to assign role: {e}", ephemeral=True)
+                return
 
         # Deduct gems
         success = await currency_system.deduct_gems(
@@ -3049,7 +3050,7 @@ class Shop(commands.Cog):
 
         # --- WEAPON PURCHASE (random attack) ---
         if item['type'] == 'weapon':
-            attack = random.randint(1, 10)
+            attack = random.randint(50, 450)
             async with self.bot.db_pool.acquire() as conn:
                 await conn.execute("""
                 INSERT INTO user_weapons (user_id, weapon_item_id, attack)
