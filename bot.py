@@ -3062,6 +3062,11 @@ class Shop(commands.Cog):
                 description=f"You obtained **{item['name']}** with **+{attack} Attack**!",
                 color=discord.Color.red()
             )
+            if item.get('image_url'):
+                embed.set_image(url=item['image_url'])
+            embed.set_footer(text="May it serve you well in battle!")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
             embed.add_field(name="💰 New Balance", value=f"{balance['gems'] - item['price']} gems")
             embed.set_footer(text="May it serve you well in battle!")
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -3277,30 +3282,34 @@ class Shop(commands.Cog):
 
     #
 
-    @commands.command(name='myweapons')
+    @commands.command(name='myweapon')
     async def my_weapons(self, ctx):
-        """List all weapons you own with their attack stats."""
+        """Show your most recently acquired weapon."""
         user_id = str(ctx.author.id)
         async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT si.name, uw.attack, uw.purchased_at
+            row = await conn.fetchrow("""
+                SELECT si.name, si.image_url, si.description, uw.attack, uw.purchased_at
                 FROM user_weapons uw
                 JOIN shop_items si ON uw.weapon_item_id = si.item_id
                 WHERE uw.user_id = $1
                 ORDER BY uw.purchased_at DESC
+                LIMIT 1
             """, user_id)
 
-        if not rows:
+        if not row:
             await ctx.send("You don't own any weapons yet.")
             return
 
-        embed = discord.Embed(title="🗡️ Your Weapons", color=discord.Color.red())
-        for row in rows:
-            embed.add_field(
-                name=row['name'],
-                value=f"Attack +{row['attack']} (bought <t:{int(row['purchased_at'].timestamp())}:R>)",
-                inline=False
-            )
+        embed = discord.Embed(
+            title=f"⚔️ {row['name']}",
+            description=f"Attack **+{row['attack']}**\n*Acquired <t:{int(row['purchased_at'].timestamp())}:R>*",
+            color=discord.Color.red()
+        )
+        if row['description']:
+            embed.add_field(name="Description", value=row['description'], inline=False)
+        if row['image_url']:
+            embed.set_image(url=row['image_url'])  # large image
+
         await ctx.send(embed=embed)
  
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
@@ -3323,43 +3332,71 @@ class Shop(commands.Cog):
 
     @shop_admin.command(name='add')
     @commands.has_permissions(administrator=True)
-    async def shop_add(self, ctx, item_type: str, name: str, price: int, role_id: int = None, color_hex: str = None):
+    async def shop_add(self, ctx, item_type: str, name: str, price: int, role_id: int = None, color_hex: str = None, image_url: str = None):
         item_type = item_type.lower()
         if item_type not in ('role', 'color', 'weapon'):
             await ctx.send("❌ Type must be `role`, `color`, or `weapon`.")
             return
 
-        if item_type == 'role' and not role_id:
-            await ctx.send("❌ For role items, you must provide a role_id.")
-            return
-        if item_type == 'color' and (not role_id or not color_hex):
-            await ctx.send("❌ For color items, you must provide role_id and color_hex.")
-            return
-        if item_type == 'weapon':
-            # For weapons, role_id and color_hex are ignored – set to None
-            role_id = None
-            color_hex = None
-
-        # Validate role if given
-        if role_id:
+        # Validate based on type
+        if item_type == 'role':
+            if not role_id:
+                await ctx.send("❌ For role items, you must provide a role_id.")
+                return
+            # Validate role exists
             role = ctx.guild.get_role(role_id)
             if not role:
                 await ctx.send(f"❌ Role with ID `{role_id}` not found.")
                 return
-
-        if item_type == 'color':
+            description = f"Role: {role.name}"
+        elif item_type == 'color':
+            if not role_id or not color_hex:
+                await ctx.send("❌ For color items, you must provide role_id and color_hex.")
+                return
             if not color_hex.startswith('#') or len(color_hex) != 7:
                 await ctx.send("❌ Color hex must be `#RRGGBB`.")
                 return
+            role = ctx.guild.get_role(role_id)
+            if not role:
+                await ctx.send(f"❌ Role with ID `{role_id}` not found.")
+                return
+            description = f"Color: {color_hex}"
+        else:  # weapon
+            role_id = None
+            color_hex = None
+            description = f"Weapon: {name}"
+
+        # Optional image URL validation
+        if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
+            await ctx.send("❌ Image URL must start with `http://` or `https://`.")
+            return
 
         async with self.bot.db_pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO shop_items (name, description, price, type, role_id, color_hex, guild_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-            """, name, f"Weapon: {name}" if item_type=='weapon' else f"{item_type.capitalize()}: {name}", 
-               price, item_type, role_id, color_hex, ctx.guild.id)
+                INSERT INTO shop_items (name, description, price, type, role_id, color_hex, guild_id, image_url)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            """, name, description, price, item_type, role_id, color_hex, ctx.guild.id, image_url)
 
         await ctx.send(f"✅ Added **{name}** ({item_type}) for **{price} gems**.")
+
+    @shop_admin.command(name='addweapon')
+    @commands.has_permissions(administrator=True)
+    async def shop_add_weapon(self, ctx, name: str, price: int, description: str, image_url: str = None):
+        """Add a weapon with custom description.
+        Usage: !!shopadmin addweapon "Dragon Slayer" 500 "A legendary blade forged in dragon fire." [image_url]
+    """
+        # Optional image URL validation
+        if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
+            await ctx.send("❌ Image URL must start with `http://` or `https://`.")
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO shop_items (name, description, price, type, role_id, color_hex, guild_id, image_url)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            """, name, description, price, 'weapon', None, None, ctx.guild.id, image_url)
+
+        await ctx.send(f"✅ Added weapon **{name}** for **{price} gems** with custom description.")
 
     @shop_admin.command(name='remove')
     @commands.has_permissions(administrator=True)
