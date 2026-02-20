@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 import traceback   # used in log_to_discord
 import aiohttp
 import io
+import textwrap
 
 # ULTIMATE ASYNCPG INSTALLER
 import subprocess
@@ -3303,11 +3304,13 @@ class Shop(commands.Cog):
             return
 
         desc = row['description'] or "No description available."
+        # Wrap to ~50 characters per line (adjust as needed)
+        wrapped_desc = "\n".join(textwrap.wrap(desc, width=30))
         embed = discord.Embed(
             title=row['name'],
-            description=f"*{desc}*",
+            description=f"*{wrapped_desc}*",   # still italic
             color=discord.Color.red()
-        )
+            )
         embed.add_field(name="Attack", value=f"+{row['attack']}", inline=True)
 
         if row['image_url']:
