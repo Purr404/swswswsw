@@ -260,6 +260,8 @@ class DatabaseSystem:
 # If the column already existed as TIMESTAMP (naive), convert it:
                     await conn.execute('ALTER TABLE user_purchases ALTER COLUMN expires_at TYPE TIMESTAMPTZ')
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS used BOOLEAN DEFAULT FALSE')
+                    # Add image_url column for weapons (if not exists)
+                    await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS image_url TEXT')
 
                     # Optional indexes
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
