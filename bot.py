@@ -3285,12 +3285,12 @@ class Shop(commands.Cog):
     #
 
     @commands.command(name='myweapon')
-    async def my_weapons(self, ctx):
+    async def my_weapon(self, ctx):
         """Show your most recently acquired weapon."""
         user_id = str(ctx.author.id)
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow("""
-                SELECT si.name, si.image_url, si.description, uw.attack, uw.purchased_at
+                SELECT si.name, si.image_url, si.description, uw.attack
                 FROM user_weapons uw
                 JOIN shop_items si ON uw.weapon_item_id = si.item_id
                 WHERE uw.user_id = $1
@@ -3302,18 +3302,18 @@ class Shop(commands.Cog):
             await ctx.send("You don't own any weapons yet.")
             return
 
+        desc = row['description'] or "No description available."
         embed = discord.Embed(
-            title=f"⚔️ {row['name']}",
-            description=f"Attack **+{row['attack']}**\n*Acquired <t:{int(row['purchased_at'].timestamp())}:R>*",
+            title=row['name'],
+            description=f"*{desc}*",
             color=discord.Color.red()
         )
-        if row['description']:
-            embed.add_field(name="*Description*", value=row['description'], inline=False)
+        embed.add_field(name="Attack", value=f"+{row['attack']}", inline=True)
+
         if row['image_url']:
-            embed.set_image(url=row['image_url'])  # large image
+            embed.set_image(url=row['image_url'])
 
         await ctx.send(embed=embed)
- 
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
     # -------------------------------------------------------------------------
     @commands.group(name='shopadmin', invoke_without_command=True)
