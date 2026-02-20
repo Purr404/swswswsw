@@ -3306,7 +3306,7 @@ class Shop(commands.Cog):
             color=discord.Color.red()
         )
         if row['description']:
-            embed.add_field(name="Description", value=row['description'], inline=False)
+            embed.add_field(name="*Description*", value=row['description'], inline=False)
         if row['image_url']:
             embed.set_image(url=row['image_url'])  # large image
 
