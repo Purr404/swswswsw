@@ -2990,7 +2990,71 @@ class Shop(commands.Cog):
         user_id = str(interaction.user.id)
         now = datetime.now(timezone.utc)
 
-        # Check if user already has an active (non-expired) purchase of this item
+        # ========== WEAPON PURCHASE ==========
+        if item['type'] == 'weapon':
+            # Check if user already owns this weapon (in user_weapons)
+            async with self.bot.db_pool.acquire() as conn:
+                exists = await conn.fetchval("""
+                    SELECT 1 FROM user_weapons
+                    WHERE user_id = $1 AND weapon_item_id = $2
+                """, user_id, item_id)
+            if exists:
+                embed = discord.Embed(
+                    title="❌ Already Owned",
+                    description=f"You already own **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            # Check balance
+            balance = await currency_system.get_balance(user_id)
+            if balance['gems'] < item['price']:
+                embed = discord.Embed(
+                    title="❌ Insufficient Gems",
+                    description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            # Deduct gems
+            success = await currency_system.deduct_gems(
+                user_id=user_id,
+                gems=item['price'],
+                reason=f"🛒 Purchased {item['name']}"
+            )
+            if not success:
+                await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
+                return
+
+            # Generate random attack
+            attack = random.randint(50, 500)
+
+            # Insert into user_weapons (no purchase record needed)
+            async with self.bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO user_weapons (user_id, weapon_item_id, attack)
+                    VALUES ($1, $2, $3)
+                """, user_id, item_id, attack)
+
+            # Compact embed for weapon
+            desc = item.get('description') or "No description available."
+            wrapped_desc = "\n".join(textwrap.wrap(desc, width=45))
+            embed = discord.Embed(
+                title=f"{item['name']} (+{attack} ATK)",
+                description=f"*{wrapped_desc}*",
+                color=discord.Color.red()
+            )
+            if item.get('image_url'):
+                embed.set_image(url=item['image_url'])
+            embed.set_footer(text="Added to your collection!")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return   # <-- stop here – weapon handled
+
+        # ========== NON-WEAPON ITEMS (roles/colors) ==========
+        # Check user_purchases for existing active purchase
         async with self.bot.db_pool.acquire() as conn:
             active = await conn.fetchval("""
                 SELECT 1 FROM user_purchases
@@ -3005,34 +3069,32 @@ class Shop(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
-        # Check balance
+        # Balance check
         balance = await currency_system.get_balance(user_id)
         if balance['gems'] < item['price']:
             embed = discord.Embed(
                 title="❌ Insufficient Gems",
-                description=f"You need **{item['price']} gems** to buy **{item['name']}**.\nYour balance: **{balance['gems']} gems**",
+                description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
                 color=discord.Color.red()
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
-        # Role assignment only for role/color items, not weapons
+        # Role assignment
         guild = interaction.guild
         member = interaction.user
-
-        if item['type'] != 'weapon':
-            role = guild.get_role(item['role_id'])
-            if not role:
-                await interaction.followup.send("❌ The role for this item no longer exists.", ephemeral=True)
-                return
-            try:
-                await member.add_roles(role, reason=f"Shop purchase: {item['name']}")
-            except discord.Forbidden:
-                await interaction.followup.send("❌ I don't have permission to assign that role.", ephemeral=True)
-                return
-            except Exception as e:
-                await interaction.followup.send(f"❌ Failed to assign role: {e}", ephemeral=True)
-                return
+        role = guild.get_role(item['role_id'])
+        if not role:
+            await interaction.followup.send("❌ The role for this item no longer exists.", ephemeral=True)
+            return
+        try:
+            await member.add_roles(role, reason=f"Shop purchase: {item['name']}")
+        except discord.Forbidden:
+            await interaction.followup.send("❌ I don't have permission to assign that role.", ephemeral=True)
+            return
+        except Exception as e:
+            await interaction.followup.send(f"❌ Failed to assign role: {e}", ephemeral=True)
+            return
 
         # Deduct gems
         success = await currency_system.deduct_gems(
@@ -3041,11 +3103,10 @@ class Shop(commands.Cog):
             reason=f"🛒 Purchased {item['name']}"
         )
         if not success:
-            # This should not happen if we checked balance, but just in case
-            await interaction.followup.send("❌ Failed to deduct gems. Your balance may have changed.", ephemeral=True)
+            await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
             return
 
-        # Record purchase with expiration (7 days from now)
+        # Record purchase with expiration (7 days)
         expires_at = now + timedelta(days=7)
         async with self.bot.db_pool.acquire() as conn:
             purchase_id = await conn.fetchval("""
@@ -3054,30 +3115,20 @@ class Shop(commands.Cog):
                 RETURNING purchase_id
             """, user_id, item_id, item['price'], expires_at)
 
-        # --- WEAPON PURCHASE (random attack) ---
-        if item['type'] == 'weapon':
-            attack = random.randint(50, 500)
-            async with self.bot.db_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO user_weapons (user_id, weapon_item_id, attack)
-                    VALUES ($1, $2, $3)
-                """, user_id, item_id, attack, purchase_id) 
-
-        # Wrap description to match image width (optional but tidy)
-        desc = item.get('description') or "No description available."
-        wrapped_desc = "\n".join(textwrap.wrap(desc, width=45))
-
+        # Success embed for non-weapons
+        new_balance = await currency_system.get_balance(user_id)
         embed = discord.Embed(
-            title=f"{item['name']} (+{attack} ATK)",   # Attack in title
-            description=f"*{wrapped_desc}*",           # Italic description
-            color=discord.Color.red()
+            title="✅ Purchase Successful!",
+            description=f"You have bought **{item['name']}** for **{item['price']} gems**.",
+            color=discord.Color.green()
         )
-        if item.get('image_url'):
-            embed.set_image(url=item['image_url'])     # Full image below
-        embed.set_footer(text="Added to your collection!")
+        embed.add_field(name="💰 New Balance", value=f"{new_balance['gems']} gems")
+        embed.add_field(name="⏳ Expires", value=f"<t:{int(expires_at.timestamp())}:R>", inline=False)
+        if item['type'] == 'color' and item.get('color_hex'):
+            embed.color = discord.Color(int(item['color_hex'].lstrip('#'), 16))
+        embed.set_footer(text="Thank you for shopping!")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
-        return
 
         # --- SPECIAL CASE: Treasure Carriage ---
         if item['name'].lower() == "treasure carriage":  # case-insensitive match
