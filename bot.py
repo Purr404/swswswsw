@@ -2844,10 +2844,10 @@ class Shop(commands.Cog):
                 ("🎨 Name Color Change", "colors")
             ]
         elif main_cat == "weapons":
-              embed = discord.Embed(
-                  title="⚔️ Weapons Shop",
-                  description="Choose a weapon to purchase. Each weapon gets a random attack bonus!",
-                  color=discord.Color.red()
+            embed = discord.Embed(
+                title="⚔️ Weapons Shop",
+                description="Choose a weapon to purchase. Each weapon gets a random attack bonus!",
+                color=discord.Color.red()
             )
             view = discord.ui.View(timeout=300)
             # For now, we'll just show all weapons directly (no subcategories)
