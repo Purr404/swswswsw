@@ -3296,7 +3296,8 @@ class Shop(commands.Cog):
                 value=f"Attack +{row['attack']} (bought <t:{int(row['purchased_at'].timestamp())}:R>)",
                 inline=False
             )
-        await ctx.send(embed=embed) -------------------------------------------------------------------------
+        await ctx.send(embed=embed)
+ 
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
     # -------------------------------------------------------------------------
     @commands.group(name='shopadmin', invoke_without_command=True)
