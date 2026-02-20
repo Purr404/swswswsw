@@ -3438,6 +3438,68 @@ class Shop(commands.Cog):
 
         await ctx.send(f"✅ Updated `{field}` of item #{item_id}.")
 
+    @commands.command(name='adminweapons')
+    @commands.has_permissions(administrator=True)
+    async def admin_list_weapons(self, ctx, user: discord.Member):
+        """List all weapons owned by a user with their IDs (admin only)."""
+        user_id = str(user.id)
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT uw.id, si.name, uw.attack
+                FROM user_weapons uw
+                JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+            """, user_id)
+
+        if not rows:
+            await ctx.send(f"{user.display_name} doesn't own any weapons.")
+            return
+
+        embed = discord.Embed(
+            title=f"🗡️ {user.display_name}'s Weapons",
+            color=discord.Color.blue()
+        )
+        for row in rows:
+            embed.add_field(
+                name=f"ID: {row['id']}",
+                value=f"**{row['name']}** (+{row['attack']} ATK)",
+                inline=False
+            )
+        await ctx.send(embed=embed)
+
+    @commands.command(name='adminremoveweapon')
+    @commands.has_permissions(administrator=True)
+    async def admin_remove_weapon(self, ctx, weapon_id: int):
+        """Remove a weapon by its unique ID (admin only)."""
+        async with self.bot.db_pool.acquire() as conn:
+            # Get weapon info before deleting (for confirmation message)
+            row = await conn.fetchrow("""
+                SELECT uw.id, si.name, uw.user_id
+                FROM user_weapons uw
+                JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.id = $1
+            """, weapon_id)
+
+            if not row:
+                await ctx.send(f"❌ Weapon with ID `{weapon_id}` not found.")
+                return
+
+            # Delete it
+            await conn.execute("DELETE FROM user_weapons WHERE id = $1", weapon_id)
+
+        # Try to get the user object for a nice mention
+        user = self.bot.get_user(int(row['user_id']))
+        user_mention = user.mention if user else f"User ID {row['user_id']}"
+
+        embed = discord.Embed(
+            title="✅ Weapon Removed",
+            description=f"Removed **{row['name']}** (ID: {weapon_id}) from {user_mention}.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+
 # TEMPORARY COMMAND
 
     @commands.command(name='clear_carriage')
