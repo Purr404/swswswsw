@@ -3996,7 +3996,7 @@ class Shop(commands.Cog):
             # Insert for Sword, Axe, Dagger (you can add more types here)
             for weapon in ['Sword', 'Axe', 'Dagger']:
                 if weapon not in type_map:
-                continue
+                    continue
                 type_id = type_map[weapon]
                 # Define attack ranges (you can adjust)
                 ranges = [
