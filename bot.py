@@ -3290,89 +3290,89 @@ class Shop(commands.Cog):
 
         # ========== RANDOM WEAPON BOX ==========
         if item['type'] == 'random_weapon_box':
-        balance = await currency_system.get_balance(user_id)
-        if balance['gems'] < item['price']:
-            embed = discord.Embed(
-                title="❌ Insufficient Gems",
-                description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
+            balance = await currency_system.get_balance(user_id)
+            if balance['gems'] < item['price']:
+                embed = discord.Embed(
+                    title="❌ Insufficient Gems",
+                    description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
+            if not success:
+                await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
+                return
+
+            # Fetch all variants with type and rarity info
+            async with self.bot.db_pool.acquire() as conn:
+                variants = await conn.fetch("""
+                    SELECT v.*, t.name_base, r.name as rarity_name
+                    FROM weapon_variants v
+                    JOIN weapon_types t ON v.type_id = t.type_id
+                    JOIN rarities r ON v.rarity_id = r.rarity_id
+                """)
+                adjectives = await conn.fetch("SELECT word FROM weapon_adjectives")
+                suffixes = await conn.fetch("SELECT phrase FROM weapon_suffixes")
+
+            if not variants:
+                await interaction.followup.send("❌ No weapon variants configured. Contact an admin.", ephemeral=True)
+                return
+
+            # Randomly pick a variant, adjective, suffix
+            chosen = random.choice(variants)
+            adj = random.choice(adjectives)['word'] if adjectives else ""
+            suffix = random.choice(suffixes)['phrase'] if suffixes else ""
+
+            # Build name: e.g., "Epic Flaming Sword of Destruction"
+            parts = [chosen['rarity_name']]
+            if adj:
+                parts.append(adj)
+            parts.append(chosen['name_base'])
+            if suffix:
+                parts.append(suffix)
+            weapon_name = " ".join(parts)
+
+            # Generate attack within variant's range
+            attack = random.randint(chosen['min_attack'], chosen['max_attack'])
+
+            # Insert into user_weapons (create a purchase record if needed)
+            async with self.bot.db_pool.acquire() as conn:
+                purchase_id = await conn.fetchval("""
+                    INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING purchase_id
+                """, user_id, item['item_id'], item['price'], datetime.now(timezone.utc) + timedelta(days=7))
+
+                await conn.execute("""
+                    INSERT INTO user_weapons (user_id, weapon_item_id, attack, purchase_id, generated_name, image_url, variant_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, user_id, None, attack, purchase_id, weapon_name, chosen['image_url'], chosen['variant_id'])
+
+            # Show result: box image then weapon image
+            box_embed = discord.Embed(
+                title="🎁 Mystery Box Opened!",
+                description=f"You received: **{weapon_name}**",
+                color=discord.Color.purple()
+            )
+            if item['image_url']:
+                box_embed.set_image(url=item['image_url'])
+            await interaction.followup.send(embed=box_embed, ephemeral=True)
+
+            weapon_embed = discord.Embed(
+                title=f"{weapon_name} (+{attack} ATK)",
+                description=f"*A random weapon from the box.*",
                 color=discord.Color.red()
             )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            if chosen['image_url']:
+                weapon_embed.set_image(url=chosen['image_url'])
+            await interaction.followup.send(embed=weapon_embed, ephemeral=True)
+
+            # Log the purchase
+            await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
             return
-
-        success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
-        if not success:
-            await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
-            return
-
-        # Fetch all variants with type and rarity info
-        async with self.bot.db_pool.acquire() as conn:
-            variants = await conn.fetch("""
-                SELECT v.*, t.name_base, r.name as rarity_name
-                FROM weapon_variants v
-                JOIN weapon_types t ON v.type_id = t.type_id
-                JOIN rarities r ON v.rarity_id = r.rarity_id
-            """)
-            adjectives = await conn.fetch("SELECT word FROM weapon_adjectives")
-            suffixes = await conn.fetch("SELECT phrase FROM weapon_suffixes")
-
-        if not variants:
-            await interaction.followup.send("❌ No weapon variants configured. Contact an admin.", ephemeral=True)
-            return
-
-        # Randomly pick a variant, adjective, suffix
-        chosen = random.choice(variants)
-        adj = random.choice(adjectives)['word'] if adjectives else ""
-        suffix = random.choice(suffixes)['phrase'] if suffixes else ""
-
-        # Build name: e.g., "Epic Flaming Sword of Destruction"
-        parts = [chosen['rarity_name']]
-        if adj:
-            parts.append(adj)
-        parts.append(chosen['name_base'])
-        if suffix:
-            parts.append(suffix)
-        weapon_name = " ".join(parts)
-
-        # Generate attack within variant's range
-        attack = random.randint(chosen['min_attack'], chosen['max_attack'])
-
-        # Insert into user_weapons (create a purchase record if needed)
-        async with self.bot.db_pool.acquire() as conn:
-            purchase_id = await conn.fetchval("""
-                INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
-                VALUES ($1, $2, $3, $4)
-                RETURNING purchase_id
-            """, user_id, item['item_id'], item['price'], datetime.now(timezone.utc) + timedelta(days=7))
-
-            await conn.execute("""
-                INSERT INTO user_weapons (user_id, weapon_item_id, attack, purchase_id, generated_name, image_url, variant_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-            """, user_id, None, attack, purchase_id, weapon_name, chosen['image_url'], chosen['variant_id'])
-
-        # Show result: box image then weapon image
-        box_embed = discord.Embed(
-            title="🎁 Mystery Box Opened!",
-            description=f"You received: **{weapon_name}**",
-            color=discord.Color.purple()
-       )
-        if item['image_url']:
-            box_embed.set_image(url=item['image_url'])
-        await interaction.followup.send(embed=box_embed, ephemeral=True)
-
-        weapon_embed = discord.Embed(
-            title=f"{weapon_name} (+{attack} ATK)",
-            description=f"*A random weapon from the box.*",
-            color=discord.Color.red()
-        )
-        if chosen['image_url']:
-            weapon_embed.set_image(url=chosen['image_url'])
-        await interaction.followup.send(embed=weapon_embed, ephemeral=True)
-
-        # Log the purchase
-        await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
-        return
-
+ 
         # ========== NON-WEAPON ITEMS (roles/colors) ==========
         # Check user_purchases for existing active purchase
         async with self.bot.db_pool.acquire() as conn:
