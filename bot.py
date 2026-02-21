@@ -304,15 +304,15 @@ class DatabaseSystem:
 
                     # Example for Sword variants (replace image URLs)
                     if 'Sword' in type_map and 'Common' in rarity_map:
-                    await conn.execute('''
-                        INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url) VALUES
-                        ($1, $2, 50, 100, 'https://example.com/sword_common.png'),
-                        ($1, $3, 101, 180, 'https://example.com/sword_uncommon.png'),
-                        ($1, $4, 181, 270, 'https://example.com/sword_rare.png'),
-                        ($1, $5, 271, 380, 'https://example.com/sword_epic.png'),
-                        ($1, $6, 381, 500, 'https://example.com/sword_legendary.png')
-                        ON CONFLICT (type_id, rarity_id) DO NOTHING
-                    ''', type_map['Sword'], rarity_map['Common'], rarity_map['Uncommon'], rarity_map['Rare'], rarity_map['Epic'], rarity_map['Legendary'])
+                        await conn.execute('''
+                            INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url) VALUES
+                            ($1, $2, 50, 100, 'https://example.com/sword_common.png'),
+                            ($1, $3, 101, 180, 'https://example.com/sword_uncommon.png'),
+                            ($1, $4, 181, 270, 'https://example.com/sword_rare.png'),
+                            ($1, $5, 271, 380, 'https://example.com/sword_epic.png'),
+                            ($1, $6, 381, 500, 'https://example.com/sword_legendary.png')
+                            ON CONFLICT (type_id, rarity_id) DO NOTHING
+                       ''', type_map['Sword'], rarity_map['Common'], rarity_map['Uncommon'], rarity_map['Rare'], rarity_map['Epic'], rarity_map['Legendary'])
 
 
 
