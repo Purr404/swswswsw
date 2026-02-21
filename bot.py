@@ -1,5 +1,6 @@
 import os
 import sys
+print("sys.path:", sys.path)
 import json
 import asyncio
 import random
