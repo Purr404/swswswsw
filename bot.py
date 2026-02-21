@@ -2604,6 +2604,16 @@ async def on_ready():
     print("\n🤖 Bot is ready!")
 
 
+@bot.event
+async def on_error(event, *args, **kwargs):
+    """Global error handler for uncaught exceptions."""
+    error = sys.exc_info()[1]
+    if error:
+        await log_to_discord(bot, f"Unhandled exception in `{event}`", "ERROR", error)
+    else:
+        await log_to_discord(bot, f"Unknown error in `{event}`", "ERROR")
+
+
 # FORTUNE BAG ON READY
 async def load_active_bags():
     async with bot.db_pool.acquire() as conn:
@@ -2718,11 +2728,24 @@ async def handle_open_bag(interaction: discord.Interaction):
 # === ERROR HANDLER ===
 @bot.event
 async def on_command_error(ctx, error):
+    """Handle command errors and log them."""
     if isinstance(error, commands.CommandNotFound):
+        return  # ignore unknown commands
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ You don't have permission to use this command.")
         return
-    print(f"Command error: {error}")
-    await ctx.send(f"❌ Error: {str(error)[:100]}")
+    if isinstance(error, commands.BadArgument):
+        await ctx.send("❌ Invalid arguments. Check `!!help` for usage.")
+        return
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ Missing required argument.")
+        return
 
+    # Log unexpected errors to Discord
+    await log_to_discord(bot, f"Error in command `{ctx.command}` by {ctx.author}", "ERROR", error)
+
+    # Also inform the user
+    await ctx.send("❌ An unexpected error occurred. The developers have been notified.")
 
 
 
@@ -3347,7 +3370,7 @@ class Shop(commands.Cog):
 
             # Show result: box image then weapon image
             box_embed = discord.Embed(
-                title="🎁 Mystery Box Opened!",
+                title="Box Opened!",
                 description=f"You received: **{weapon_name}**",
                 color=discord.Color.purple()
             )
@@ -3732,7 +3755,8 @@ class Shop(commands.Cog):
         if not weapons:
             await ctx.send("You don't own any weapons yet.")
             return
-
+ 
+        
         weapons_list = [dict(row) for row in weapons]
         view = self.WeaponPaginationView(weapons_list, ctx.author.id)
         await ctx.send(embed=view.create_embed(), view=view)
