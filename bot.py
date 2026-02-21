@@ -274,7 +274,7 @@ class DatabaseSystem:
                         )
                     ''')
 
-                    # Add variant_id column to user_weapons (if not exists)
+                    # Add variant_id column to user_weapons 
                     await conn.execute('''
                         ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL
                     ''')
@@ -331,8 +331,12 @@ class DatabaseSystem:
                             purchased_at TIMESTAMP DEFAULT NOW()
                         )
                     ''')
-                    # Add purchase_id column to user_weapons if not exists
+                    # Add purchase_id column to user_weapons 
                     await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL')
+
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS generated_name TEXT')
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS image_url TEXT')
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL')
 
                     # Ensure expires_at column exists and is timezone‑aware
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
@@ -3309,7 +3313,7 @@ class Shop(commands.Cog):
             # Fetch all variants with type and rarity info
             async with self.bot.db_pool.acquire() as conn:
                 variants = await conn.fetch("""
-                    SELECT v.*, t.name_base, r.name as rarity_name, r. color
+                    SELECT v.*, t.name_base, r.name as rarity_name, r.color
                     FROM weapon_variants v
                     JOIN weapon_types t ON v.type_id = t.type_id
                     JOIN rarities r ON v.rarity_id = r.rarity_id
