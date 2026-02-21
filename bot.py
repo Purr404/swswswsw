@@ -243,6 +243,42 @@ class DatabaseSystem:
                             purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE CASCADE
                         )
                     ''')
+                    
+                    await conn.execute('''
+                         CREATE TABLE IF NOT EXISTS weapon_types (
+                             type_id SERIAL PRIMARY KEY,
+                             name_base TEXT NOT NULL
+                        )
+                    ''')
+
+                    # Create rarities table
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS rarities (
+                            rarity_id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL UNIQUE,
+                            color INTEGER,
+                            display_order INTEGER DEFAULT 0
+                        )
+                    ''')
+
+                    # Create weapon_variants table (links type + rarity)
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS weapon_variants (
+                            variant_id SERIAL PRIMARY KEY,
+                            type_id INTEGER NOT NULL REFERENCES weapon_types(type_id) ON DELETE CASCADE,
+                            rarity_id INTEGER NOT NULL REFERENCES rarities(rarity_id) ON DELETE CASCADE,
+                            min_attack INTEGER NOT NULL,
+                            max_attack INTEGER NOT NULL,
+                            image_url TEXT,
+                            UNIQUE(type_id, rarity_id)
+                        )
+                    ''')
+
+                    # Add variant_id column to user_weapons (if not exists)
+                    await conn.execute('''
+                        ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL
+''')
+
 
                     # Allow 'weapon' as a valid type
                     await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
