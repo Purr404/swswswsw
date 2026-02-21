@@ -3185,7 +3185,7 @@ class Shop(commands.Cog):
                     JOIN rarities r ON v.rarity_id = r.rarity_id
                     WHERE v.type_id = $1
                     ORDER BY r.display_order, t.name_base
-               """, type_id)
+                """, type_id)
             else:
                 rows = await conn.fetch("""
                     SELECT v.*, t.name_base, r.name as rarity_name
@@ -3197,14 +3197,25 @@ class Shop(commands.Cog):
         if not rows:
             await ctx.send("No variants found.")
             return
-        embed = discord.Embed(title="Weapon Variants", color=discord.Color.green())
+
+        # Build a text list with image URLs
+        lines = []
         for r in rows:
-            embed.add_field(
-                name=f"ID {r['variant_id']}: {r['rarity_name']} {r['name_base']}",
-                value=f"ATK: {r['min_attack']}–{r['max_attack']}",
-                inline=False
+            lines.append(
+                f"ID {r['variant_id']}: {r['rarity_name']} {r['name_base']} – "
+                f"ATK {r['min_attack']}-{r['max_attack']} – Image: {r['image_url'] or 'None'}"
             )
-        await ctx.send(embed=embed)
+        output = "\n".join(lines)
+
+        # Discord message limit is 2000 characters
+        if len(output) <= 2000:
+            await ctx.send(f"```\n{output}\n```")
+        else:
+            # Split into multiple messages
+            chunks = [output[i:i+1900] for i in range(0, len(output), 1900)]
+            for chunk in chunks:
+                await ctx.send(f"```\n{chunk}\n```")
+
 
     @variant_admin.command(name='remove')
     @commands.has_permissions(administrator=True)
