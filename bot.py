@@ -291,9 +291,9 @@ class DatabaseSystem:
 
                     # Seed default weapon types (if not present)
                     await conn.execute('''
-                    INSERT INTO weapon_types (name_base) VALUES
-                    ('Sword'), ('Axe'), ('Dagger')
-                    ON CONFLICT DO NOTHING
+                        INSERT INTO weapon_types (name_base) VALUES
+                        ('Sword'), ('Axe'), ('Dagger')
+                        ON CONFLICT DO NOTHING
                     ''')
 
                     # Seed some variants –  URLs with actual ones.
