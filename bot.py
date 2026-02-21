@@ -277,7 +277,43 @@ class DatabaseSystem:
                     # Add variant_id column to user_weapons (if not exists)
                     await conn.execute('''
                         ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL
-''')
+                    ''')
+                    # Seed default rarities (if not present)
+                    await conn.execute('''
+                        INSERT INTO rarities (name, display_order) VALUES
+                        ('Common', 1),
+                        ('Uncommon', 2),
+                        ('Rare', 3),
+                        ('Epic', 4),
+                        ('Legendary', 5)
+                        ON CONFLICT (name) DO NOTHING
+                    ''')
+
+                    # Seed default weapon types (if not present)
+                    await conn.execute('''
+                    INSERT INTO weapon_types (name_base) VALUES
+                    ('Sword'), ('Axe'), ('Dagger')
+                    ON CONFLICT DO NOTHING
+                    ''')
+
+                    # Seed some variants –  URLs with actual ones.
+                    rows = await conn.fetch("SELECT type_id, name_base FROM weapon_types")
+                    type_map = {row['name_base']: row['type_id'] for row in rows}
+                    rows = await conn.fetch("SELECT rarity_id, name FROM rarities")
+                    rarity_map = {row['name']: row['rarity_id'] for row in rows}
+
+                    # Example for Sword variants (replace image URLs)
+                    if 'Sword' in type_map and 'Common' in rarity_map:
+                    await conn.execute('''
+                        INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url) VALUES
+                        ($1, $2, 50, 100, 'https://example.com/sword_common.png'),
+                        ($1, $3, 101, 180, 'https://example.com/sword_uncommon.png'),
+                        ($1, $4, 181, 270, 'https://example.com/sword_rare.png'),
+                        ($1, $5, 271, 380, 'https://example.com/sword_epic.png'),
+                        ($1, $6, 381, 500, 'https://example.com/sword_legendary.png')
+                        ON CONFLICT (type_id, rarity_id) DO NOTHING
+                    ''', type_map['Sword'], rarity_map['Common'], rarity_map['Uncommon'], rarity_map['Rare'], rarity_map['Epic'], rarity_map['Legendary'])
+
 
 
                     # Allow 'weapon' as a valid type
