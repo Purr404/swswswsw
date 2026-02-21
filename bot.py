@@ -3198,24 +3198,14 @@ class Shop(commands.Cog):
             await ctx.send("No variants found.")
             return
 
-        # Build a text list with image URLs
-        lines = []
+        embed = discord.Embed(title="Weapon Variants", color=discord.Color.green())
         for r in rows:
-            lines.append(
-                f"ID {r['variant_id']}: {r['rarity_name']} {r['name_base']} – "
-                f"ATK {r['min_attack']}-{r['max_attack']} – Image: {r['image_url'] or 'None'}"
+            embed.add_field(
+                name=f"ID {r['variant_id']}: {r['rarity_name']} {r['name_base']}",
+                value=f"ATK: {r['min_attack']}–{r['max_attack']}",
+                inline=False
             )
-        output = "\n".join(lines)
-
-        # Discord message limit is 2000 characters
-        if len(output) <= 2000:
-            await ctx.send(f"```\n{output}\n```")
-        else:
-            # Split into multiple messages
-            chunks = [output[i:i+1900] for i in range(0, len(output), 1900)]
-            for chunk in chunks:
-                await ctx.send(f"```\n{chunk}\n```")
-
+        await ctx.send(embed=embed)
 
     @variant_admin.command(name='remove')
     @commands.has_permissions(administrator=True)
