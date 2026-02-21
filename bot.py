@@ -3661,7 +3661,7 @@ class Shop(commands.Cog):
 # -------------------------------------------------------------------------
     class WeaponPaginationView(discord.ui.View):
         def __init__(self, weapons, user_id):
-            super().__init__(timeout=60)
+            super().__init__(timeout=300)
             self.weapons = weapons
             self.user_id = user_id
             self.current_index = 0
