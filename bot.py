@@ -3668,7 +3668,7 @@ class Shop(commands.Cog):
 
         def create_embed(self):
             weapon = self.weapons[self.current_index]
-            color = weapon.get('rarity_color') or 0x5865F2  # default blurple
+            color = weapon.get('rarity_color') or 0x5865F2
             embed = discord.Embed(
                 title=f"{weapon['name']} (+{weapon['attack']} ATK)",
                 description=weapon.get('description') or "No description available.",
@@ -3679,9 +3679,8 @@ class Shop(commands.Cog):
             embed.set_footer(text=f"Weapon {self.current_index+1}/{len(self.weapons)}")
             return embed
 
-        
         @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
-        async def previous_button(self, interaction: discord.Interaction):
+        async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user.id != self.user_id:
                 await interaction.response.send_message("You cannot control this view.", ephemeral=True)
                 return
@@ -3692,7 +3691,7 @@ class Shop(commands.Cog):
                 await interaction.response.defer()
 
         @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
-        async def next_button(self, interaction: discord.Interaction):
+        async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user.id != self.user_id:
                 await interaction.response.send_message("You cannot control this view.", ephemeral=True)
                 return
