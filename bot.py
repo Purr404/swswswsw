@@ -2901,7 +2901,7 @@ class Shop(commands.Cog):
         # Main categories (you can add more later)
         main_cats = [
             ("🎨 Customization", "customization"),
-            ("🗡️ Weapons", "weapons")
+            ("🗡️ Weapons", "weapons"),
             ("🎁 Random Weapon Box", "box")
         ]
         for label, cat_id in main_cats:
