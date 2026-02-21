@@ -3309,7 +3309,7 @@ class Shop(commands.Cog):
             # Fetch all variants with type and rarity info
             async with self.bot.db_pool.acquire() as conn:
                 variants = await conn.fetch("""
-                    SELECT v.*, t.name_base, r.name as rarity_name r. color
+                    SELECT v.*, t.name_base, r.name as rarity_name, r. color
                     FROM weapon_variants v
                     JOIN weapon_types t ON v.type_id = t.type_id
                     JOIN rarities r ON v.rarity_id = r.rarity_id
