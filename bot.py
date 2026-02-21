@@ -2901,8 +2901,8 @@ class Shop(commands.Cog):
         # Main categories (you can add more later)
         main_cats = [
             ("🎨 Customization", "customization"),
-            ("🗡️ Weapons", "weapons"),
-            ("🎁 Random Weapon Box", "box")
+            ("🗡️ Weapons", "weapons")
+            
         ]
         for label, cat_id in main_cats:
             button = discord.ui.Button(
@@ -3016,15 +3016,15 @@ class Shop(commands.Cog):
 
 
     async def show_weapon_items(self, interaction: discord.Interaction, embed, view):
-        """Display all weapon items."""
+        """Display all weapon items including random boxes."""
         async with self.bot.db_pool.acquire() as conn:
             rows = await conn.fetch("""
-                SELECT item_id, name, description, price
+                SELECT item_id, name, description, price, image_url, type
                 FROM shop_items
-                WHERE type = 'weapon'
+                WHERE type IN ('weapon', 'random_weapon_box')
                 ORDER BY price ASC
             """)
-
+    
         if not rows:
             embed.description = "No weapons available yet."
             back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
