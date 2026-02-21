@@ -306,7 +306,7 @@ class DatabaseSystem:
                     if 'Sword' in type_map and 'Common' in rarity_map:
                         await conn.execute('''
                             INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url) VALUES
-                            ($1, $2, 50, 100, 'https://imgur.com/a/Oj1xvNA#ZSgdi6B'),
+                            ($1, $2, 50, 100, 'https://cdn.discordapp.com/attachments/1470664051242700800/1474691280759029902/1000005319-removebg-preview.png?ex=699ac4c7&is=69997347&hm=7f3406cfd98b3bc90a02dfeb33d94c9b1ef94babd7d295d3bfe71d9445b7d8d0&'),
                             ($1, $3, 101, 180, 'https://example.com/sword_uncommon.png'),
                             ($1, $4, 181, 270, 'https://example.com/sword_rare.png'),
                             ($1, $5, 271, 380, 'https://example.com/sword_epic.png'),
