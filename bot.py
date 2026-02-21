@@ -3656,39 +3656,79 @@ class Shop(commands.Cog):
 
     #
 
+# -------------------------------------------------------------------------
+# PAGINATED WEAPON VIEWER
+# -------------------------------------------------------------------------
+    class WeaponPaginationView(discord.ui.View):
+        def __init__(self, weapons, user_id):
+            super().__init__(timeout=60)
+            self.weapons = weapons
+            self.user_id = user_id
+            self.current_index = 0
+
+        def create_embed(self):
+            weapon = self.weapons[self.current_index]
+            color = weapon.get('rarity_color') or 0x5865F2  # default blurple
+            embed = discord.Embed(
+                title=f"{weapon['name']} (+{weapon['attack']} ATK)",
+                description=weapon.get('description') or "No description available.",
+                color=color
+            )
+            if weapon.get('image_url'):
+                embed.set_image(url=weapon['image_url'])
+            embed.set_footer(text=f"Weapon {self.current_index+1}/{len(self.weapons)}")
+            return embed
+
+        @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
+        async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message("You cannot control this view.", ephemeral=True)
+                return
+            if self.current_index > 0:
+                self.current_index -= 1
+                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+            else:
+                await interaction.response.defer()
+
+        @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
+        async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message("You cannot control this view.", ephemeral=True)
+                return
+            if self.current_index < len(self.weapons) - 1:
+                self.current_index += 1
+                await interaction.response.edit_message(embed=self.create_embed(), view=self)
+            else:
+                await interaction.response.defer()
+
     @commands.command(name='myweapon')
     async def my_weapon(self, ctx):
         user_id = str(ctx.author.id)
         async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("""
+            weapons = await conn.fetch("""
                 SELECT 
+                    uw.id,
                     COALESCE(si.name, uw.generated_name) as name,
                     COALESCE(si.image_url, uw.image_url) as image_url,
                     si.description,
-                    uw.attack
+                    uw.attack,
+                    uw.purchased_at,
+                    r.color as rarity_color
                 FROM user_weapons uw
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
                 WHERE uw.user_id = $1
                 ORDER BY uw.purchased_at DESC
-                LIMIT 1
             """, user_id)
 
-        if not row:
+        if not weapons:
             await ctx.send("You don't own any weapons yet.")
             return
 
-        desc = row['description'] or "No description available."
-        wrapped_desc = "\n".join(textwrap.wrap(desc, width=45))
-
-        embed = discord.Embed(
-            title=f"{row['name']} (+{row['attack']} ATK)",
-            description=f"*{wrapped_desc}*",
-            color=discord.Color.red()
-        )
-        if row['image_url']:
-            embed.set_image(url=row['image_url'])
-
-        await ctx.send(embed=embed)
+        weapons_list = [dict(row) for row in weapons]
+        view = self.WeaponPaginationView(weapons_list, ctx.author.id)
+        await view.send_initial(ctx)
 
 
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
