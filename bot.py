@@ -1,6 +1,5 @@
 import os
 import sys
-print("sys.path:", sys.path)
 import json
 import asyncio
 import random
@@ -9,7 +8,6 @@ import traceback   # used in log_to_discord
 import aiohttp
 import io
 import textwrap
-from culling_game import CullingGame
 
 # ULTIMATE ASYNCPG INSTALLER
 import subprocess
@@ -4209,8 +4207,6 @@ async def load_shop_persistence(bot):
     if shop_cog:
         await shop_cog.load_shop_messages()
 
-
-bot.add_cog(CullingGame(bot, currency_system))
 
 
 # === RUN BOT ===
