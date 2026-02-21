@@ -4209,8 +4209,7 @@ async def load_shop_persistence(bot):
         await shop_cog.load_shop_messages()
 
 
-bot.add_cog(CullingGame(bot))
-
+bot.add_cog(CullingGame(bot, currency_system))
 
 
 # === RUN BOT ===
