@@ -3362,7 +3362,7 @@ class Shop(commands.Cog):
                 'Uncommon': 'Slightly better than common, with improved craftsmanship.',
                 'Rare': 'A well‑made weapon, sought after by experienced warriors.',
                 'Epic': 'An exceptional weapon, forged with rare materials and skill.',
-                'Legendary': 'A mythical weapon of incredible power, said to be blessed by the gods.'
+                'Legendary': 'A weapon of incredible power, said to be blessed by the gods.'
             }
             description = rarity_descriptions.get(chosen['rarity_name'], 'A random weapon.')
 
