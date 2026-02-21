@@ -274,10 +274,22 @@ class DatabaseSystem:
                         )
                     ''')
 
-                    # Add variant_id column to user_weapons 
                     await conn.execute('''
-                        ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL
+                        CREATE TABLE IF NOT EXISTS user_weapons (
+                            id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            weapon_item_id INTEGER REFERENCES shop_items(item_id) ON DELETE CASCADE,
+                            attack INTEGER NOT NULL,
+                            purchased_at TIMESTAMP DEFAULT NOW()
+                        )
                     ''')
+
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL')
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS generated_name TEXT')
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS image_url TEXT')
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL')
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS description TEXT')
+
                     # Seed default rarities (if not present)
                     await conn.execute('''
                         INSERT INTO rarities (name, color, display_order) VALUES
@@ -306,7 +318,7 @@ class DatabaseSystem:
                     if 'Sword' in type_map and 'Common' in rarity_map:
                         await conn.execute('''
                             INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url) VALUES
-                            ($1, $2, 50, 100, 'https://cdn.discordapp.com/attachments/1470664051242700800/1474691280759029902/1000005319-removebg-preview.png'),
+                            ($1, $2, 50, 100, 'https://example.com/sword_common.png'),
                             ($1, $3, 101, 180, 'https://example.com/sword_uncommon.png'),
                             ($1, $4, 181, 270, 'https://example.com/sword_rare.png'),
                             ($1, $5, 271, 380, 'https://example.com/sword_epic.png'),
