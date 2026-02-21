@@ -8,7 +8,6 @@ import traceback   # used in log_to_discord
 import aiohttp
 import io
 import textwrap
-from culling_game import CullingGame
 
 # ULTIMATE ASYNCPG INSTALLER
 import subprocess
