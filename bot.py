@@ -337,6 +337,7 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS generated_name TEXT')
                     await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS image_url TEXT')
                     await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL')
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS description TEXT')
 
                     # Ensure expires_at column exists and is timezone‑aware
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
@@ -3355,6 +3356,15 @@ class Shop(commands.Cog):
 
             # Generate attack within variant's range
             attack = random.randint(chosen['min_attack'], chosen['max_attack'])
+            # Generate description based on rarity
+            rarity_descriptions = {
+                'Common': 'A basic weapon, mass‑produced for everyday use.',
+                'Uncommon': 'Slightly better than common, with improved craftsmanship.',
+                'Rare': 'A well‑made weapon, sought after by experienced warriors.',
+                'Epic': 'An exceptional weapon, forged with rare materials and skill.',
+                'Legendary': 'A mythical weapon of incredible power, said to be blessed by the gods.'
+            }
+            description = rarity_descriptions.get(chosen['rarity_name'], 'A random weapon.')
 
             # Insert into user_weapons (create a purchase record if needed)
             async with self.bot.db_pool.acquire() as conn:
@@ -3365,9 +3375,9 @@ class Shop(commands.Cog):
                 """, user_id, item['item_id'], item['price'], datetime.now(timezone.utc) + timedelta(days=7))
 
                 await conn.execute("""
-                    INSERT INTO user_weapons (user_id, weapon_item_id, attack, purchase_id, generated_name, image_url, variant_id)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                """, user_id, None, attack, purchase_id, weapon_name, chosen['image_url'], chosen['variant_id'])
+                    INSERT INTO user_weapons (user_id, weapon_item_id, attack, purchase_id, generated_name, image_url, variant_id, description)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """, user_id, None, attack, purchase_id, weapon_name, chosen['image_url'], chosen['variant_id'], description)
 
             # Show result: box image then weapon image
             box_embed = discord.Embed(
@@ -3382,7 +3392,7 @@ class Shop(commands.Cog):
             rarity_color = chosen['color'] or 0xED4245  # fallback to 
             weapon_embed = discord.Embed(          
                 title=f"{weapon_name} (+{attack} ATK)",
-                description=f"*A random weapon from the box.*",
+                description=description,
                 color=rarity_color
             )
             if chosen['image_url']:
@@ -3741,7 +3751,7 @@ class Shop(commands.Cog):
                     uw.id,
                     COALESCE(si.name, uw.generated_name) as name,
                     COALESCE(si.image_url, uw.image_url) as image_url,
-                    si.description,
+                    COALESCE(si.description, uw.description) as description,
                     uw.attack,
                     uw.purchased_at,
                     r.color as rarity_color
