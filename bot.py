@@ -3680,7 +3680,11 @@ class Shop(commands.Cog):
             return embed
 
         @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
-        async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async def previous_button(self, *args):
+            # Find the Interaction object among the arguments
+            interaction = next((arg for arg in args if isinstance(arg, discord.Interaction)), None)
+            if not interaction:
+                return
             if interaction.user.id != self.user_id:
                 await interaction.response.send_message("You cannot control this view.", ephemeral=True)
                 return
@@ -3691,7 +3695,10 @@ class Shop(commands.Cog):
                 await interaction.response.defer()
 
         @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
-        async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async def next_button(self, *args):
+            interaction = next((arg for arg in args if isinstance(arg, discord.Interaction)), None)
+            if not interaction:
+                return
             if interaction.user.id != self.user_id:
                 await interaction.response.send_message("You cannot control this view.", ephemeral=True)
                 return
