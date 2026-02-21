@@ -316,9 +316,12 @@ class DatabaseSystem:
 
 
 
-                    # Allow 'weapon' as a valid type
+                    # Allow 'weapon' and 'random_weapon_box' as valid
                     await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
-                    await conn.execute('ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check CHECK (type IN (\'role\', \'color\', \'weapon\'))')
+                    await conn.execute('''
+                        ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check 
+    CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box'))
+                    ''')
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_weapons (
                             id SERIAL PRIMARY KEY,
