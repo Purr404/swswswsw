@@ -2881,9 +2881,7 @@ class Shop(commands.Cog):
         elif custom_id == "shop_back_to_main":
             await self.show_main_categories(interaction)
         elif custom_id == "shop_back_to_sub":
-            await self.show_main_categories(interaction)  # Simplified
-        elif custom_id == "shop_maincat_boxes":
-            await self.show_box_items(interaction)
+            await self.show_main_categories(interaction)  # Simplified  
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
