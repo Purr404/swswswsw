@@ -3679,6 +3679,15 @@ class Shop(commands.Cog):
             embed.set_footer(text=f"Weapon {self.current_index+1}/{len(self.weapons)}")
             return embed
 
+        async def on_timeout(self):
+            # Disable buttons when view times out
+            for item in self.children:
+                item.disabled = True
+            try:
+                await self.message.edit(view=self)
+            except:
+                pass
+
         @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
         async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user.id != self.user_id:
