@@ -359,6 +359,38 @@ class DatabaseSystem:
                     # Add image_url column for weapons (if not exists)
                     await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS image_url TEXT')
 
+
+                    # Player stats (extend existing or create new)
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS player_stats (
+                        user_id TEXT PRIMARY KEY REFERENCES user_gems(user_id) ON DELETE CASCADE,
+                        hp INTEGER NOT NULL DEFAULT 1000,
+                        max_hp INTEGER NOT NULL DEFAULT 1000,
+                        energy INTEGER NOT NULL DEFAULT 3,
+                        max_energy INTEGER NOT NULL DEFAULT 3,
+                        last_energy_regen TIMESTAMP DEFAULT NOW(),
+                        mining_start TIMESTAMP,
+                        mining_message_id BIGINT,
+                        mining_channel_id BIGINT,
+                        pending_reward INTEGER DEFAULT 0,  -- gems accumulated while mining
+                        plunder_count INTEGER DEFAULT 0,   -- daily plunder uses
+                        last_plunder_reset DATE DEFAULT CURRENT_DATE
+                        )
+                    ''')
+
+                    # Attack logs (for cooldowns, optional)
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS attack_logs (
+                        id SERIAL PRIMARY KEY,
+                        attacker_id TEXT NOT NULL,
+                        defender_id TEXT NOT NULL,
+                        timestamp TIMESTAMP DEFAULT NOW(),
+                        damage INTEGER,
+                        attacker_weapon TEXT,
+                        defender_hp_left INTEGER
+                        )
+                    ''')
+
                     # Optional indexes
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
 
