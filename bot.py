@@ -4015,6 +4015,63 @@ class Shop(commands.Cog):
         await ctx.send("✅ All variants reset. Now you have 5 per type (placeholders). Use `!!variant list` to see them, and update image URLs with `!!variant add`.")
 
 
+    @commands.command(name='listweapons')
+    async def list_weapons(self, ctx):
+        """List all your weapons with their IDs."""
+        user_id = str(ctx.author.id)
+        async with self.bot.db_pool.acquire() as conn:
+            weapons = await conn.fetch("""
+                SELECT uw.id, 
+                       COALESCE(si.name, uw.generated_name) as name,
+                       uw.attack
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+            """, user_id)
+
+        if not weapons:
+            await ctx.send("You don't own any weapons.")
+            return
+
+        lines = [f"ID {w['id']}: {w['name']} (+{w['attack']} ATK)" for w in weapons]
+        await ctx.send("**Your weapons:**\n" + "\n".join(lines))
+
+
+    @commands.command(name='removeweapon')
+    async def remove_weapon(self, ctx, weapon_id: int):
+        """Delete a weapon you own by its ID (use !!listweapons to see IDs)."""
+        user_id = str(ctx.author.id)
+        async with self.bot.db_pool.acquire() as conn:
+            # Check if weapon exists and belongs to user
+            weapon = await conn.fetchrow(
+                "SELECT id, COALESCE(si.name, uw.generated_name) as name "
+                "FROM user_weapons uw "
+                "LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id "
+                "WHERE uw.id = $1 AND uw.user_id = $2",
+                weapon_id, user_id
+            )
+            if not weapon:
+                await ctx.send("❌ Weapon not found or does not belong to you.")
+                return
+
+            # Ask for confirmation
+            confirm = await ctx.send(f"Are you sure you want to delete **{weapon['name']}**? Reply with `yes` within 30 seconds.")
+
+            def check(m):
+                return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "yes"
+
+            try:
+                await self.bot.wait_for('message', timeout=30.0, check=check)
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ Deletion cancelled.")
+                return
+
+            # Delete the weapon
+            await conn.execute("DELETE FROM user_weapons WHERE id = $1", weapon_id)
+            await ctx.send(f"✅ Weapon **{weapon['name']}** deleted.")
+
+
 
 # TEMPORARY COMMAND
 
