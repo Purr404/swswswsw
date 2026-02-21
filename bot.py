@@ -280,13 +280,13 @@ class DatabaseSystem:
                     ''')
                     # Seed default rarities (if not present)
                     await conn.execute('''
-                        INSERT INTO rarities (name, display_order) VALUES
-                        ('Common', 1),
-                        ('Uncommon', 2),
-                        ('Rare', 3),
-                        ('Epic', 4),
-                        ('Legendary', 5)
-                        ON CONFLICT (name) DO NOTHING
+                        INSERT INTO rarities (name, color, display_order) VALUES
+                        ('Common', 0xFFFFFF, 1),      -- white
+                        ('Uncommon', 0x00FF00, 2),     -- green
+                        ('Rare', 0x0000FF, 3),         -- blue (or adjust hex for purple)
+                        ('Epic', 0x800080, 4),         -- purple
+                        ('Legendary', 0xFFD700, 5)     -- gold
+                        ON CONFLICT (name) DO UPDATE SET color = EXCLUDED.color
                     ''')
 
                     # Seed default weapon types (if not present)
