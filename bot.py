@@ -4005,6 +4005,28 @@ class Shop(commands.Cog):
         await ctx.send("✅ All variants reset. Now you have 5 per type (placeholders). Use `!!variant list` to see them, and update image URLs with `!!variant add`.")
 
 
+    @commands.command(name='clear_variants')
+    @commands.has_permissions(administrator=True)
+    async def clear_variants(self, ctx):
+        """⚠️ DANGER: Deletes ALL weapon variants from the database."""
+        # Confirmation
+        confirm = await ctx.send("**WARNING:** This will delete **ALL** weapon variants. Existing weapons will lose their rarity color. Type `CONFIRM` to proceed.")
+
+        def check(m):
+            return m.author == ctx.author and m.channel == ctx.channel and m.content == "CONFIRM"
+
+        try:
+            await self.bot.wait_for('message', timeout=30.0, check=check)
+        except asyncio.TimeoutError:
+            await ctx.send("❌ Deletion cancelled.")
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            # Delete all variants
+            result = await conn.execute("DELETE FROM weapon_variants")
+            count = result.split()[1]  # Get number of deleted rows
+            await ctx.send(f"✅ Deleted **{count}** weapon variants. The table is now empty.")
+
     @commands.command(name='listweapons')
     async def list_weapons(self, ctx):
         """List all your weapons with their IDs."""
