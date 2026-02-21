@@ -4133,7 +4133,7 @@ class Shop(commands.Cog):
         user_id = str(ctx.author.id)
         async with self.bot.db_pool.acquire() as conn:
             # Count how many weapons the user has
-             count = await conn.fetchval(
+            count = await conn.fetchval(
                 "SELECT COUNT(*) FROM user_weapons WHERE user_id = $1",
                 user_id
             )
