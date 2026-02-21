@@ -3312,31 +3312,21 @@ class Shop(commands.Cog):
             # Fetch all variants with type and rarity info
             async with self.bot.db_pool.acquire() as conn:
                 variants = await conn.fetch("""
-                    SELECT v.*, t.name_base, r.name as rarity_name
+                    SELECT v.*, t.name_base, r.name as rarity_name r. color
                     FROM weapon_variants v
                     JOIN weapon_types t ON v.type_id = t.type_id
                     JOIN rarities r ON v.rarity_id = r.rarity_id
-                """)
-                adjectives = await conn.fetch("SELECT word FROM weapon_adjectives")
-                suffixes = await conn.fetch("SELECT phrase FROM weapon_suffixes")
+                """)             
 
             if not variants:
                 await interaction.followup.send("❌ No weapon variants configured. Contact an admin.", ephemeral=True)
                 return
 
-            # Randomly pick a variant, adjective, suffix
+            # Randomly pick a variant 
             chosen = random.choice(variants)
-            adj = random.choice(adjectives)['word'] if adjectives else ""
-            suffix = random.choice(suffixes)['phrase'] if suffixes else ""
-
-            # Build name: e.g., "Epic Flaming Sword of Destruction"
-            parts = [chosen['rarity_name']]
-            if adj:
-                parts.append(adj)
-            parts.append(chosen['name_base'])
-            if suffix:
-                parts.append(suffix)
-            weapon_name = " ".join(parts)
+       
+            # Build name: e.g., "Epic Sword"         
+            weapon_name = f"{chosen['rarity_name']} {chosen['name_base']}"
 
             # Generate attack within variant's range
             attack = random.randint(chosen['min_attack'], chosen['max_attack'])
@@ -3364,10 +3354,11 @@ class Shop(commands.Cog):
                 box_embed.set_image(url=item['image_url'])
             await interaction.followup.send(embed=box_embed, ephemeral=True)
 
-            weapon_embed = discord.Embed(
+            rarity_color = chosen['color'] or 0xED4245  # fallback to 
+            weapon_embed = discord.Embed(          
                 title=f"{weapon_name} (+{attack} ATK)",
                 description=f"*A random weapon from the box.*",
-                color=discord.Color.red()
+                color=rarity_color
             )
             if chosen['image_url']:
                 weapon_embed.set_image(url=chosen['image_url'])
