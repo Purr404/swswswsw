@@ -3007,6 +3007,169 @@ class Shop(commands.Cog):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
+# RARITY
+    @commands.group(name='rarity', invoke_without_command=True)
+    @commands.has_permissions(administrator=True)
+    async def rarity_admin(self, ctx):
+        """Manage rarities for weapons."""
+        embed = discord.Embed(
+            title="✨ Rarity Admin",
+            description=(
+                "`!!rarity add <name> [color]` – e.g. `Epic 0xFFD700`\n"
+                "`!!rarity list`\n"
+                "`!!rarity remove <name>`"
+            ),
+            color=discord.Color.gold()
+        )
+        await ctx.send(embed=embed)
+
+    @rarity_admin.command(name='add')
+    @commands.has_permissions(administrator=True)
+    async def rarity_add(self, ctx, name: str, color: int = None):
+        async with self.bot.db_pool.acquire() as conn:
+            try:
+                await conn.execute(
+                    "INSERT INTO rarities (name, color) VALUES ($1, $2)",
+                    name, color
+                )
+                await ctx.send(f"✅ Added rarity: **{name}**")
+            except asyncpg.UniqueViolationError:
+                await ctx.send(f"❌ Rarity '{name}' already exists.")
+
+    @rarity_admin.command(name='list')
+    @commands.has_permissions(administrator=True)
+    async def rarity_list(self, ctx):
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM rarities ORDER BY display_order, name")
+        if not rows:
+            await ctx.send("No rarities defined yet.")
+            return
+        embed = discord.Embed(title="Rarities", color=discord.Color.blue())
+        for r in rows:
+            embed.add_field(
+                name=f"ID {r['rarity_id']}: {r['name']}",
+                value=f"Color: {r['color'] or 'Default'}",
+                inline=False
+            )
+        await ctx.send(embed=embed)
+
+    @rarity_admin.command(name='remove')
+    @commands.has_permissions(administrator=True)
+    async def rarity_remove(self, ctx, name: str):
+        async with self.bot.db_pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM rarities WHERE name = $1", name)
+        if result == "DELETE 0":
+            await ctx.send(f"❌ Rarity '{name}' not found.")
+        else:
+            await ctx.send(f"✅ Removed rarity: **{name}**")
+# END RARITY
+
+# VARIANT
+    @commands.group(name='variant', invoke_without_command=True)
+    @commands.has_permissions(administrator=True)
+    async def variant_admin(self, ctx):
+        """Link a weapon type with a rarity (create a variant)."""
+        embed = discord.Embed(
+            title="🔗 Weapon Variant Admin",
+            description=(
+                "`!!variant add <type_id> <rarity_id> <min_atk> <max_atk> <image_url>`\n"
+                "`!!variant list [type_id]`\n"
+                "`!!variant remove <variant_id>`"
+            ),
+            color=discord.Color.purple()
+        )
+        await ctx.send(embed=embed)
+
+    @variant_admin.command(name='add')
+    @commands.has_permissions(administrator=True)
+    async def variant_add(self, ctx, type_id: int, rarity_id: int, min_attack: int, max_attack: int, image_url: str):
+        if min_attack < 0 or max_attack < min_attack:
+            await ctx.send("❌ Invalid attack range.")
+            return
+        if not (image_url.startswith('http://') or image_url.startswith('https://')):
+            await ctx.send("❌ Image URL must start with http:// or https://")
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            type_exists = await conn.fetchval("SELECT 1 FROM weapon_types WHERE type_id = $1", type_id)
+            rarity_exists = await conn.fetchval("SELECT 1 FROM rarities WHERE rarity_id = $1", rarity_id)
+            if not type_exists:
+                await ctx.send(f"❌ Weapon type {type_id} not found.")
+                return
+            if not rarity_exists:
+                await ctx.send(f"❌ Rarity {rarity_id} not found.")
+                return
+
+            try:
+                await conn.execute("""
+                    INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, type_id, rarity_id, min_attack, max_attack, image_url)
+                await ctx.send(f"✅ Added variant for type {type_id} + rarity {rarity_id} (ATK {min_attack}–{max_attack})")
+            except asyncpg.UniqueViolationError:
+                await ctx.send("❌ This variant already exists (type + rarity combination is unique).")
+
+    @variant_admin.command(name='list')
+    @commands.has_permissions(administrator=True)
+    async def variant_list(self, ctx, type_id: int = None):
+        async with self.bot.db_pool.acquire() as conn:
+            if type_id:
+                rows = await conn.fetch("""
+                    SELECT v.*, t.name_base, r.name as rarity_name
+                    FROM weapon_variants v
+                    JOIN weapon_types t ON v.type_id = t.type_id
+                    JOIN rarities r ON v.rarity_id = r.rarity_id
+                    WHERE v.type_id = $1
+                    ORDER BY r.display_order, t.name_base
+               """, type_id)
+            else:
+                rows = await conn.fetch("""
+                    SELECT v.*, t.name_base, r.name as rarity_name
+                    FROM weapon_variants v
+                    JOIN weapon_types t ON v.type_id = t.type_id
+                    JOIN rarities r ON v.rarity_id = r.rarity_id
+                    ORDER BY t.name_base, r.display_order
+                """)
+        if not rows:
+            await ctx.send("No variants found.")
+            return
+        embed = discord.Embed(title="Weapon Variants", color=discord.Color.green())
+        for r in rows:
+            embed.add_field(
+                name=f"ID {r['variant_id']}: {r['rarity_name']} {r['name_base']}",
+                value=f"ATK: {r['min_attack']}–{r['max_attack']}",
+                inline=False
+            )
+        await ctx.send(embed=embed)
+
+    @variant_admin.command(name='remove')
+    @commands.has_permissions(administrator=True)
+    async def variant_remove(self, ctx, variant_id: int):
+        async with self.bot.db_pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM weapon_variants WHERE variant_id = $1", variant_id)
+        if result == "DELETE 0":
+            await ctx.send(f"❌ Variant {variant_id} not found.")
+        else:
+            await ctx.send(f"✅ Removed variant {variant_id}.")
+# END VARIANT
+
+# RANDOM BOX
+    @commands.command(name='addrandombox')
+    @commands.has_permissions(administrator=True)
+    async def add_random_box(self, ctx, name: str, price: int, *, description: str = "Open to get a random weapon!", image_url: str = None):
+        """Add a random weapon box item to the shop."""
+        if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
+            await ctx.send("❌ Invalid image URL.")
+            return
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO shop_items (name, description, price, type, guild_id, image_url)
+                VALUES ($1, $2, $3, 'random_weapon_box', $4, $5)
+            """, name, description, price, ctx.guild.id, image_url)
+        await ctx.send(f"✅ Added random weapon box **{name}** for **{price} gems**.")
+# END RANDOM BOX
+
+
     # -------------------------------------------------------------------------
     # PURCHASE ITEM – with duplicate & expiration checks
     # -------------------------------------------------------------------------
@@ -3381,9 +3544,13 @@ class Shop(commands.Cog):
         user_id = str(ctx.author.id)
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow("""
-                SELECT si.name, si.image_url, si.description, uw.attack
+                SELECT 
+                    COALESCE(si.name, uw.generated_name) as name,
+                    COALESCE(si.image_url, uw.image_url) as image_url,
+                    si.description,
+                    uw.attack
                 FROM user_weapons uw
-                JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
                 WHERE uw.user_id = $1
                 ORDER BY uw.purchased_at DESC
                 LIMIT 1
@@ -3394,16 +3561,15 @@ class Shop(commands.Cog):
             return
 
         desc = row['description'] or "No description available."
-        # Wrap to match image width (adjust width as needed)
         wrapped_desc = "\n".join(textwrap.wrap(desc, width=45))
 
         embed = discord.Embed(
-            title=f"{row['name']} (+{row['attack']} ATK)",   # Attack in title
-            description=f"*{wrapped_desc}*",                # Italic description
+            title=f"{row['name']} (+{row['attack']} ATK)",
+            description=f"*{wrapped_desc}*",
             color=discord.Color.red()
         )
         if row['image_url']:
-            embed.set_image(url=row['image_url'])            # Full image below
+            embed.set_image(url=row['image_url'])
 
         await ctx.send(embed=embed)
 
