@@ -306,7 +306,7 @@ class DatabaseSystem:
                     if 'Sword' in type_map and 'Common' in rarity_map:
                         await conn.execute('''
                             INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url) VALUES
-                            ($1, $2, 50, 100, 'https://example.com/sword_common.png'),
+                            ($1, $2, 50, 100, 'https://imgur.com/a/Oj1xvNA#ZSgdi6B'),
                             ($1, $3, 101, 180, 'https://example.com/sword_uncommon.png'),
                             ($1, $4, 181, 270, 'https://example.com/sword_rare.png'),
                             ($1, $5, 271, 380, 'https://example.com/sword_epic.png'),
@@ -2879,6 +2879,8 @@ class Shop(commands.Cog):
             await self.show_main_categories(interaction)
         elif custom_id == "shop_back_to_sub":
             await self.show_main_categories(interaction)  # Simplified
+        elif custom_id == "shop_maincat_boxes":
+            await self.show_box_items(interaction)
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
@@ -2899,6 +2901,7 @@ class Shop(commands.Cog):
         main_cats = [
             ("🎨 Customization", "customization"),
             ("🗡️ Weapons", "weapons")
+            ("🎁 Random Weapon Box", "box")
         ]
         for label, cat_id in main_cats:
             button = discord.ui.Button(
