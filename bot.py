@@ -4127,6 +4127,45 @@ class Shop(commands.Cog):
             await ctx.send(f"✅ Weapon **{weapon['name']}** deleted.")
 
 
+    @commands.command(name='removeallweapons')
+    async def remove_all_weapons(self, ctx):
+        """Delete ALL weapons you own. This action cannot be undone."""
+        user_id = str(ctx.author.id)
+        async with self.bot.db_pool.acquire() as conn:
+            # Count how many weapons the user has
+             count = await conn.fetchval(
+                "SELECT COUNT(*) FROM user_weapons WHERE user_id = $1",
+                user_id
+            )
+            if count == 0:
+                await ctx.send("❌ You don't own any weapons.")
+                return
+
+        # Ask for confirmation
+        confirm_msg = await ctx.send(
+            f"⚠️ **WARNING:** You are about to delete **all {count} of your weapons**. "
+            "This cannot be undone. Reply with `yes` within 30 seconds to confirm."
+        )
+
+        def check(m):
+            return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "yes"
+
+        try:
+            await self.bot.wait_for('message', timeout=30.0, check=check)
+        except asyncio.TimeoutError:
+            await ctx.send("❌ Deletion cancelled (timeout).")
+            return
+
+        # Perform deletion
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM user_weapons WHERE user_id = $1",
+                user_id
+            )
+
+        await ctx.send(f"✅ Successfully deleted all {count} weapons.")
+
+
 
 # TEMPORARY COMMAND
 
