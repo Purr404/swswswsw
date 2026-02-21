@@ -3728,7 +3728,7 @@ class Shop(commands.Cog):
 
         weapons_list = [dict(row) for row in weapons]
         view = self.WeaponPaginationView(weapons_list, ctx.author.id)
-        await view.send_initial(ctx)
+        await ctx.send(embed=view.create_embed(), view=view)
 
 
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
