@@ -4226,6 +4226,273 @@ class Shop(commands.Cog):
 
         await ctx.send(f"✅ Cleared Treasure Carriage purchase for {target.mention}. They can now buy it again.")
 
+
+
+# CULLING GAME 
+
+
+class CullingGame(commands.Cog):
+    def __init__(self, bot, currency_system):
+        self.bot = bot
+        self.currency = currency_system
+        self.mining_channel = None
+        self.energy_regen.start()
+
+    def cog_unload(self):
+        self.energy_regen.cancel()
+
+    @tasks.loop(hours=1)
+    async def energy_regen(self):
+        await self.bot.wait_until_ready()
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, energy, max_energy, last_energy_regen
+                FROM player_stats
+                WHERE energy < max_energy
+            """)
+            now = datetime.now(timezone.utc)
+            for row in rows:
+                last = row['last_energy_regen']
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                if (now - last) >= timedelta(hours=1):
+                    new_energy = min(row['energy'] + 1, row['max_energy'])
+                    await conn.execute("""
+                        UPDATE player_stats
+                        SET energy = $1, last_energy_regen = $2
+                        WHERE user_id = $3
+                    """, new_energy, now, row['user_id'])
+
+    @energy_regen.before_loop
+    async def before_energy_regen(self):
+        await self.bot.wait_until_ready()
+
+    async def ensure_player_stats(self, user_id: str):
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy, last_energy_regen)
+                VALUES ($1, 1000, 1000, 3, 3, NOW())
+                ON CONFLICT (user_id) DO NOTHING
+            """, user_id)
+
+    @commands.command(name='setminingchannel')
+    @commands.has_permissions(administrator=True)
+    async def set_mining_channel(self, ctx, channel: discord.TextChannel):
+        self.mining_channel = channel.id
+        await ctx.send(f"✅ Mining channel set to {channel.mention}")
+
+    @commands.command(name='minestart')
+    async def mine_start(self, ctx):
+        if self.mining_channel is None or ctx.channel.id != self.mining_channel:
+            await ctx.send("❌ You can only mine in the designated mining channel.")
+            return
+        user_id = str(ctx.author.id)
+        await self.ensure_player_stats(user_id)
+        async with self.bot.db_pool.acquire() as conn:
+            existing = await conn.fetchval("SELECT mining_start FROM player_stats WHERE user_id = $1", user_id)
+            if existing:
+                await ctx.send("❌ You are already mining! Use `!!minestop` to finish.")
+                return
+            now = datetime.now(timezone.utc)
+            await conn.execute("""
+                UPDATE player_stats
+                SET mining_start = $1, pending_reward = 0
+                WHERE user_id = $2
+            """, now, user_id)
+        embed = discord.Embed(
+            title="⛏️ Mining Started",
+            description=f"{ctx.author.mention} has started mining!\n"
+                        "You will earn gems over time. Use `!!minestop` to claim.\n"
+                        "**Note:** You can be plundered while mining!",
+            color=discord.Color.gold()
+        )
+        await ctx.send(embed=embed)
+
+    @commands.command(name='minestop')
+    async def mine_stop(self, ctx):
+        user_id = str(ctx.author.id)
+        async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT mining_start, stolen_gems FROM player_stats WHERE user_id = $1", user_id)
+            if not row or not row['mining_start']:
+                await ctx.send("❌ You are not mining.")
+                return
+            start = row['mining_start']
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            hours_mined = (now - start).total_seconds() / 3600
+            hours_mined = min(hours_mined, 12)
+            intervals = int(hours_mined // 2)
+            gems_earned = intervals * 50
+            stolen = row['stolen_gems'] or 0
+            gems_earned = max(0, gems_earned - stolen)
+            if gems_earned > 0:
+                await self.currency.add_gems(user_id, gems_earned, "Mining reward")
+            await conn.execute("""
+                UPDATE player_stats
+                SET mining_start = NULL, pending_reward = 0, stolen_gems = 0
+                WHERE user_id = $1
+            """, user_id)
+        embed = discord.Embed(
+            title="⛏️ Mining Finished",
+            description=f"You mined for **{hours_mined:.1f} hours** and earned **{gems_earned} gems**.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    @commands.command(name='plunder')
+    async def plunder(self, ctx, target: discord.Member):
+        attacker_id = str(ctx.author.id)
+        defender_id = str(target.id)
+        if attacker_id == defender_id:
+            await ctx.send("❌ You cannot plunder yourself.")
+            return
+        await self.ensure_player_stats(attacker_id)
+        await self.ensure_player_stats(defender_id)
+        async with self.bot.db_pool.acquire() as conn:
+            today = datetime.now(timezone.utc).date()
+            stats = await conn.fetchrow("""
+                SELECT energy, plunder_count, last_plunder_reset
+                FROM player_stats WHERE user_id = $1
+            """, attacker_id)
+            if not stats or stats['energy'] < 1:
+                await ctx.send("❌ You need at least 1 energy to plunder.")
+                return
+            if stats['last_plunder_reset'] != today:
+                await conn.execute("UPDATE player_stats SET plunder_count = 0, last_plunder_reset = $1 WHERE user_id = $2", today, attacker_id)
+                plunder_count = 0
+            else:
+                plunder_count = stats['plunder_count']
+            if plunder_count >= 2:
+                await ctx.send("❌ You have already used your 2 plunders today.")
+                return
+            defender = await conn.fetchrow("SELECT mining_start FROM player_stats WHERE user_id = $1", defender_id)
+            if not defender or not defender['mining_start']:
+                await ctx.send("❌ That user is not mining.")
+                return
+            start = defender['mining_start']
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            hours_mined = (now - start).total_seconds() / 3600
+            intervals = int(hours_mined // 2)
+            pending = intervals * 50
+            if pending == 0:
+                await ctx.send("❌ That user hasn't mined enough yet (need at least 2 hours).")
+                return
+            steal = int(pending * 0.3)
+            await self.currency.add_gems(attacker_id, steal, f"Plundered from {target.name}")
+            await conn.execute("""
+                UPDATE player_stats
+                SET stolen_gems = stolen_gems + $1
+                WHERE user_id = $2
+            """, steal, defender_id)
+            await conn.execute("""
+                UPDATE player_stats
+                SET energy = energy - 1, plunder_count = plunder_count + 1
+                WHERE user_id = $1
+            """, attacker_id)
+        embed = discord.Embed(
+            title="💰 Plunder Successful!",
+            description=f"{ctx.author.mention} plundered **{steal} gems** from {target.mention}!",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+
+    @commands.command(name='attack')
+    async def attack(self, ctx, target: discord.Member):
+        attacker_id = str(ctx.author.id)
+        defender_id = str(target.id)
+        if attacker_id == defender_id:
+            await ctx.send("❌ You cannot attack yourself.")
+            return
+        await self.ensure_player_stats(attacker_id)
+        await self.ensure_player_stats(defender_id)
+        async with self.bot.db_pool.acquire() as conn:
+            energy = await conn.fetchval("SELECT energy FROM player_stats WHERE user_id = $1", attacker_id)
+            if not energy or energy < 1:
+                await ctx.send("❌ You need at least 1 energy to attack.")
+                return
+            weapon = await conn.fetchrow("""
+                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name, uw.image_url
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+                LIMIT 1
+            """, attacker_id)
+            if not weapon:
+                await ctx.send("❌ You don't have a weapon to attack with!")
+                return
+            defender_stats = await conn.fetchrow("SELECT hp FROM player_stats WHERE user_id = $1", defender_id)
+            defender_weapon = await conn.fetchrow("""
+                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+                LIMIT 1
+            """, defender_id)
+            await conn.execute("UPDATE player_stats SET energy = energy - 1 WHERE user_id = $1", attacker_id)
+        embed = discord.Embed(
+            title="⚔️ Attack Initiated!",
+            description=f"{ctx.author.mention} is attacking {target.mention}!",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="Attacker's Weapon", value=f"{weapon['name']} (+{weapon['attack']} ATK)", inline=True)
+        if defender_weapon:
+            embed.add_field(name="Defender's Weapon", value=f"{defender_weapon['name']} (+{defender_weapon['attack']} ATK)", inline=True)
+        embed.add_field(name="Defender's HP", value=f"{defender_stats['hp']} / 1000", inline=False)
+        if weapon['image_url']:
+            embed.set_thumbnail(url=weapon['image_url'])
+        view = AttackView(attacker_id, defender_id, weapon['attack'], self.bot)
+        await ctx.send(embed=embed, view=view)
+
+class AttackView(discord.ui.View):
+    def __init__(self, attacker_id, defender_id, attack_power, bot):
+        super().__init__(timeout=60)
+        self.attacker_id = attacker_id
+        self.defender_id = defender_id
+        self.attack_power = attack_power
+        self.bot = bot
+
+    @discord.ui.button(label="Resolve Attack", style=discord.ButtonStyle.danger)
+    async def resolve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self.defender_id:
+            await interaction.response.send_message("Only the defender can resolve this attack.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        damage = self.attack_power
+        async with self.bot.db_pool.acquire() as conn:
+            defender = await conn.fetchrow("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
+            if not defender:
+                await interaction.followup.send("Defender stats not found.")
+                return
+            new_hp = defender['hp'] - damage
+            if new_hp < 0:
+                new_hp = 0
+            await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, self.defender_id)
+            await conn.execute("""
+                INSERT INTO attack_logs (attacker_id, defender_id, damage)
+                VALUES ($1, $2, $3)
+            """, self.attacker_id, self.defender_id, damage)
+        for child in self.children:
+            child.disabled = True
+        await interaction.message.edit(view=self)
+        embed = discord.Embed(
+            title="⚔️ Attack Result",
+            description=f"{interaction.user.mention} took **{damage} damage**!",
+            color=discord.Color.red()
+        )
+        embed.add_field(name="HP Remaining", value=f"{new_hp} / 1000")
+        await interaction.followup.send(embed=embed)
+        if new_hp == 0:
+            await interaction.followup.send(f"{interaction.user.mention} has been defeated! They will respawn with 1000 HP.")
+            async with self.bot.db_pool.acquire() as conn:
+                await conn.execute("UPDATE player_stats SET hp = 1000 WHERE user_id = $1", self.defender_id)
+
+# END CULLING GAME CLASS
+
 # Add the shop cog to the bot
 bot.add_cog(Shop(bot))
 
@@ -4234,6 +4501,8 @@ async def load_shop_persistence(bot):
     shop_cog = bot.get_cog('Shop')
     if shop_cog:
         await shop_cog.load_shop_messages()
+
+bot.add_cog(CullingGame(bot, currency_system))
 
 
 
