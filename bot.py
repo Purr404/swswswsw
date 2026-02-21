@@ -2924,22 +2924,10 @@ class Shop(commands.Cog):
                 color=discord.Color.purple()
             )
             view = discord.ui.View(timeout=300)
-            # Subcategories
             subcats = [
                 ("🪯 Roles", "roles"),
                 ("🎨 Name Color Change", "colors")
             ]
-        elif main_cat == "weapons":
-            embed = discord.Embed(
-                title="⚔️ Weapons Shop",
-                description="Choose a weapon to purchase. Each weapon gets a random attack bonus!",
-                color=discord.Color.red()
-            )
-            view = discord.ui.View(timeout=300)
-            # For now, we'll just show all weapons directly (no subcategories)
-            # Call a method to list weapon items
-            await self.show_weapon_items(interaction, embed, view)
-
             for label, sub_id in subcats:
                 button = discord.ui.Button(
                     label=label,
@@ -2947,7 +2935,6 @@ class Shop(commands.Cog):
                     custom_id=f"shop_subcat_{sub_id}"
                 )
                 view.add_item(button)
-            # Back button
             back = discord.ui.Button(
                 label="◀ Back to Categories",
                 style=discord.ButtonStyle.secondary,
@@ -2955,8 +2942,18 @@ class Shop(commands.Cog):
             )
             view.add_item(back)
             await interaction.response.edit_message(embed=embed, view=view)
+
+        elif main_cat == "weapons":
+            embed = discord.Embed(
+                title="⚔️ Weapons Shop",
+                description="Choose a weapon to purchase. Each weapon gets a random attack bonus!",
+                color=discord.Color.red()
+            )
+            view = discord.ui.View(timeout=300)
+            await self.show_weapon_items(interaction, embed, view)
+            return
+
         else:
-            # Handle other main cats if needed
             await interaction.response.send_message("Coming soon!", ephemeral=True)
 
     # -------------------------------------------------------------------------
