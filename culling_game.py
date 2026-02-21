@@ -5,9 +5,10 @@ from datetime import datetime, timedelta, timezone
 import random
 
 class CullingGame(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot, currency_system):
         self.bot = bot
-        self.mining_channel = None  # will be set via command
+        self.currency = currency_system
+        self.mining_channel = None
         self.energy_regen.start()
 
     def cog_unload(self):
