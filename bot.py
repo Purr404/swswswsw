@@ -3958,6 +3958,64 @@ class Shop(commands.Cog):
         await ctx.send(embed=embed)
 
 
+
+# CHECK DUPES
+
+    @commands.command(name='check_dupes')
+    @commands.has_permissions(administrator=True)
+    async def check_duplicates(self, ctx):
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT type_id, rarity_id, COUNT(*) as cnt
+                FROM weapon_variants
+                GROUP BY type_id, rarity_id
+                HAVING COUNT(*) > 1
+            """)
+        if not rows:
+            await ctx.send("No duplicates found.")
+        else:
+            msg = "**Duplicates found:**\n"
+            for r in rows:
+                msg += f"Type {r['type_id']}, Rarity {r['rarity_id']}: {r['cnt']} copies\n"
+            await ctx.send(msg)
+
+
+
+    @commands.command(name='reset_variants')
+    @commands.has_permissions(administrator=True)
+    async def reset_variants(self, ctx):
+        async with self.bot.db_pool.acquire() as conn:
+            # Delete all variants
+            await conn.execute("DELETE FROM weapon_variants")
+            # Fetch type and rarity maps
+            types = await conn.fetch("SELECT type_id, name_base FROM weapon_types")
+            rarities = await conn.fetch("SELECT rarity_id, name FROM rarities WHERE name IN ('Common','Uncommon','Rare','Epic','Legendary') ORDER BY display_order")
+            type_map = {row['name_base']: row['type_id'] for row in types}
+            rarity_map = {row['name']: row['rarity_id'] for row in rarities}
+
+            # Insert for Sword, Axe, Dagger (you can add more types here)
+            for weapon in ['Sword', 'Axe', 'Dagger']:
+                if weapon not in type_map:
+                continue
+                type_id = type_map[weapon]
+                # Define attack ranges (you can adjust)
+                ranges = [
+                    (rarity_map['Common'], 50, 100),
+                    (rarity_map['Uncommon'], 101, 180),
+                    (rarity_map['Rare'], 181, 270),
+                    (rarity_map['Epic'], 271, 380),
+                    (rarity_map['Legendary'], 381, 500)
+                ]
+                for rarity_id, min_atk, max_atk in ranges:
+                    await conn.execute("""
+                        INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url)
+                        VALUES ($1, $2, $3, $4, 'https://example.com/placeholder.png')
+                        ON CONFLICT (type_id, rarity_id) DO NOTHING
+                    """, type_id, rarity_id, min_atk, max_atk)
+        await ctx.send("✅ All variants reset. Now you have 5 per type (placeholders). Use `!!variant list` to see them, and update image URLs with `!!variant add`.")
+
+
+
 # TEMPORARY COMMAND
 
     @commands.command(name='clear_carriage')
