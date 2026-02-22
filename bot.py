@@ -3168,25 +3168,7 @@ class Shop(commands.Cog):
 
 # END
 
-# PICKAXE CMD
 
-    @shop_admin.command(name='addpickaxe')
-    @commands.has_permissions(administrator=True)
-    async def shop_add_pickaxe(self, ctx, name: str, price: int, description: str = "A sturdy pickaxe for mining.", image_url: str = None):
-        """Add a pickaxe item to the shop."""
-        if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
-            await ctx.send("❌ Image URL must start with `http://` or `https://`.")
-            return
-
-        async with self.bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO shop_items (name, description, price, type, guild_id, image_url)
-                VALUES ($1, $2, $3, 'pickaxe', $4, $5)
-            """, name, description, price, ctx.guild.id, image_url)
-
-        await ctx.send(f"✅ Added pickaxe **{name}** for **{price} gems**.")
-
-# END
 
 
 # RARITY
@@ -4020,6 +4002,26 @@ class Shop(commands.Cog):
             """, name, description, price, 'weapon', None, None, ctx.guild.id, image_url)
 
         await ctx.send(f"✅ Added weapon **{name}** for **{price} gems** with custom description.")
+
+
+    @shop_admin.command(name='addpickaxe')
+    @commands.has_permissions(administrator=True)
+    async def shop_add_pickaxe(self, ctx, name: str, price: int, description: str = "A sturdy pickaxe for mining.", image_url: str = None):
+        """Add a pickaxe item to the shop."""
+        if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
+            await ctx.send("❌ Image URL must start with `http://` or `https://`.")
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO shop_items (name, description, price, type, guild_id, image_url)
+                VALUES ($1, $2, $3, 'pickaxe', $4, $5)
+            """, name, description, price, ctx.guild.id, image_url)
+
+        await ctx.send(f"✅ Added pickaxe **{name}** for **{price} gems**.")
+
+# END
+
 
     @shop_admin.command(name='remove')
     @commands.has_permissions(administrator=True)
