@@ -4471,21 +4471,21 @@ class MiningMainView(discord.ui.View):
         self.cog = cog
 
     @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary, custom_id="mining_start")
-    async def start_mining(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def start_mining(self, interaction: discord.Interaction):
         """Start mining for the user."""
         try:
             await interaction.response.defer(ephemeral=True)
             if interaction.channel.id != self.cog.mining_channel:
                 await interaction.followup.send("❌ You can only use this in the mining channel.", ephemeral=True)
                 return
-            result = await self.cog.start_mining_for_user(str(interaction.user.id), interaction.channel)
+            result = await self.cog.start_mining_for_user(str(interaction.user.id))
             await interaction.followup.send(result, ephemeral=True)
         except Exception as e:
             print(f"Error in start_mining: {e}")
             await interaction.followup.send("An error occurred. Please try again later.", ephemeral=True)
 
     @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary, custom_id="mining_list")
-    async def show_miners(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def show_miners(self, interaction: discord.Interaction):
         try:
             await interaction.response.defer(ephemeral=True)
             async with self.bot.db_pool.acquire() as conn:
