@@ -4619,7 +4619,7 @@ class MinersListView(discord.ui.View):
                 button = StopMiningButton(user_id, cog, label="⏹️ Stop Mining", style=discord.ButtonStyle.secondary)
             else:
                 # Show Plunder button for others
-                button = PlunderButton(user_id, cog, label=f"Plunder <@{user_id}>", style=discord.ButtonStyle.danger)
+                button = PlunderButton(user_id, cog, label=f"Plunder {name}", style=discord.ButtonStyle.danger)
             self.add_item(button)
 
 
