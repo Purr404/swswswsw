@@ -8,6 +8,7 @@ import traceback   # used in log_to_discord
 import aiohttp
 import io
 import textwrap
+import string
 
 # ULTIMATE ASYNCPG INSTALLER
 import subprocess
@@ -4469,23 +4470,30 @@ class MiningMainView(discord.ui.View):
         super().__init__(timeout=None)
         self.bot = bot
         self.cog = cog
+        # Generate random suffix to force fresh custom IDs
+        self.suffix = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
-    @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary, custom_id="mining_start_final")
+    @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary)
     async def start_mining(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Force a unique custom ID using the suffix
+        button.custom_id = f"mining_start_{self.suffix}"
+        print(f"Start mining clicked by {interaction.user.id}")
         try:
             await interaction.response.defer(ephemeral=True)
-            if interaction.channel.id != self.cog.mining_channel:
+            if self.cog.mining_channel is None or interaction.channel.id != self.cog.mining_channel:
                 await interaction.followup.send("❌ You can only use this in the mining channel.", ephemeral=True)
                 return
-            # Call the cog's mining method – adjust if your method expects only user_id
-            result = await self.cog.start_mining_for_user(str(interaction.user.id), interaction.channel)
+            # Call the cog's mining method – adjust if your method expects channel
+            result = await self.cog.start_mining_for_user(str(interaction.user.id))
             await interaction.followup.send(result, ephemeral=True)
         except Exception as e:
             print(f"Error in start_mining: {e}")
             await interaction.followup.send("❌ An error occurred. Please try again later.", ephemeral=True)
 
-    @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary, custom_id="mining_list_final")
+    @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary)
     async def show_miners(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.custom_id = f"mining_list_{self.suffix}"
+        print(f"Miners clicked by {interaction.user.id}")
         try:
             await interaction.response.defer(ephemeral=True)
             async with self.bot.db_pool.acquire() as conn:
@@ -4498,7 +4506,6 @@ class MiningMainView(discord.ui.View):
             if not miners:
                 await interaction.followup.send("No one is currently mining.", ephemeral=True)
                 return
-
             embed = discord.Embed(
                 title="Current Miners",
                 description="Click a button to plunder that miner.",
@@ -4526,14 +4533,14 @@ class PlunderButton(discord.ui.Button):
         self.target_id = target_id
 
     async def callback(self, interaction: discord.Interaction):
+        print(f"Plunder button clicked by {interaction.user.id} targeting {self.target_id}")
         try:
             await interaction.response.defer(ephemeral=True)
             result = await self.cog.plunder_user(str(interaction.user.id), self.target_id)
             await interaction.followup.send(result, ephemeral=True)
         except Exception as e:
             print(f"Error in plunder button: {e}")
-            await interaction.followup.send("An error occurred.", ephemeral=True)
-
+            await interaction.followup.send("❌ An error occurred.", ephemeral=True)
 
 
     @commands.command(name='attack')
