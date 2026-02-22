@@ -4271,11 +4271,12 @@ class CullingGame(commands.Cog):
                 FROM player_stats
                 WHERE energy < max_energy
             """)
-            now = datetime.now(timezone.utc)
+            now = datetime.utcnow()  # naive UTC
             for row in rows:
                 last = row['last_energy_regen']
-                if last.tzinfo is None:
-                    last = last.replace(tzinfo=timezone.utc)
+                # Convert database timestamp (assumed UTC) to naive
+                if last.tzinfo is not None:
+                    last = last.replace(tzinfo=None)
                 if (now - last) >= timedelta(hours=1):
                     new_energy = min(row['energy'] + 1, row['max_energy'])
                     await conn.execute("""
@@ -4464,7 +4465,6 @@ class CullingGame(commands.Cog):
 
 
 class MiningMainView(discord.ui.View):
-    """View attached to the permanent mining channel message."""
     def __init__(self, bot, cog):
         super().__init__(timeout=None)  # persistent
         self.bot = bot
@@ -4472,46 +4472,52 @@ class MiningMainView(discord.ui.View):
 
     @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary, custom_id="mining_start")
     async def start_mining(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        if interaction.channel.id != self.cog.mining_channel:
-            await interaction.followup.send("❌ You can only use this in the mining channel.", ephemeral=True)
-            return
-        result = await self.cog.start_mining_for_user(str(interaction.user.id), interaction.channel)
-        await interaction.followup.send(result, ephemeral=True)
+        """Start mining for the user."""
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if interaction.channel.id != self.cog.mining_channel:
+                await interaction.followup.send("❌ You can only use this in the mining channel.", ephemeral=True)
+                return
+            result = await self.cog.start_mining_for_user(str(interaction.user.id), interaction.channel)
+            await interaction.followup.send(result, ephemeral=True)
+        except Exception as e:
+            print(f"Error in start_mining: {e}")
+            await interaction.followup.send("An error occurred. Please try again later.", ephemeral=True)
 
     @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary, custom_id="mining_list")
     async def show_miners(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        async with self.bot.db_pool.acquire() as conn:
-            miners = await conn.fetch("""
-                SELECT user_id, mining_start
-                FROM player_stats
-                WHERE mining_start IS NOT NULL
-                ORDER BY mining_start
-            """)
-        if not miners:
-            await interaction.followup.send("No one is currently mining.", ephemeral=True)
-            return
+        try:
+            await interaction.response.defer(ephemeral=True)
+            async with self.bot.db_pool.acquire() as conn:
+                miners = await conn.fetch("""
+                    SELECT user_id, mining_start
+                    FROM player_stats
+                    WHERE mining_start IS NOT NULL
+                    ORDER BY mining_start
+                """)
+            if not miners:
+                await interaction.followup.send("No one is currently mining.", ephemeral=True)
+                return
 
-        # Build an ephemeral message with a plunder button for each miner
-        embed = discord.Embed(
-            title="Current Miners",
-            description="Click a button to plunder that miner.",
-            color=discord.Color.blue()
-        )
-        view = MinersListView(miners, self.cog, interaction.user.id)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            embed = discord.Embed(
+                title="Current Miners",
+                description="Click a button to plunder that miner.",
+                color=discord.Color.blue()
+            )
+            view = MinersListView(miners, self.cog, interaction.user.id)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        except Exception as e:
+            print(f"Error in show_miners: {e}")
+            await interaction.followup.send("An error occurred.", ephemeral=True)
 
 
 class MinersListView(discord.ui.View):
-    """Ephemeral view listing miners with plunder buttons."""
     def __init__(self, miners, cog, requester_id):
         super().__init__(timeout=60)
         self.cog = cog
         self.requester_id = requester_id
         for miner in miners:
             user_id = miner['user_id']
-            # We need the display name; fetch it dynamically when button is pressed.
             button = PlunderButton(user_id, label=f"Plunder <@{user_id}>", style=discord.ButtonStyle.danger)
             self.add_item(button)
 
@@ -4521,12 +4527,13 @@ class PlunderButton(discord.ui.Button):
         self.target_id = target_id
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        # Check if the user trying to plunder is the one who requested the list
-        # (optional, but we already have requester_id in the parent view? Not easily accessible here.)
-        # We'll just proceed and let the cog method handle permissions.
-        result = await self.cog.plunder_user(str(interaction.user.id), self.target_id)
-        await interaction.followup.send(result, ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+            result = await self.cog.plunder_user(str(interaction.user.id), self.target_id)
+            await interaction.followup.send(result, ephemeral=True)
+        except Exception as e:
+            print(f"Error in plunder button: {e}")
+            await interaction.followup.send("An error occurred.", ephemeral=True)
 
 
 
