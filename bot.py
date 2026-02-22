@@ -372,7 +372,7 @@ class DatabaseSystem:
                         pending_reward INTEGER DEFAULT 0,  -- gems accumulated while mining
                         stolen_gems INTEGER DEFAULT 0,  
                         plunder_count INTEGER DEFAULT 0,   -- daily plunder uses
-                        last_plunder_reset DATE DEFAULT CURRENT_DATE
+                        last_plunder_reset DATE DEFAULT CURRENT_DATE,
                         has_pickaxe BOOLEAN DEFAULT FALSE
                         )
                     ''')
