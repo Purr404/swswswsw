@@ -329,7 +329,7 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
                     await conn.execute('''
                         ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check 
-    CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box'))
+    CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box', 'pickaxe'))
                     ''')
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_weapons (
