@@ -4527,14 +4527,32 @@ class CullingGame(commands.Cog):
         await ctx.send(f"❤️ HP: {row['hp']}/1000 | ⚡ Energy: {row['energy']}/3")
 
 # END CULLING GAME CLASS
+
 class MiningMainView(discord.ui.View):
     def __init__(self, bot, cog):
         super().__init__(timeout=None)
         self.bot = bot
         self.cog = cog
 
-    @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary, custom_id="mining_start_fixed")
-    async def start_mining(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Start Mining button
+        self.start_button = discord.ui.Button(
+            label="⛏️ Start Mining",
+            style=discord.ButtonStyle.primary,
+            custom_id="mining_start_fixed"
+        )
+        self.start_button.callback = self.start_mining_callback
+        self.add_item(self.start_button)
+
+        # Miners button
+        self.miners_button = discord.ui.Button(
+            label="👥 Miners",
+            style=discord.ButtonStyle.secondary,
+            custom_id="mining_list_fixed"
+        )
+        self.miners_button.callback = self.show_miners_callback
+        self.add_item(self.miners_button)
+
+    async def start_mining_callback(self, interaction: discord.Interaction):
         try:
             await interaction.response.defer(ephemeral=True)
             if self.cog.mining_channel is None or interaction.channel.id != self.cog.mining_channel:
@@ -4546,8 +4564,7 @@ class MiningMainView(discord.ui.View):
             print(f"Error in start_mining: {e}")
             await interaction.followup.send("❌ An error occurred. Please try again later.", ephemeral=True)
 
-    @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary, custom_id="mining_list_fixed")
-    async def show_miners(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def show_miners_callback(self, interaction: discord.Interaction):
         try:
             await interaction.response.defer(ephemeral=True)
             async with self.bot.db_pool.acquire() as conn:
