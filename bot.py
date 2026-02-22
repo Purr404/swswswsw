@@ -370,6 +370,7 @@ class DatabaseSystem:
                         mining_message_id BIGINT,
                         mining_channel_id BIGINT,
                         pending_reward INTEGER DEFAULT 0,  -- gems accumulated while mining
+                        stolen_gems INTEGER DEFAULT 0,  
                         plunder_count INTEGER DEFAULT 0,   -- daily plunder uses
                         last_plunder_reset DATE DEFAULT CURRENT_DATE
                         )
