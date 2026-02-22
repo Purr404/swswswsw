@@ -4244,22 +4244,11 @@ class CullingGame(commands.Cog):
     def __init__(self, bot, currency_system):
         self.bot = bot
         self.currency = currency_system
-        self.mining_channel = None          # will be loaded from DB on ready
+        self.mining_channel = None
         self.energy_regen.start()
 
     def cog_unload(self):
         self.energy_regen.cancel()
-
-    async def cog_load(self):
-        """Load mining channel config from database on startup."""
-        await self.bot.wait_until_ready()
-        async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config WHERE guild_id = $1", YOUR_GUILD_ID)
-            # You need to know the guild ID; for simplicity, we assume one guild.
-            # If multiple guilds, you'd need to store per guild. For now, we'll adapt.
-            # Alternatively, we can just set mining_channel via command each time.
-            # But for persistence, we'll store the first guild that sets it.
-        # We'll handle this in set_mining_channel
 
     # ------------------------------------------------------------------
     # Energy Regen Task
@@ -4276,7 +4265,6 @@ class CullingGame(commands.Cog):
             now = datetime.utcnow()  # naive UTC
             for row in rows:
                 last = row['last_energy_regen']
-                # Convert database timestamp (assumed UTC) to naive
                 if last.tzinfo is not None:
                     last = last.replace(tzinfo=None)
                 if (now - last) >= timedelta(hours=1):
@@ -4290,7 +4278,6 @@ class CullingGame(commands.Cog):
     @energy_regen.before_loop
     async def before_energy_regen(self):
         await self.bot.wait_until_ready()
-        # Wait until database pool is available
         while self.bot.db_pool is None:
             await asyncio.sleep(1)
 
@@ -4319,7 +4306,6 @@ class CullingGame(commands.Cog):
     @commands.command(name='setminingchannel')
     @commands.has_permissions(administrator=True)
     async def set_mining_channel(self, ctx, channel: discord.TextChannel):
-        # Delete old mining message if exists
         async with self.bot.db_pool.acquire() as conn:
             old = await conn.fetchrow("SELECT message_id FROM mining_config WHERE guild_id = $1", ctx.guild.id)
             if old and old['message_id']:
@@ -4330,20 +4316,15 @@ class CullingGame(commands.Cog):
                 except:
                     pass
 
-        # Send new message with image and buttons
         embed = discord.Embed(
             title="⛏️ Mining Zone",
             description="Click **Start Mining** to begin earning gems.\n"
                         "Click **Miners** to see who is currently mining and plunder them!",
             color=discord.Color.gold()
         )
-        # You can set an image here if you have one
-        # embed.set_image(url="https://image2url.com/r2/default/images/1771765203489-26fe49d8-9f18-4241-9606-3685f6766d1b.png")
-
         view = MiningMainView(self.bot, self)
         msg = await channel.send(embed=embed, view=view)
 
-        # Store in database
         async with self.bot.db_pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO mining_config (guild_id, channel_id, message_id)
@@ -4358,7 +4339,6 @@ class CullingGame(commands.Cog):
     # Core mining logic (called by buttons)
     # ------------------------------------------------------------------
     async def start_mining_for_user(self, user_id: str, channel: discord.TextChannel) -> str:
-        """Start mining. Returns a message (success or error)."""
         if not await self.has_weapon(user_id):
             return "❌ You don't have any weapon! Buy one from the shop first."
 
@@ -4379,7 +4359,6 @@ class CullingGame(commands.Cog):
         return "✅ You have started mining! You will earn gems over time (50 gems per 2 hours, max 12 hours)."
 
     async def stop_mining_for_user(self, user_id: str) -> str:
-        """Stop mining and return reward message."""
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow("SELECT mining_start, stolen_gems FROM player_stats WHERE user_id = $1", user_id)
             if not row or not row['mining_start']:
@@ -4408,7 +4387,6 @@ class CullingGame(commands.Cog):
         return f"✅ You mined for **{hours_mined:.1f} hours** and earned **{gems_earned} gems**."
 
     async def plunder_user(self, attacker_id: str, defender_id: str) -> str:
-        """Attempt plunder. Returns result message."""
         if attacker_id == defender_id:
             return "❌ You cannot plunder yourself."
 
@@ -4465,36 +4443,111 @@ class CullingGame(commands.Cog):
 
         return f"💰 You plundered **{steal} gems** from <@{defender_id}>!"
 
+    # ------------------------------------------------------------------
+    # Attack Command
+    # ------------------------------------------------------------------
+    @commands.command(name='attack')
+    async def attack(self, ctx, target: discord.Member):
+        attacker_id = str(ctx.author.id)
+        defender_id = str(target.id)
 
+        if attacker_id == defender_id:
+            await ctx.send("❌ You cannot attack yourself.")
+            return
+
+        if not await self.has_weapon(attacker_id):
+            await ctx.send("❌ You don't have any weapon! Buy one from the shop first.")
+            return
+        if not await self.has_weapon(defender_id):
+            await ctx.send(f"❌ {target.mention} doesn't have any weapon and cannot be attacked.")
+            return
+
+        await self.ensure_player_stats(attacker_id)
+        await self.ensure_player_stats(defender_id)
+
+        async with self.bot.db_pool.acquire() as conn:
+            energy = await conn.fetchval("SELECT energy FROM player_stats WHERE user_id = $1", attacker_id)
+            if not energy or energy < 1:
+                await ctx.send("❌ You need at least 1 energy to attack.")
+                return
+
+            weapon = await conn.fetchrow("""
+                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name, uw.image_url
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+                LIMIT 1
+            """, attacker_id)
+            if not weapon:
+                await ctx.send("❌ You don't have a weapon to attack with!")
+                return
+
+            defender_stats = await conn.fetchrow("SELECT hp FROM player_stats WHERE user_id = $1", defender_id)
+            defender_weapon = await conn.fetchrow("""
+                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+                LIMIT 1
+            """, defender_id)
+
+            await conn.execute("UPDATE player_stats SET energy = energy - 1 WHERE user_id = $1", attacker_id)
+
+        embed = discord.Embed(
+            title="⚔️ Attack Initiated!",
+            description=f"{ctx.author.mention} is attacking {target.mention}!",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="Attacker's Weapon", value=f"{weapon['name']} (+{weapon['attack']} ATK)", inline=True)
+        if defender_weapon:
+            embed.add_field(name="Defender's Weapon", value=f"{defender_weapon['name']} (+{defender_weapon['attack']} ATK)", inline=True)
+        embed.add_field(name="Defender's HP", value=f"{defender_stats['hp']} / 1000", inline=False)
+        if weapon['image_url']:
+            embed.set_thumbnail(url=weapon['image_url'])
+
+        view = AttackView(attacker_id, defender_id, weapon['attack'], self.bot)
+        await ctx.send(embed=embed, view=view)
+
+    # ------------------------------------------------------------------
+    # HP Check Command
+    # ------------------------------------------------------------------
+    @commands.command(name='hp')
+    async def check_hp(self, ctx):
+        user_id = str(ctx.author.id)
+        if not await self.has_weapon(user_id):
+            await ctx.send("❌ You don't have any weapon! Buy one from the shop first to join the Culling Game.")
+            return
+        async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT hp, energy FROM player_stats WHERE user_id = $1", user_id)
+        if not row:
+            await ctx.send("You don't have any stats yet. Buy a weapon to join the Culling Game!")
+            return
+        await ctx.send(f"❤️ HP: {row['hp']}/1000 | ⚡ Energy: {row['energy']}/3")
+
+# END CULLING GAME CLASS
 class MiningMainView(discord.ui.View):
     def __init__(self, bot, cog):
         super().__init__(timeout=None)
         self.bot = bot
         self.cog = cog
-        # Generate random suffix to force fresh custom IDs
-        self.suffix = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
-    @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary, custom_id="mining_start_fixed")
     async def start_mining(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Force a unique custom ID using the suffix
-        button.custom_id = f"mining_start_{self.suffix}"
-        print(f"Start mining clicked by {interaction.user.id}")
         try:
             await interaction.response.defer(ephemeral=True)
             if self.cog.mining_channel is None or interaction.channel.id != self.cog.mining_channel:
                 await interaction.followup.send("❌ You can only use this in the mining channel.", ephemeral=True)
                 return
-            # Call the cog's mining method – adjust if your method expects channel
-            result = await self.cog.start_mining_for_user(str(interaction.user.id))
+            result = await self.cog.start_mining_for_user(str(interaction.user.id), interaction.channel)
             await interaction.followup.send(result, ephemeral=True)
         except Exception as e:
             print(f"Error in start_mining: {e}")
             await interaction.followup.send("❌ An error occurred. Please try again later.", ephemeral=True)
 
-    @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary, custom_id="mining_list_fixed")
     async def show_miners(self, interaction: discord.Interaction, button: discord.ui.Button):
-        button.custom_id = f"mining_list_{self.suffix}"
-        print(f"Miners clicked by {interaction.user.id}")
         try:
             await interaction.response.defer(ephemeral=True)
             async with self.bot.db_pool.acquire() as conn:
@@ -4518,6 +4571,7 @@ class MiningMainView(discord.ui.View):
             print(f"Error in show_miners: {e}")
             await interaction.followup.send("❌ An error occurred.", ephemeral=True)
 
+
 class MinersListView(discord.ui.View):
     def __init__(self, miners, cog, requester_id):
         super().__init__(timeout=60)
@@ -4528,13 +4582,13 @@ class MinersListView(discord.ui.View):
             button = PlunderButton(user_id, label=f"Plunder <@{user_id}>", style=discord.ButtonStyle.danger)
             self.add_item(button)
 
+
 class PlunderButton(discord.ui.Button):
     def __init__(self, target_id, **kwargs):
         super().__init__(**kwargs)
         self.target_id = target_id
 
     async def callback(self, interaction: discord.Interaction):
-        print(f"Plunder button clicked by {interaction.user.id} targeting {self.target_id}")
         try:
             await interaction.response.defer(ephemeral=True)
             result = await self.cog.plunder_user(str(interaction.user.id), self.target_id)
@@ -4543,78 +4597,6 @@ class PlunderButton(discord.ui.Button):
             print(f"Error in plunder button: {e}")
             await interaction.followup.send("❌ An error occurred.", ephemeral=True)
 
-
-    @commands.command(name='attack')
-    async def attack(self, ctx, target: discord.Member):
-        """Attack another player using your weapon. Uses 1 energy."""
-        attacker_id = str(ctx.author.id)
-        defender_id = str(target.id)
-
-        if attacker_id == defender_id:
-            await ctx.send("❌ You cannot attack yourself.")
-            return
-
-        # Check if both users have weapons
-        if not await self.has_weapon(attacker_id):
-            await ctx.send("❌ You don't have any weapon! Buy one from the shop first.")
-            return
-        if not await self.has_weapon(defender_id):
-            await ctx.send(f"❌ {target.mention} doesn't have any weapon and cannot be attack.")
-            return
-
-        # Ensure player stats exist (they should, but just in case)
-        await self.ensure_player_stats(attacker_id)
-        await self.ensure_player_stats(defender_id)
-
-        async with self.bot.db_pool.acquire() as conn:
-            # Check energy
-            energy = await conn.fetchval("SELECT energy FROM player_stats WHERE user_id = $1", attacker_id)
-            if not energy or energy < 1:
-                await ctx.send("❌ You need at least 1 energy to attack.")
-                return
-
-            # Get attacker's weapon (latest)
-            weapon = await conn.fetchrow("""
-                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name, uw.image_url
-                FROM user_weapons uw
-                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                WHERE uw.user_id = $1
-                ORDER BY uw.purchased_at DESC
-                LIMIT 1
-            """, attacker_id)
-            if not weapon:
-                await ctx.send("❌ You don't have a weapon to attack with!")
-                return
-
-            # Get defender's HP and weapon (for display)
-            defender_stats = await conn.fetchrow("SELECT hp FROM player_stats WHERE user_id = $1", defender_id)
-            defender_weapon = await conn.fetchrow("""
-                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name
-                FROM user_weapons uw
-                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                WHERE uw.user_id = $1
-                ORDER BY uw.purchased_at DESC
-                LIMIT 1
-            """, defender_id)
-
-            # Deduct energy
-            await conn.execute("UPDATE player_stats SET energy = energy - 1 WHERE user_id = $1", attacker_id)
-
-        # Build attack embed
-        embed = discord.Embed(
-            title="⚔️ Attack Initiated!",
-            description=f"{ctx.author.mention} is attacking {target.mention}!",
-            color=discord.Color.orange()
-        )
-        embed.add_field(name="Attacker's Weapon", value=f"{weapon['name']} (+{weapon['attack']} ATK)", inline=True)
-        if defender_weapon:
-            embed.add_field(name="Defender's Weapon", value=f"{defender_weapon['name']} (+{defender_weapon['attack']} ATK)", inline=True)
-        embed.add_field(name="Defender's HP", value=f"{defender_stats['hp']} / 1000", inline=False)
-        if weapon['image_url']:
-            embed.set_thumbnail(url=weapon['image_url'])
-
-        view = AttackView(attacker_id, defender_id, weapon['attack'], self.bot)
-        await ctx.send(embed=embed, view=view)
 
 class AttackView(discord.ui.View):
     def __init__(self, attacker_id, defender_id, attack_power, bot):
@@ -4659,32 +4641,6 @@ class AttackView(discord.ui.View):
             async with self.bot.db_pool.acquire() as conn:
                 await conn.execute("UPDATE player_stats SET hp = 1000 WHERE user_id = $1", self.defender_id)
 
-
-    async def has_weapon(self, user_id: str) -> bool:
-        """Return True if the user owns at least one weapon."""
-        async with self.bot.db_pool.acquire() as conn:
-            count = await conn.fetchval(
-                "SELECT COUNT(*) FROM user_weapons WHERE user_id = $1",
-                user_id
-            )
-            return count > 0
-
-    @commands.command(name='hp')
-    async def check_hp(self, ctx):
-        """Check your current HP and energy."""
-        user_id = str(ctx.author.id)
-        # Check if user has a weapon (optional, but stats should exist if they bought one)
-        if not await self.has_weapon(user_id):
-            await ctx.send("❌ You don't have any weapon! Buy one from the shop first to join the Culling Game.")
-            return
-        async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT hp, energy FROM player_stats WHERE user_id = $1", user_id)
-        if not row:
-            await ctx.send("You don't have any stats yet. Buy a weapon to join the Culling Game!")
-            return
-        await ctx.send(f"❤️ HP: {row['hp']}/1000 | ⚡ Energy: {row['energy']}/3")
-
-# END CULLING GAME CLASS
 
 # Add the shop cog to the bot
 bot.add_cog(Shop(bot))
