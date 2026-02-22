@@ -4332,7 +4332,7 @@ class CullingGame(commands.Cog):
             color=discord.Color.gold()
         )
         # You can set an image here if you have one
-        # embed.set_image(url="https://your-image-url.png")
+        # embed.set_image(url="https://image2url.com/r2/default/images/1771765203489-26fe49d8-9f18-4241-9606-3685f6766d1b.png")
 
         view = MiningMainView(self.bot, self)
         msg = await channel.send(embed=embed, view=view)
