@@ -4608,7 +4608,7 @@ class MinersListView(discord.ui.View):
 
 
 class StopMiningButton(discord.ui.Button):
-    def __init__(self, target_id, **kwargs):
+    def __init__(self, target_id, cog, **kwargs):
         super().__init__(**kwargs)
         self.target_id = target_id
         self.cog = cog
@@ -4627,7 +4627,7 @@ class StopMiningButton(discord.ui.Button):
             await interaction.followup.send("❌ An error occurred.", ephemeral=True)
 
 class PlunderButton(discord.ui.Button):
-    def __init__(self, target_id, **kwargs):
+    def __init__(self, target_id, cog, **kwargs):
         super().__init__(**kwargs)
         self.target_id = target_id
         self.cog = cog
