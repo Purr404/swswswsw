@@ -4599,10 +4599,10 @@ class MinersListView(discord.ui.View):
             user_id = miner['user_id']
             if user_id == requester_id:
                 # Show Stop Mining button for self
-                button = StopMiningButton(user_id, label="⏹️ Stop Mining", style=discord.ButtonStyle.secondary)
+                button = StopMiningButton(user_id, cog, label="⏹️ Stop Mining", style=discord.ButtonStyle.secondary)
             else:
                 # Show Plunder button for others
-                button = PlunderButton(user_id, label=f"Plunder <@{user_id}>", style=discord.ButtonStyle.danger)
+                button = PlunderButton(user_id, cog, label=f"Plunder <@{user_id}>", style=discord.ButtonStyle.danger)
             self.add_item(button)
 
 
@@ -4610,6 +4610,7 @@ class StopMiningButton(discord.ui.Button):
     def __init__(self, target_id, **kwargs):
         super().__init__(**kwargs)
         self.target_id = target_id
+        self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
         try:
@@ -4628,6 +4629,7 @@ class PlunderButton(discord.ui.Button):
     def __init__(self, target_id, **kwargs):
         super().__init__(**kwargs)
         self.target_id = target_id
+        self.cog = cog
 
     async def callback(self, interaction: discord.Interaction):
         try:
