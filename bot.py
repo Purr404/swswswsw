@@ -4592,7 +4592,7 @@ class MiningMainView(discord.ui.View):
                 description="Click a button to plunder that miner.",
                 color=discord.Color.blue()
             )
-            view = MinersListView(miners, self.cog, str(interaction.user.id))  
+            view = MinersListView(miner_list, self.cog, str(interaction.user.id))
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         except Exception as e:
             print(f"Error in show_miners: {e}")
@@ -4601,7 +4601,7 @@ class MiningMainView(discord.ui.View):
 
 
 class MinersListView(discord.ui.View):
-    def __init__(self, miners, cog, requester_id):
+    def __init__(self, miners_list, cog, requester_id):
         super().__init__(timeout=60)
         self.cog = cog
         self.requester_id = requester_id
