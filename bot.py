@@ -2947,16 +2947,24 @@ class Shop(commands.Cog):
             await self.show_main_categories(interaction)
         elif custom_id.startswith("shop_maincat_"):
             main_cat = custom_id.replace("shop_maincat_", "")
-            await self.show_subcategories(interaction, main_cat)
-        elif main_cat == "accessories":
-            await self.show_accessories_items(interaction)
+            if main_cat == "customization":
+                await self.show_subcategories(interaction, main_cat)
+            elif main_cat == "weapons":
+                embed = discord.Embed(title="🗡️ Weapons", color=discord.Color.red())
+                view = discord.ui.View(timeout=300)
+                await self.show_weapon_items(interaction, embed, view)
+            elif main_cat == "accessories":
+                await self.show_accessories_items(interaction)   # <-- new branch
+            else:
+                # fallback for any other main category
+                await self.show_subcategories(interaction, main_cat)
         elif custom_id.startswith("shop_subcat_"):
             subcat = custom_id.replace("shop_subcat_", "")
             await self.show_items(interaction, subcat)
         elif custom_id == "shop_back_to_main":
             await self.show_main_categories(interaction)
         elif custom_id == "shop_back_to_sub":
-            await self.show_main_categories(interaction)  # Simplified  
+            await self.show_main_categories(interaction)  # Simplified
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
