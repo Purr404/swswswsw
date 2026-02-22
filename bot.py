@@ -4349,7 +4349,7 @@ class CullingGame(commands.Cog):
             if existing:
                 return "❌ You are already mining! Use the **Stop Mining** button in the miners list to finish."
 
-            now = datetime.now(timezone.utc)
+            now = datetime.utcnow() 
             await conn.execute("""
                 UPDATE player_stats
                 SET mining_start = $1, pending_reward = 0
