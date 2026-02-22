@@ -373,9 +373,11 @@ class DatabaseSystem:
                         stolen_gems INTEGER DEFAULT 0,  
                         plunder_count INTEGER DEFAULT 0,   -- daily plunder uses
                         last_plunder_reset DATE DEFAULT CURRENT_DATE
+                        has_pickaxe BOOLEAN DEFAULT FALSE
                         )
                     ''')
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_gems INTEGER DEFAULT 0')
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS has_pickaxe BOOLEAN DEFAULT FALSE')
 
                     # Attack logs (for cooldowns, optional)
                     await conn.execute('''
@@ -2946,6 +2948,8 @@ class Shop(commands.Cog):
         elif custom_id.startswith("shop_maincat_"):
             main_cat = custom_id.replace("shop_maincat_", "")
             await self.show_subcategories(interaction, main_cat)
+        elif main_cat == "accessories":
+            await self.show_accessories_items(interaction)
         elif custom_id.startswith("shop_subcat_"):
             subcat = custom_id.replace("shop_subcat_", "")
             await self.show_items(interaction, subcat)
@@ -2959,6 +2963,7 @@ class Shop(commands.Cog):
         elif custom_id.startswith("secret_shop_"):
             purchase_id = int(custom_id.split("_")[2])
             await self.secret_shop_button(interaction, purchase_id)
+        
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES
     # -------------------------------------------------------------------------
@@ -2972,7 +2977,8 @@ class Shop(commands.Cog):
         # Main categories (you can add more later)
         main_cats = [
             ("🎨 Customization", "customization"),
-            ("🗡️ Weapons", "weapons")
+            ("🗡️ Weapons", "weapons"),
+            ("🎒 Accessories", "accessories")
             
         ]
         for label, cat_id in main_cats:
@@ -3113,6 +3119,74 @@ class Shop(commands.Cog):
         view.add_item(back)
 
         await interaction.response.edit_message(embed=embed, view=view)
+
+
+#  SHOW ACCESSORIES 
+
+    async def show_accessories_items(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        async with self.bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT item_id, name, description, price, image_url
+                FROM shop_items
+                WHERE type = 'pickaxe'
+                ORDER BY price ASC
+            """)
+
+        if not rows:
+            embed = discord.Embed(
+                title="🎒 Accessories",
+                description="No accessories available yet.",
+                color=discord.Color.red()
+            )
+            view = discord.ui.View(timeout=300)
+            back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+            view.add_item(back)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🎒 Accessories",
+            description="Choose an accessory to purchase.",
+            color=discord.Color.purple()
+        )
+        view = discord.ui.View(timeout=300)
+
+        for row in rows:
+            label = f"{row['name']} – {row['price']} gems"
+            button = discord.ui.Button(
+                label=label[:80],
+                style=discord.ButtonStyle.primary,
+                custom_id=f"shop_buy_{row['item_id']}"
+            )
+            view.add_item(button)
+
+        back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+        view.add_item(back)
+
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+# END
+
+# PICKAXE CMD
+
+    @shop_admin.command(name='addpickaxe')
+    @commands.has_permissions(administrator=True)
+    async def shop_add_pickaxe(self, ctx, name: str, price: int, description: str = "A sturdy pickaxe for mining.", image_url: str = None):
+        """Add a pickaxe item to the shop."""
+        if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
+            await ctx.send("❌ Image URL must start with `http://` or `https://`.")
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO shop_items (name, description, price, type, guild_id, image_url)
+                VALUES ($1, $2, $3, 'pickaxe', $4, $5)
+            """, name, description, price, ctx.guild.id, image_url)
+
+        await ctx.send(f"✅ Added pickaxe **{name}** for **{price} gems**.")
+
+# END
 
 
 # RARITY
@@ -3445,6 +3519,51 @@ class Shop(commands.Cog):
             # Log the purchase
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
             return
+
+
+# ========== PICKAXE PURCHASE ==========
+        if item['type'] == 'pickaxe':
+            balance = await currency_system.get_balance(user_id)
+            if balance['gems'] < item['price']:
+                embed = discord.Embed(
+                    title="❌ Insufficient Gems",
+                    description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
+            if not success:
+                await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
+                return
+
+            # Ensure player stats exist
+            await self.bot.get_cog('CullingGame').ensure_player_stats(user_id)
+
+            # Mark user as having a pickaxe
+            async with self.bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE player_stats SET has_pickaxe = TRUE WHERE user_id = $1
+                """, user_id)
+
+            embed = discord.Embed(
+                title="✅ Pickaxe Purchased!",
+                description=f"You now own **{item['name']}**. You can start mining!",
+                color=discord.Color.gold()
+            )
+            if item.get('image_url'):
+                embed.set_image(url=item['image_url'])
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+            # Log the purchase
+            await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
+            return
+
+
+
+
+# ENDPICKAXE 
  
         # ========== NON-WEAPON ITEMS (roles/colors) ==========
         # Check user_purchases for existing active purchase
@@ -4301,6 +4420,12 @@ class CullingGame(commands.Cog):
                 ON CONFLICT (user_id) DO NOTHING
             """, user_id)
 
+
+    async def has_pickaxe(self, user_id: str) -> bool:
+        async with self.bot.db_pool.acquire() as conn:
+            val = await conn.fetchval("SELECT has_pickaxe FROM player_stats WHERE user_id = $1", user_id)
+            return val or False
+
     # ------------------------------------------------------------------
     # Admin: Set mining channel and send permanent message
     # ------------------------------------------------------------------
@@ -4340,8 +4465,8 @@ class CullingGame(commands.Cog):
     # Core mining logic (called by buttons)
     # ------------------------------------------------------------------
     async def start_mining_for_user(self, user_id: str, channel: discord.TextChannel) -> str:
-        if not await self.has_weapon(user_id):
-            return "❌ You don't have any weapon! Buy one from the shop first."
+        if not await self.has_pickaxe(user_id):
+            return "❌ You don't have a Pickaxe! Buy one from the shop first."
 
         await self.ensure_player_stats(user_id)
 
