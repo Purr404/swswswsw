@@ -4375,12 +4375,31 @@ class CullingGame(commands.Cog):
         self.bot = bot
         self.currency = currency_system
         self.mining_channel = None
+        self.mining_message = None   # 
         self.energy_regen.start()
+
+    async def cog_load(self):          
+        await self.bot.wait_until_ready()
+        async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
+            if row:
+                channel = self.bot.get_channel(row['channel_id'])
+                if channel:
+                    try:
+                        msg = await channel.fetch_message(row['message_id'])
+                        self.mining_channel = channel.id
+                        self.mining_message = msg
+                        view = MiningMainView(self.bot, self)
+                        await msg.edit(view=view)
+                        print(f"✅ Reattached mining view in #{channel.name}")
+                    except (discord.NotFound, discord.Forbidden):
+                        await conn.execute("DELETE FROM mining_config")
+                        print("⚠️ Mining message not found, config cleared.")
 
     def cog_unload(self):
         self.energy_regen.cancel()
 
-    # ------------------------------------------------------------------
+------------------------------------------------------------------
     # Energy Regen Task
     # ------------------------------------------------------------------
     @tasks.loop(hours=1)
@@ -4442,6 +4461,7 @@ class CullingGame(commands.Cog):
     @commands.command(name='setminingchannel')
     @commands.has_permissions(administrator=True)
     async def set_mining_channel(self, ctx, channel: discord.TextChannel):
+        # Delete old mining message if exists
         async with self.bot.db_pool.acquire() as conn:
             old = await conn.fetchrow("SELECT message_id FROM mining_config WHERE guild_id = $1", ctx.guild.id)
             if old and old['message_id']:
@@ -4452,15 +4472,17 @@ class CullingGame(commands.Cog):
                 except:
                     pass
 
+        # Send new message with image and buttons
         embed = discord.Embed(
             title="⛏️ Mining Zone",
             description="Click **Start Mining** to begin earning gems.\n"
-                        "Click **Miners** to see who is currently mining and plunder them!",
+                    "Click **Miners** to see who is currently mining and plunder them!",
             color=discord.Color.gold()
         )
         view = MiningMainView(self.bot, self)
         msg = await channel.send(embed=embed, view=view)
 
+        # Store in database
         async with self.bot.db_pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO mining_config (guild_id, channel_id, message_id)
@@ -4469,6 +4491,7 @@ class CullingGame(commands.Cog):
             """, ctx.guild.id, channel.id, msg.id)
 
         self.mining_channel = channel.id
+        self.mining_message = msg   # <-- store the message object
         await ctx.send(f"✅ Mining channel set to {channel.mention} with interactive buttons.", delete_after=5)
 
     # ------------------------------------------------------------------
