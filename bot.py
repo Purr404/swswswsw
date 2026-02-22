@@ -375,6 +375,7 @@ class DatabaseSystem:
                         last_plunder_reset DATE DEFAULT CURRENT_DATE
                         )
                     ''')
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_gems INTEGER DEFAULT 0')
 
                     # Attack logs (for cooldowns, optional)
                     await conn.execute('''
