@@ -4562,6 +4562,7 @@ class MiningMainView(discord.ui.View):
             await interaction.followup.send(result, ephemeral=True)
         except Exception as e:
             print(f"Error in start_mining: {e}")
+            traceback.print_exc()
             await interaction.followup.send("❌ An error occurred. Please try again later.", ephemeral=True)
 
     async def show_miners_callback(self, interaction: discord.Interaction):
