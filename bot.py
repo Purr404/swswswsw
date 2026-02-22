@@ -4283,11 +4283,20 @@ class CullingGame(commands.Cog):
 
     @commands.command(name='minestart')
     async def mine_start(self, ctx):
+        """Start mining in the designated mining channel."""
         if self.mining_channel is None or ctx.channel.id != self.mining_channel:
             await ctx.send("❌ You can only mine in the designated mining channel.")
             return
+
         user_id = str(ctx.author.id)
+
+        # Check if user has a weapon
+        if not await self.has_weapon(user_id):
+            await ctx.send("❌ You don't have any weapon! Buy one from the shop first.")
+            return
+
         await self.ensure_player_stats(user_id)
+
         async with self.bot.db_pool.acquire() as conn:
             existing = await conn.fetchval("SELECT mining_start FROM player_stats WHERE user_id = $1", user_id)
             if existing:
@@ -4299,11 +4308,12 @@ class CullingGame(commands.Cog):
                 SET mining_start = $1, pending_reward = 0
                 WHERE user_id = $2
             """, now, user_id)
+
         embed = discord.Embed(
             title="⛏️ Mining Started",
             description=f"{ctx.author.mention} has started mining!\n"
-                        "You will earn gems over time. Use `!!minestop` to claim.\n"
-                        "**Note:** You can be plundered while mining!",
+                    "You will earn gems over time. Use `!!minestop` to claim.\n"
+                    "**Note:** You can be plundered while mining!",
             color=discord.Color.gold()
         )
         await ctx.send(embed=embed)
@@ -4342,14 +4352,28 @@ class CullingGame(commands.Cog):
 
     @commands.command(name='plunder')
     async def plunder(self, ctx, target: discord.Member):
+        """Use 1 energy to plunder a miner and steal 30% of their pending reward."""
         attacker_id = str(ctx.author.id)
         defender_id = str(target.id)
+
         if attacker_id == defender_id:
             await ctx.send("❌ You cannot plunder yourself.")
             return
+
+        # Check if both users have weapons
+        if not await self.has_weapon(attacker_id):
+            await ctx.send("❌ You don't have any weapon! Buy one from the shop first.")
+            return
+        if not await self.has_weapon(defender_id):
+            await ctx.send(f"❌ {target.mention} doesn't have any weapon and cannot be plunder.")
+            return
+
+        # Ensure player stats exist
         await self.ensure_player_stats(attacker_id)
         await self.ensure_player_stats(defender_id)
+
         async with self.bot.db_pool.acquire() as conn:
+            # Plunder limits and energy checks (same as before)
             today = datetime.now(timezone.utc).date()
             stats = await conn.fetchrow("""
                 SELECT energy, plunder_count, last_plunder_reset
@@ -4366,10 +4390,14 @@ class CullingGame(commands.Cog):
             if plunder_count >= 2:
                 await ctx.send("❌ You have already used your 2 plunders today.")
                 return
+
+            # Check defender is mining
             defender = await conn.fetchrow("SELECT mining_start FROM player_stats WHERE user_id = $1", defender_id)
             if not defender or not defender['mining_start']:
                 await ctx.send("❌ That user is not mining.")
                 return
+
+            # Calculate pending reward
             start = defender['mining_start']
             if start.tzinfo is None:
                 start = start.replace(tzinfo=timezone.utc)
@@ -4380,6 +4408,7 @@ class CullingGame(commands.Cog):
             if pending == 0:
                 await ctx.send("❌ That user hasn't mined enough yet (need at least 2 hours).")
                 return
+
             steal = int(pending * 0.3)
             await self.currency.add_gems(attacker_id, steal, f"Plundered from {target.name}")
             await conn.execute("""
@@ -4392,6 +4421,7 @@ class CullingGame(commands.Cog):
                 SET energy = energy - 1, plunder_count = plunder_count + 1
                 WHERE user_id = $1
             """, attacker_id)
+
         embed = discord.Embed(
             title="💰 Plunder Successful!",
             description=f"{ctx.author.mention} plundered **{steal} gems** from {target.mention}!",
@@ -4401,18 +4431,34 @@ class CullingGame(commands.Cog):
 
     @commands.command(name='attack')
     async def attack(self, ctx, target: discord.Member):
+        """Attack another player using your weapon. Uses 1 energy."""
         attacker_id = str(ctx.author.id)
         defender_id = str(target.id)
+
         if attacker_id == defender_id:
             await ctx.send("❌ You cannot attack yourself.")
             return
+
+        # Check if both users have weapons
+        if not await self.has_weapon(attacker_id):
+            await ctx.send("❌ You don't have any weapon! Buy one from the shop first.")
+            return
+        if not await self.has_weapon(defender_id):
+            await ctx.send(f"❌ {target.mention} doesn't have any weapon and cannot be attack.")
+            return
+
+        # Ensure player stats exist (they should, but just in case)
         await self.ensure_player_stats(attacker_id)
         await self.ensure_player_stats(defender_id)
+
         async with self.bot.db_pool.acquire() as conn:
+            # Check energy
             energy = await conn.fetchval("SELECT energy FROM player_stats WHERE user_id = $1", attacker_id)
             if not energy or energy < 1:
                 await ctx.send("❌ You need at least 1 energy to attack.")
                 return
+
+            # Get attacker's weapon (latest)
             weapon = await conn.fetchrow("""
                 SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name, uw.image_url
                 FROM user_weapons uw
@@ -4424,6 +4470,8 @@ class CullingGame(commands.Cog):
             if not weapon:
                 await ctx.send("❌ You don't have a weapon to attack with!")
                 return
+
+            # Get defender's HP and weapon (for display)
             defender_stats = await conn.fetchrow("SELECT hp FROM player_stats WHERE user_id = $1", defender_id)
             defender_weapon = await conn.fetchrow("""
                 SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name
@@ -4433,7 +4481,11 @@ class CullingGame(commands.Cog):
                 ORDER BY uw.purchased_at DESC
                 LIMIT 1
             """, defender_id)
+
+            # Deduct energy
             await conn.execute("UPDATE player_stats SET energy = energy - 1 WHERE user_id = $1", attacker_id)
+
+        # Build attack embed
         embed = discord.Embed(
             title="⚔️ Attack Initiated!",
             description=f"{ctx.author.mention} is attacking {target.mention}!",
@@ -4445,6 +4497,7 @@ class CullingGame(commands.Cog):
         embed.add_field(name="Defender's HP", value=f"{defender_stats['hp']} / 1000", inline=False)
         if weapon['image_url']:
             embed.set_thumbnail(url=weapon['image_url'])
+
         view = AttackView(attacker_id, defender_id, weapon['attack'], self.bot)
         await ctx.send(embed=embed, view=view)
 
@@ -4490,6 +4543,31 @@ class AttackView(discord.ui.View):
             await interaction.followup.send(f"{interaction.user.mention} has been defeated! They will respawn with 1000 HP.")
             async with self.bot.db_pool.acquire() as conn:
                 await conn.execute("UPDATE player_stats SET hp = 1000 WHERE user_id = $1", self.defender_id)
+
+
+    async def has_weapon(self, user_id: str) -> bool:
+        """Return True if the user owns at least one weapon."""
+        async with self.bot.db_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM user_weapons WHERE user_id = $1",
+                user_id
+            )
+            return count > 0
+
+    @commands.command(name='hp')
+    async def check_hp(self, ctx):
+        """Check your current HP and energy."""
+        user_id = str(ctx.author.id)
+        # Check if user has a weapon (optional, but stats should exist if they bought one)
+        if not await self.has_weapon(user_id):
+            await ctx.send("❌ You don't have any weapon! Buy one from the shop first to join the Culling Game.")
+            return
+        async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT hp, energy FROM player_stats WHERE user_id = $1", user_id)
+        if not row:
+            await ctx.send("You don't have any stats yet. Buy a weapon to join the Culling Game!")
+            return
+        await ctx.send(f"❤️ HP: {row['hp']}/1000 | ⚡ Energy: {row['energy']}/3")
 
 # END CULLING GAME CLASS
 
