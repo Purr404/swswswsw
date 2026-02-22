@@ -4264,7 +4264,7 @@ class CullingGame(commands.Cog):
     # ------------------------------------------------------------------
     @tasks.loop(hours=1)
     async def energy_regen(self):
-        await self.bot.wait_until_ready()
+        """Give 1 energy every hour to all players (up to max)."""
         async with self.bot.db_pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT user_id, energy, max_energy, last_energy_regen
@@ -4287,6 +4287,9 @@ class CullingGame(commands.Cog):
     @energy_regen.before_loop
     async def before_energy_regen(self):
         await self.bot.wait_until_ready()
+        # Wait until database pool is available
+        while self.bot.db_pool is None:
+            await asyncio.sleep(1)
 
     # ------------------------------------------------------------------
     # Helper: Weapon ownership check
