@@ -4356,7 +4356,7 @@ class CullingGame(commands.Cog):
                 WHERE user_id = $2
             """, now, user_id)
 
-        return "✅ You have started mining! You will earn gems over time (50 gems per 2 hours, max 12 hours)."
+        return "✅ You have started mining! You will earn gems over time."
 
     async def stop_mining_for_user(self, user_id: str) -> str:
         async with self.bot.db_pool.acquire() as conn:
@@ -4365,9 +4365,9 @@ class CullingGame(commands.Cog):
                 return "❌ You are not mining."
 
             start = row['mining_start']
-            if start.tzinfo is None:
-                start = start.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
+            if start.tzinfo is not None:
+                start = start.replace(tzinfo=None)
+            now = datetime.utcnow()
             hours_mined = (now - start).total_seconds() / 3600
             hours_mined = min(hours_mined, 12)
             intervals = int(hours_mined // 2)
@@ -4399,7 +4399,7 @@ class CullingGame(commands.Cog):
         await self.ensure_player_stats(defender_id)
 
         async with self.bot.db_pool.acquire() as conn:
-            today = datetime.now(timezone.utc).date()
+            today = datetime.utcnow().date()
             stats = await conn.fetchrow("""
                 SELECT energy, plunder_count, last_plunder_reset
                 FROM player_stats WHERE user_id = $1
@@ -4419,9 +4419,9 @@ class CullingGame(commands.Cog):
                 return "❌ That user is not mining."
 
             start = defender['mining_start']
-            if start.tzinfo is None:
-                start = start.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
+            if start.tzinfo is not None:
+                start = start.replace(tzinfo=None)
+            now = datetime.utcnow()
             hours_mined = (now - start).total_seconds() / 3600
             intervals = int(hours_mined // 2)
             pending = intervals * 50
@@ -4597,9 +4597,32 @@ class MinersListView(discord.ui.View):
         self.requester_id = requester_id
         for miner in miners:
             user_id = miner['user_id']
-            button = PlunderButton(user_id, label=f"Plunder <@{user_id}>", style=discord.ButtonStyle.danger)
+            if user_id == requester_id:
+                # Show Stop Mining button for self
+                button = StopMiningButton(user_id, label="⏹️ Stop Mining", style=discord.ButtonStyle.secondary)
+            else:
+                # Show Plunder button for others
+                button = PlunderButton(user_id, label=f"Plunder <@{user_id}>", style=discord.ButtonStyle.danger)
             self.add_item(button)
 
+
+class StopMiningButton(discord.ui.Button):
+    def __init__(self, target_id, **kwargs):
+        super().__init__(**kwargs)
+        self.target_id = target_id
+
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            await interaction.response.defer(ephemeral=True)
+            if str(interaction.user.id) != self.target_id:
+                await interaction.followup.send("❌ You can only stop your own mining.", ephemeral=True)
+                return
+            result = await self.cog.stop_mining_for_user(self.target_id)
+            await interaction.followup.send(result, ephemeral=True)
+        except Exception as e:
+            print(f"Error in stop mining button: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("❌ An error occurred.", ephemeral=True)
 
 class PlunderButton(discord.ui.Button):
     def __init__(self, target_id, **kwargs):
@@ -4609,10 +4632,14 @@ class PlunderButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         try:
             await interaction.response.defer(ephemeral=True)
+            if str(interaction.user.id) == self.target_id:
+                await interaction.followup.send("❌ You cannot plunder yourself.", ephemeral=True)
+                return
             result = await self.cog.plunder_user(str(interaction.user.id), self.target_id)
             await interaction.followup.send(result, ephemeral=True)
         except Exception as e:
             print(f"Error in plunder button: {e}")
+            traceback.print_exc()
             await interaction.followup.send("❌ An error occurred.", ephemeral=True)
 
 
