@@ -4576,7 +4576,7 @@ class MiningMainView(discord.ui.View):
                     WHERE mining_start IS NOT NULL
                     ORDER BY mining_start
                 """)
-            if not miners:
+            if not miners_list:
                 await interaction.followup.send("No one is currently mining.", ephemeral=True)
                 return
 
@@ -4601,7 +4601,7 @@ class MiningMainView(discord.ui.View):
 
 
 class MinersListView(discord.ui.View):
-    def __init__(self, miners_list, cog, requester_id):
+    def __init__(self, miner_list, cog, requester_id):
         super().__init__(timeout=60)
         self.cog = cog
         self.requester_id = requester_id
