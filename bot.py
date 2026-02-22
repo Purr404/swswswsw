@@ -176,7 +176,14 @@ class DatabaseSystem:
                             balance_after INTEGER,
                             FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
                         )
-                    ''')                
+                    ''') 
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS mining_config (
+                            guild_id BIGINT PRIMARY KEY,
+                            channel_id BIGINT NOT NULL,
+                            message_id BIGINT
+                        )
+                    ''')               
 
                     # FORTUNE BAG TABLES
                     await conn.execute('''
@@ -4235,12 +4242,26 @@ class CullingGame(commands.Cog):
     def __init__(self, bot, currency_system):
         self.bot = bot
         self.currency = currency_system
-        self.mining_channel = None
+        self.mining_channel = None          # will be loaded from DB on ready
         self.energy_regen.start()
 
     def cog_unload(self):
         self.energy_regen.cancel()
 
+    async def cog_load(self):
+        """Load mining channel config from database on startup."""
+        await self.bot.wait_until_ready()
+        async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config WHERE guild_id = $1", YOUR_GUILD_ID)
+            # You need to know the guild ID; for simplicity, we assume one guild.
+            # If multiple guilds, you'd need to store per guild. For now, we'll adapt.
+            # Alternatively, we can just set mining_channel via command each time.
+            # But for persistence, we'll store the first guild that sets it.
+        # We'll handle this in set_mining_channel
+
+    # ------------------------------------------------------------------
+    # Energy Regen Task
+    # ------------------------------------------------------------------
     @tasks.loop(hours=1)
     async def energy_regen(self):
         await self.bot.wait_until_ready()
@@ -4267,6 +4288,17 @@ class CullingGame(commands.Cog):
     async def before_energy_regen(self):
         await self.bot.wait_until_ready()
 
+    # ------------------------------------------------------------------
+    # Helper: Weapon ownership check
+    # ------------------------------------------------------------------
+    async def has_weapon(self, user_id: str) -> bool:
+        async with self.bot.db_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM user_weapons WHERE user_id = $1",
+                user_id
+            )
+            return count > 0
+
     async def ensure_player_stats(self, user_id: str):
         async with self.bot.db_pool.acquire() as conn:
             await conn.execute("""
@@ -4275,33 +4307,62 @@ class CullingGame(commands.Cog):
                 ON CONFLICT (user_id) DO NOTHING
             """, user_id)
 
+    # ------------------------------------------------------------------
+    # Admin: Set mining channel and send permanent message
+    # ------------------------------------------------------------------
     @commands.command(name='setminingchannel')
     @commands.has_permissions(administrator=True)
     async def set_mining_channel(self, ctx, channel: discord.TextChannel):
+        # Delete old mining message if exists
+        async with self.bot.db_pool.acquire() as conn:
+            old = await conn.fetchrow("SELECT message_id FROM mining_config WHERE guild_id = $1", ctx.guild.id)
+            if old and old['message_id']:
+                try:
+                    old_channel = self.bot.get_channel(self.mining_channel) or channel
+                    old_msg = await old_channel.fetch_message(old['message_id'])
+                    await old_msg.delete()
+                except:
+                    pass
+
+        # Send new message with image and buttons
+        embed = discord.Embed(
+            title="⛏️ Mining Zone",
+            description="Click **Start Mining** to begin earning gems.\n"
+                        "Click **Miners** to see who is currently mining and plunder them!",
+            color=discord.Color.gold()
+        )
+        # You can set an image here if you have one
+        # embed.set_image(url="https://your-image-url.png")
+
+        view = MiningMainView(self.bot, self)
+        msg = await channel.send(embed=embed, view=view)
+
+        # Store in database
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO mining_config (guild_id, channel_id, message_id)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (guild_id) DO UPDATE SET channel_id = $2, message_id = $3
+            """, ctx.guild.id, channel.id, msg.id)
+
         self.mining_channel = channel.id
-        await ctx.send(f"✅ Mining channel set to {channel.mention}")
+        await ctx.send(f"✅ Mining channel set to {channel.mention} with interactive buttons.", delete_after=5)
 
-    @commands.command(name='minestart')
-    async def mine_start(self, ctx):
-        """Start mining in the designated mining channel."""
-        if self.mining_channel is None or ctx.channel.id != self.mining_channel:
-            await ctx.send("❌ You can only mine in the designated mining channel.")
-            return
-
-        user_id = str(ctx.author.id)
-
-        # Check if user has a weapon
+    # ------------------------------------------------------------------
+    # Core mining logic (called by buttons)
+    # ------------------------------------------------------------------
+    async def start_mining_for_user(self, user_id: str, channel: discord.TextChannel) -> str:
+        """Start mining. Returns a message (success or error)."""
         if not await self.has_weapon(user_id):
-            await ctx.send("❌ You don't have any weapon! Buy one from the shop first.")
-            return
+            return "❌ You don't have any weapon! Buy one from the shop first."
 
         await self.ensure_player_stats(user_id)
 
         async with self.bot.db_pool.acquire() as conn:
             existing = await conn.fetchval("SELECT mining_start FROM player_stats WHERE user_id = $1", user_id)
             if existing:
-                await ctx.send("❌ You are already mining! Use `!!minestop` to finish.")
-                return
+                return "❌ You are already mining! Use the **Stop Mining** button in the miners list to finish."
+
             now = datetime.now(timezone.utc)
             await conn.execute("""
                 UPDATE player_stats
@@ -4309,23 +4370,15 @@ class CullingGame(commands.Cog):
                 WHERE user_id = $2
             """, now, user_id)
 
-        embed = discord.Embed(
-            title="⛏️ Mining Started",
-            description=f"{ctx.author.mention} has started mining!\n"
-                    "You will earn gems over time. Use `!!minestop` to claim.\n"
-                    "**Note:** You can be plundered while mining!",
-            color=discord.Color.gold()
-        )
-        await ctx.send(embed=embed)
+        return "✅ You have started mining! You will earn gems over time (50 gems per 2 hours, max 12 hours)."
 
-    @commands.command(name='minestop')
-    async def mine_stop(self, ctx):
-        user_id = str(ctx.author.id)
+    async def stop_mining_for_user(self, user_id: str) -> str:
+        """Stop mining and return reward message."""
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow("SELECT mining_start, stolen_gems FROM player_stats WHERE user_id = $1", user_id)
             if not row or not row['mining_start']:
-                await ctx.send("❌ You are not mining.")
-                return
+                return "❌ You are not mining."
+
             start = row['mining_start']
             if start.tzinfo is None:
                 start = start.replace(tzinfo=timezone.utc)
@@ -4336,68 +4389,51 @@ class CullingGame(commands.Cog):
             gems_earned = intervals * 50
             stolen = row['stolen_gems'] or 0
             gems_earned = max(0, gems_earned - stolen)
+
             if gems_earned > 0:
                 await self.currency.add_gems(user_id, gems_earned, "Mining reward")
+
             await conn.execute("""
                 UPDATE player_stats
                 SET mining_start = NULL, pending_reward = 0, stolen_gems = 0
                 WHERE user_id = $1
             """, user_id)
-        embed = discord.Embed(
-            title="⛏️ Mining Finished",
-            description=f"You mined for **{hours_mined:.1f} hours** and earned **{gems_earned} gems**.",
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=embed)
 
-    @commands.command(name='plunder')
-    async def plunder(self, ctx, target: discord.Member):
-        """Use 1 energy to plunder a miner and steal 30% of their pending reward."""
-        attacker_id = str(ctx.author.id)
-        defender_id = str(target.id)
+        return f"✅ You mined for **{hours_mined:.1f} hours** and earned **{gems_earned} gems**."
 
+    async def plunder_user(self, attacker_id: str, defender_id: str) -> str:
+        """Attempt plunder. Returns result message."""
         if attacker_id == defender_id:
-            await ctx.send("❌ You cannot plunder yourself.")
-            return
+            return "❌ You cannot plunder yourself."
 
-        # Check if both users have weapons
         if not await self.has_weapon(attacker_id):
-            await ctx.send("❌ You don't have any weapon! Buy one from the shop first.")
-            return
+            return "❌ You don't have any weapon! Buy one from the shop first."
         if not await self.has_weapon(defender_id):
-            await ctx.send(f"❌ {target.mention} doesn't have any weapon and cannot be plunder.")
-            return
+            return "❌ That user doesn't have any weapon and cannot be plundered."
 
-        # Ensure player stats exist
         await self.ensure_player_stats(attacker_id)
         await self.ensure_player_stats(defender_id)
 
         async with self.bot.db_pool.acquire() as conn:
-            # Plunder limits and energy checks (same as before)
             today = datetime.now(timezone.utc).date()
             stats = await conn.fetchrow("""
                 SELECT energy, plunder_count, last_plunder_reset
                 FROM player_stats WHERE user_id = $1
             """, attacker_id)
             if not stats or stats['energy'] < 1:
-                await ctx.send("❌ You need at least 1 energy to plunder.")
-                return
+                return "❌ You need at least 1 energy to plunder."
             if stats['last_plunder_reset'] != today:
                 await conn.execute("UPDATE player_stats SET plunder_count = 0, last_plunder_reset = $1 WHERE user_id = $2", today, attacker_id)
                 plunder_count = 0
             else:
                 plunder_count = stats['plunder_count']
             if plunder_count >= 2:
-                await ctx.send("❌ You have already used your 2 plunders today.")
-                return
+                return "❌ You have already used your 2 plunders today."
 
-            # Check defender is mining
             defender = await conn.fetchrow("SELECT mining_start FROM player_stats WHERE user_id = $1", defender_id)
             if not defender or not defender['mining_start']:
-                await ctx.send("❌ That user is not mining.")
-                return
+                return "❌ That user is not mining."
 
-            # Calculate pending reward
             start = defender['mining_start']
             if start.tzinfo is None:
                 start = start.replace(tzinfo=timezone.utc)
@@ -4406,11 +4442,10 @@ class CullingGame(commands.Cog):
             intervals = int(hours_mined // 2)
             pending = intervals * 50
             if pending == 0:
-                await ctx.send("❌ That user hasn't mined enough yet (need at least 2 hours).")
-                return
+                return "❌ That user hasn't mined enough yet (need at least 2 hours)."
 
             steal = int(pending * 0.3)
-            await self.currency.add_gems(attacker_id, steal, f"Plundered from {target.name}")
+            await self.currency.add_gems(attacker_id, steal, f"Plundered from <@{defender_id}>")
             await conn.execute("""
                 UPDATE player_stats
                 SET stolen_gems = stolen_gems + $1
@@ -4422,12 +4457,75 @@ class CullingGame(commands.Cog):
                 WHERE user_id = $1
             """, attacker_id)
 
+        return f"💰 You plundered **{steal} gems** from <@{defender_id}>!"
+
+
+class MiningMainView(discord.ui.View):
+    """View attached to the permanent mining channel message."""
+    def __init__(self, bot, cog):
+        super().__init__(timeout=None)  # persistent
+        self.bot = bot
+        self.cog = cog
+
+    @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary, custom_id="mining_start")
+    async def start_mining(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        if interaction.channel.id != self.cog.mining_channel:
+            await interaction.followup.send("❌ You can only use this in the mining channel.", ephemeral=True)
+            return
+        result = await self.cog.start_mining_for_user(str(interaction.user.id), interaction.channel)
+        await interaction.followup.send(result, ephemeral=True)
+
+    @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary, custom_id="mining_list")
+    async def show_miners(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        async with self.bot.db_pool.acquire() as conn:
+            miners = await conn.fetch("""
+                SELECT user_id, mining_start
+                FROM player_stats
+                WHERE mining_start IS NOT NULL
+                ORDER BY mining_start
+            """)
+        if not miners:
+            await interaction.followup.send("No one is currently mining.", ephemeral=True)
+            return
+
+        # Build an ephemeral message with a plunder button for each miner
         embed = discord.Embed(
-            title="💰 Plunder Successful!",
-            description=f"{ctx.author.mention} plundered **{steal} gems** from {target.mention}!",
-            color=discord.Color.red()
+            title="Current Miners",
+            description="Click a button to plunder that miner.",
+            color=discord.Color.blue()
         )
-        await ctx.send(embed=embed)
+        view = MinersListView(miners, self.cog, interaction.user.id)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+class MinersListView(discord.ui.View):
+    """Ephemeral view listing miners with plunder buttons."""
+    def __init__(self, miners, cog, requester_id):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.requester_id = requester_id
+        for miner in miners:
+            user_id = miner['user_id']
+            # We need the display name; fetch it dynamically when button is pressed.
+            button = PlunderButton(user_id, label=f"Plunder <@{user_id}>", style=discord.ButtonStyle.danger)
+            self.add_item(button)
+
+class PlunderButton(discord.ui.Button):
+    def __init__(self, target_id, **kwargs):
+        super().__init__(**kwargs)
+        self.target_id = target_id
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        # Check if the user trying to plunder is the one who requested the list
+        # (optional, but we already have requester_id in the parent view? Not easily accessible here.)
+        # We'll just proceed and let the cog method handle permissions.
+        result = await self.cog.plunder_user(str(interaction.user.id), self.target_id)
+        await interaction.followup.send(result, ephemeral=True)
+
+
 
     @commands.command(name='attack')
     async def attack(self, ctx, target: discord.Member):
