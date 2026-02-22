@@ -4584,9 +4584,17 @@ class MiningMainView(discord.ui.View):
             for m in miners:
                 user_id = m['user_id']
                 member = interaction.guild.get_member(int(user_id))
-                name = member.display_name if member else f"User {user_id[:6]}"
+                if member:
+                    name = member.display_name
+                else:
+                    # Try to get user from bot cache
+                    user = self.bot.get_user(int(user_id))
+                    if user:
+                        name = user.name
+                    else:
+                        name = member.display_name if member else f"User {user_id[:6]}"
                 miner_list.append((user_id, name))
-
+                print(f"DEBUG: Miner {user_id} -> {name}")
             embed = discord.Embed(
                 title="Current Miners",
                 description="Click a button to plunder that miner.",
