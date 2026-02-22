@@ -4466,26 +4466,25 @@ class CullingGame(commands.Cog):
 
 class MiningMainView(discord.ui.View):
     def __init__(self, bot, cog):
-        super().__init__(timeout=None)  # persistent
+        super().__init__(timeout=None)
         self.bot = bot
         self.cog = cog
 
     @discord.ui.button(label="⛏️ Start Mining", style=discord.ButtonStyle.primary, custom_id="mining_start")
-    async def start_mining(self, interaction: discord.Interaction):
-        """Start mining for the user."""
+    async def start_mining(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             await interaction.response.defer(ephemeral=True)
             if interaction.channel.id != self.cog.mining_channel:
                 await interaction.followup.send("❌ You can only use this in the mining channel.", ephemeral=True)
                 return
-            result = await self.cog.start_mining_for_user(str(interaction.user.id))
+            result = await self.cog.start_mining_for_user(str(interaction.user.id), interaction.channel)
             await interaction.followup.send(result, ephemeral=True)
         except Exception as e:
             print(f"Error in start_mining: {e}")
             await interaction.followup.send("An error occurred. Please try again later.", ephemeral=True)
 
     @discord.ui.button(label="👥 Miners", style=discord.ButtonStyle.secondary, custom_id="mining_list")
-    async def show_miners(self, interaction: discord.Interaction):
+    async def show_miners(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             await interaction.response.defer(ephemeral=True)
             async with self.bot.db_pool.acquire() as conn:
@@ -4498,7 +4497,6 @@ class MiningMainView(discord.ui.View):
             if not miners:
                 await interaction.followup.send("No one is currently mining.", ephemeral=True)
                 return
-
             embed = discord.Embed(
                 title="Current Miners",
                 description="Click a button to plunder that miner.",
