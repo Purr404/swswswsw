@@ -4587,7 +4587,8 @@ class MiningMainView(discord.ui.View):
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         except Exception as e:
             print(f"Error in show_miners: {e}")
-            await interaction.followup.send("❌ An error occurred.", ephemeral=True)
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ Error: {type(e).__name__} – {str(e)}", ephemeral=True)
 
 
 class MinersListView(discord.ui.View):
