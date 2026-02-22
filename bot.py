@@ -4576,7 +4576,7 @@ class MiningMainView(discord.ui.View):
                     WHERE mining_start IS NOT NULL
                     ORDER BY mining_start
                 """)
-            if not miner_list:
+            if not miners:
                 await interaction.followup.send("No one is currently mining.", ephemeral=True)
                 return
 
