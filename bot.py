@@ -4441,14 +4441,16 @@ class CullingGame(commands.Cog):
     async def load_mining_messages(self, guild_id: int):
         """Reattach the mining view after restart."""
         async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config WHERE guild_id = $1")
-
+            row = await conn.fetchrow(
+                "SELECT channel_id, message_id FROM mining_config WHERE guild_id = $1",
+                guild_id   
+            )
             if not row:
-                print("ℹ️ No mining config found.")
+                print(f"ℹ️ No mining config found for guild {guild_id}.")
                 return
             channel = self.bot.get_channel(row['channel_id'])
             if not channel:
-                print("❌ Mining channel not found.")
+                print(f"❌ Mining channel not found for guild {guild_id}.")
                 return
             try:
                 msg = await channel.fetch_message(row['message_id'])
@@ -4456,12 +4458,12 @@ class CullingGame(commands.Cog):
                 self.mining_message = msg
                 view = MiningMainView(self.bot, self)
                 await msg.edit(view=view)
-                print(f"✅ Reattached mining view in #{channel.name}")
+                print(f"✅ Reattached mining view in #{channel.name} (guild {guild_id})")
             except Exception as e:
-                print(f"❌ Failed to reattach mining view: {e}")
+                print(f"❌ Failed to reattach mining view for guild {guild_id}: {e}")
                 traceback.print_exc()
                 async with self.bot.db_pool.acquire() as conn2:
-                    await conn2.execute("DELETE FROM mining_config")
+                    await conn2.execute("DELETE FROM mining_config WHERE guild_id = $1", guild_id)
 
     def cog_unload(self):
         self.energy_regen.cancel()
