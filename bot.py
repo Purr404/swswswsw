@@ -4386,8 +4386,30 @@ class CullingGame(commands.Cog):
         self.mining_message = None
         self.energy_regen.start()
 
-    def cog_unload(self):
-        self.energy_regen.cancel()
+    async def load_mining_messages(self):
+        """Reattach the mining view after restart."""
+        async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
+            if not row:
+                print("ℹ️ No mining config found.")
+                return
+            channel = self.bot.get_channel(row['channel_id'])
+            if not channel:
+                print("❌ Mining channel not found.")
+                return
+            try:
+                msg = await channel.fetch_message(row['message_id'])
+                self.mining_channel = channel.id
+                self.mining_message = msg
+                view = MiningMainView(self.bot, self)
+                await msg.edit(view=view)
+                print(f"✅ Reattached mining view in #{channel.name}")
+            except Exception as e:
+                print(f"❌ Failed to reattach mining view: {e}")
+                traceback.print_exc()
+                async with self.bot.db_pool.acquire() as conn2:
+                    await conn2.execute("DELETE FROM mining_config")
+
     def cog_unload(self):
         self.energy_regen.cancel()
 
@@ -4865,29 +4887,7 @@ class AttackView(discord.ui.View):
             async with self.bot.db_pool.acquire() as conn:
                 await conn.execute("UPDATE player_stats SET hp = 1000 WHERE user_id = $1", self.defender_id)
 
-    async def load_mining_messages(self):
-        """Reattach the mining view after restart."""
-        async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
-            if not row:
-                print("ℹ️ No mining config found.")
-                return
-            channel = self.bot.get_channel(row['channel_id'])
-            if not channel:
-                print("❌ Mining channel not found.")
-                return
-            try:
-                msg = await channel.fetch_message(row['message_id'])
-                self.mining_channel = channel.id
-                self.mining_message = msg
-                view = MiningMainView(self.bot, self)
-                await msg.edit(view=view)
-                print(f"✅ Reattached mining view in #{channel.name}")
-            except Exception as e:
-                print(f"❌ Failed to reattach mining view: {e}")
-                traceback.print_exc()
-                async with self.bot.db_pool.acquire() as conn2:
-                    await conn2.execute("DELETE FROM mining_config")
+
 
 # MINE PERSISTENT FUNCTION 
 
