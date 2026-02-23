@@ -4385,17 +4385,19 @@ class Shop(commands.Cog):
 
     @commands.command(name='myinventory')
     async def my_inventory(self, ctx):
-        """Display your personal inventory (gems, weapons, pickaxe, etc.)"""
-        # Ensure it's only usable by the invoker and ephemeral
-        
+        """Display your MMORPG-style inventory."""
         user_id = str(ctx.author.id)
-
-        # Get gems balance
-        balance = await currency_system.get_balance(user_id)
-        gems = balance['gems']
-
-        # Get weapons (similar to listweapons but without IDs)
+    
+        # Get all player data in one go
         async with self.bot.db_pool.acquire() as conn:
+            # Get gems balance and player stats
+            gems = await currency_system.get_balance(user_id)
+            player = await conn.fetchrow("""
+                SELECT hp, max_hp, energy, max_energy, has_pickaxe 
+                FROM player_stats WHERE user_id = $1
+            """, user_id)
+        
+            # Get all weapons
             weapons = await conn.fetch("""
                 SELECT COALESCE(si.name, uw.generated_name) as name, uw.attack
                 FROM user_weapons uw
@@ -4403,28 +4405,76 @@ class Shop(commands.Cog):
                 WHERE uw.user_id = $1
                 ORDER BY uw.purchased_at DESC
             """, user_id)
+        
+            # Count total items for footer
+            total_items = len(weapons) + (1 if player and player['has_pickaxe'] else 0)
 
-        weapon_list = [f"{w['name']} (+{w['attack']} ATK)" for w in weapons]
-        weapon_text = "\n".join(weapon_list) if weapon_list else "None"
-
-        # Get pickaxe status from player_stats
-        async with self.bot.db_pool.acquire() as conn:
-            pickaxe = await conn.fetchval("SELECT has_pickaxe FROM player_stats WHERE user_id = $1", user_id)
-        pickaxe_status = "✅ Owned" if pickaxe else "❌ Not owned"
-
-        # Build embed
+        # Create main inventory embed
         embed = discord.Embed(
-            title=f"📦 {ctx.author.display_name}'s Inventory",
-            color=discord.Color.blue()
+            title=f"📦 **{ctx.author.display_name}'s Inventory**",
+            color=discord.Color.purple(),
+            timestamp=datetime.now(timezone.utc)
         )
-        embed.add_field(name="💰 Gems", value=f"{gems}", inline=False)
-        embed.add_field(name="⚔️ Weapons", value=weapon_text[:1024] if weapon_text else "None", inline=False)  # field limit 1024 chars
-        embed.add_field(name="⛏️ Pickaxe", value=pickaxe_status, inline=False)
-        embed.add_field(name="🛡️ Other Items", value="*(Coming soon)*", inline=False)
-
-        # Optional: thumbnail of user avatar
+    
+        # Character thumbnail
         embed.set_thumbnail(url=ctx.author.display_avatar.url)
-
+    
+        # STATS SECTION (Top)
+        if player:
+            hp_percent = (player['hp'] / player['max_hp']) * 10
+            hp_bar = "❤️" + "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
+            energy_percent = (player['energy'] / player['max_energy']) * 10
+            energy_bar = "⚡" + "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
+        
+            stats_text = (
+                f"{hp_bar} `{player['hp']}/{player['max_hp']} HP`\n"
+                f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`\n"
+                f"💰 **Gems:** `{gems['gems']}`"
+            )
+        else:
+            stats_text = "❤️ No stats yet. Buy a weapon to start!"
+    
+        embed.add_field(name="📊 **Character Stats**", value=stats_text, inline=False)
+    
+        # EQUIPMENT SECTION (Middle)
+        equipment_text = []
+    
+        # Weapon slot (first weapon in inventory)
+        if weapons:
+            weapon = weapons[0]
+            equipment_text.append(f"⚔️ **Weapon:** `{weapon['name']} (+{weapon['attack']} ATK)`")
+        else:
+            equipment_text.append("⚔️ **Weapon:** `None`")
+    
+        # Pickaxe slot
+        if player and player['has_pickaxe']:
+            equipment_text.append("⛏️ **Pickaxe:** `Equipped`")
+        else:
+            equipment_text.append("⛏️ **Pickaxe:** `None`")
+    
+        # Armor slot (placeholder for future)
+        equipment_text.append("🛡️ **Armor:** `Coming Soon`")
+    
+        embed.add_field(name="⚙️ **Equipment**", value="\n".join(equipment_text), inline=False)
+    
+        # INVENTORY GRID (Bottom) - Show weapons in a grid format
+        if weapons:
+            # Create a grid of weapons (3 per row)
+            grid = []
+            for i, w in enumerate(weapons[:9]):  # Show first 9 weapons
+                if i % 3 == 0 and i > 0:
+                    grid.append("")  # New line
+                grid.append(f"`{w['name'][:10]}...` +{w['attack']}")
+        
+            weapon_display = "\n".join(grid) if grid else "None"
+            embed.add_field(name="🗡️ **Weapons**", value=weapon_display, inline=False)
+        
+            if len(weapons) > 9:
+                embed.set_footer(text=f"And {len(weapons)-9} more weapons... | Total Items: {total_items}")
+        else:
+            embed.add_field(name="🗡️ **Weapons**", value="`None`", inline=False)
+            embed.set_footer(text=f"Total Items: {total_items}")
+    
         await ctx.send(embed=embed)
 
 
