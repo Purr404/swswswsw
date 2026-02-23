@@ -4709,6 +4709,16 @@ class CullingGame(commands.Cog):
 
 # END CULLING GAME CLASS
 
+    @commands.command(name='showconfig')
+    @commands.has_permissions(administrator=True)
+    async def show_mining_config(self, ctx):
+        async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM mining_config LIMIT 1")
+        if row:
+            await ctx.send(f"**Mining Config**\nGuild: {row['guild_id']}\nChannel: {row['channel_id']}\nMessage: {row['message_id']}")
+        else:
+            await ctx.send("No mining config found in database.")
+
 class MiningMainView(discord.ui.View):
     def __init__(self, bot, cog):
         super().__init__(timeout=None)
