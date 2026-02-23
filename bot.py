@@ -4388,6 +4388,8 @@ class CullingGame(commands.Cog):
 
     async def cog_load(self):          
         await self.bot.wait_until_ready()
+        while self.bot.db_pool is None:
+            await asyncio.sleep(1)
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
             if row:
