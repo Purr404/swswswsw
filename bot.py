@@ -4380,6 +4380,7 @@ class Shop(commands.Cog):
 
 class CullingGame(commands.Cog):
     def __init__(self, bot, currency_system):
+        print("🚀 CullingGame cog initializing...") 
         self.bot = bot
         self.currency = currency_system
         self.mining_channel = None
