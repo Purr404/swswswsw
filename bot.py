@@ -4493,6 +4493,8 @@ class CullingGame(commands.Cog):
                     "Click **Miners** to see who is currently mining and plunder them!",
             color=discord.Color.gold()
         )
+        embed.set_image(url="https://image2url.com/r2/default/images/1771824770304-309985b9-7ce9-4a46-b029-c59a5d065952.png")
+
         view = MiningMainView(self.bot, self)
         msg = await channel.send(embed=embed, view=view)
 
