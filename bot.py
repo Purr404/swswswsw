@@ -4380,14 +4380,16 @@ class Shop(commands.Cog):
 
 class CullingGame(commands.Cog):
     def __init__(self, bot, currency_system):
-        print("🚀 CullingGame cog initializing...") 
+        print("🚀 CullingGame __init__ started")   # <-- add this
         self.bot = bot
         self.currency = currency_system
         self.mining_channel = None
-        self.mining_message = None   # 
+        self.mining_message = None
         self.energy_regen.start()
+        print("🚀 CullingGame __init__ finished")  # <-- add this
 
-    async def cog_load(self):          
+    async def cog_load(self):
+        print("🔄 cog_load started")               # <-- add this
         await self.bot.wait_until_ready()
         print("⏳ Waiting for database pool...")
         while self.bot.db_pool is None:
@@ -4408,12 +4410,13 @@ class CullingGame(commands.Cog):
                         print(f"✅ Reattached mining view in #{channel.name}")
                     except Exception as e:
                         print(f"❌ Failed to reattach: {e}")
-                        # Optionally delete the config if message is gone
+                        traceback.print_exc()      # <-- ensure traceback is printed
                         await conn.execute("DELETE FROM mining_config")
                 else:
                     print("❌ Channel not found")
             else:
                 print("ℹ️ No mining config found. Run !!setminingchannel to create one.")
+        print("🔄 cog_load finished")               # <-- add this
 
     def cog_unload(self):
         self.energy_regen.cancel()
