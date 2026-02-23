@@ -4388,11 +4388,14 @@ class CullingGame(commands.Cog):
 
     async def cog_load(self):          
         await self.bot.wait_until_ready()
+        print("⏳ Waiting for database pool...")
         while self.bot.db_pool is None:
             await asyncio.sleep(1)
+        print("✅ Database pool ready.")
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
             if row:
+                print(f"🔍 Found mining config: channel={row['channel_id']}, msg={row['message_id']}")
                 channel = self.bot.get_channel(row['channel_id'])
                 if channel:
                     try:
@@ -4402,9 +4405,14 @@ class CullingGame(commands.Cog):
                         view = MiningMainView(self.bot, self)
                         await msg.edit(view=view)
                         print(f"✅ Reattached mining view in #{channel.name}")
-                    except (discord.NotFound, discord.Forbidden):
+                    except Exception as e:
+                        print(f"❌ Failed to reattach: {e}")
+                        # Optionally delete the config if message is gone
                         await conn.execute("DELETE FROM mining_config")
-                        print("⚠️ Mining message not found, config cleared.")
+                else:
+                    print("❌ Channel not found")
+            else:
+                print("ℹ️ No mining config found. Run !!setminingchannel to create one.")
 
     def cog_unload(self):
         self.energy_regen.cancel()
