@@ -4378,45 +4378,34 @@ class Shop(commands.Cog):
 # CULLING GAME 
 
 
-class CullingGame(commands.Cog):
-    def __init__(self, bot, currency_system):
-        print("🚀 CullingGame __init__ started")   # <-- add this
-        self.bot = bot
-        self.currency = currency_system
-        self.mining_channel = None
-        self.mining_message = None
-        self.energy_regen.start()
-        print("🚀 CullingGame __init__ finished")  # <-- add this
-
-    async def cog_load(self):
-        print("🔄 cog_load started")               # <-- add this
-        await self.bot.wait_until_ready()
-        print("⏳ Waiting for database pool...")
-        while self.bot.db_pool is None:
-            await asyncio.sleep(1)
-        print("✅ Database pool ready.")
-        async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
-            if row:
-                print(f"🔍 Found mining config: channel={row['channel_id']}, msg={row['message_id']}")
-                channel = self.bot.get_channel(row['channel_id'])
-                if channel:
-                    try:
-                        msg = await channel.fetch_message(row['message_id'])
-                        self.mining_channel = channel.id
-                        self.mining_message = msg
-                        view = MiningMainView(self.bot, self)
-                        await msg.edit(view=view)
-                        print(f"✅ Reattached mining view in #{channel.name}")
-                    except Exception as e:
-                        print(f"❌ Failed to reattach: {e}")
-                        traceback.print_exc()      # <-- ensure traceback is printed
-                        await conn.execute("DELETE FROM mining_config")
-                else:
-                    print("❌ Channel not found")
+async def cog_load(self):
+    await self.bot.wait_until_ready()
+    await log_to_discord(self.bot, "🔄 cog_load started", "INFO")
+    await log_to_discord(self.bot, "⏳ Waiting for database pool...", "INFO")
+    while self.bot.db_pool is None:
+        await asyncio.sleep(1)
+    await log_to_discord(self.bot, "✅ Database pool ready.", "INFO")
+    async with self.bot.db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
+        if row:
+            await log_to_discord(self.bot, f"🔍 Found mining config: channel={row['channel_id']}, msg={row['message_id']}", "INFO")
+            channel = self.bot.get_channel(row['channel_id'])
+            if channel:
+                try:
+                    msg = await channel.fetch_message(row['message_id'])
+                    self.mining_channel = channel.id
+                    self.mining_message = msg
+                    view = MiningMainView(self.bot, self)
+                    await msg.edit(view=view)
+                    await log_to_discord(self.bot, f"✅ Reattached mining view in #{channel.name}", "INFO")
+                except Exception as e:
+                    await log_to_discord(self.bot, f"❌ Failed to reattach: {e}", "ERROR", error=e)
+                    await conn.execute("DELETE FROM mining_config")
             else:
-                print("ℹ️ No mining config found. Run !!setminingchannel to create one.")
-        print("🔄 cog_load finished")               # <-- add this
+                await log_to_discord(self.bot, "❌ Channel not found", "ERROR")
+        else:
+            await log_to_discord(self.bot, "ℹ️ No mining config found. Run !!setminingchannel to create one.", "INFO")
+    await log_to_discord(self.bot, "🔄 cog_load finished", "INFO")
 
     def cog_unload(self):
         self.energy_regen.cancel()
