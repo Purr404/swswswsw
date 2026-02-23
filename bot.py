@@ -4437,6 +4437,7 @@ class CullingGame(commands.Cog):
         self.mining_channel = None
         self.mining_message = None
         self.energy_regen.start()
+        self.check_max_mining.start()
 
     async def load_mining_messages(self, guild_id: int):
         """Reattach the mining view after restart."""
@@ -4467,6 +4468,7 @@ class CullingGame(commands.Cog):
 
     def cog_unload(self):
         self.energy_regen.cancel()
+        self.check_max_mining.cancel()
 
 # ------------------------------------------------------------------
     # Energy Regen Task
@@ -4499,6 +4501,58 @@ class CullingGame(commands.Cog):
         while self.bot.db_pool is None:
             await asyncio.sleep(1)
 
+
+    @tasks.loop(minutes=30)  # Check every 30 minutes
+    async def check_max_mining(self):
+        """Automatically stop miners who have reached 12 hours."""
+        async with self.bot.db_pool.acquire() as conn:
+            # Get all active miners
+            miners = await conn.fetch("""
+                SELECT user_id, mining_start, stolen_gems 
+                FROM player_stats 
+                WHERE mining_start IS NOT NULL
+            """)
+        
+            now = datetime.utcnow()
+            for miner in miners:
+                user_id = miner['user_id']
+                start = miner['mining_start']
+                if start.tzinfo is not None:
+                    start = start.replace(tzinfo=None)
+            
+                hours_mined = (now - start).total_seconds() / 3600
+            
+                if hours_mined >= 12:
+                    # Calculate final reward
+                    intervals = 6  # 12 hours // 2 = 6 intervals
+                    gems_earned = intervals * 50  # 300 gems max
+                    stolen = miner['stolen_gems'] or 0
+                    final_gems = max(0, gems_earned - stolen)
+                
+                    # Add gems to user
+                    if final_gems > 0:
+                        await self.currency.add_gems(user_id, final_gems, "Mining completed (12h max)")
+                
+                    # Reset mining status
+                    await conn.execute("""
+                        UPDATE player_stats 
+                        SET mining_start = NULL, pending_reward = 0, stolen_gems = 0 
+                        WHERE user_id = $1
+                    """, user_id)
+                
+                    # Send DM notification
+                    await self.send_mining_complete_dm(int(user_id), final_gems, stolen)
+                
+                    print(f"⏰ Auto-stopped mining for user {user_id} after 12 hours")
+
+    @check_max_mining.before_loop
+    async def before_check_max_mining(self):
+        await self.bot.wait_until_ready()
+        while self.bot.db_pool is None:
+            await asyncio.sleep(1)
+
+
+
     # ------------------------------------------------------------------
     # Helper: Weapon ownership check
     # ------------------------------------------------------------------
@@ -4523,6 +4577,33 @@ class CullingGame(commands.Cog):
         async with self.bot.db_pool.acquire() as conn:
             val = await conn.fetchval("SELECT has_pickaxe FROM player_stats WHERE user_id = $1", user_id)
             return val or False
+
+
+
+    async def send_mining_complete_dm(self, user_id: int, gems_earned: int, gems_stolen: int):
+        """Send DM notification when mining completes."""
+        user = self.bot.get_user(user_id)
+        if not user:
+            try:
+                user = await self.bot.fetch_user(user_id)
+            except:
+                return
+    
+        embed = discord.Embed(
+            title="⛏️ Mining Complete!",
+            description="You have reached the maximum mining time of 12 hours.",
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="💰 Gems Earned", value=f"{gems_earned}", inline=True)
+        embed.add_field(name="😭 Gems Stolen", value=f"{gems_stolen}", inline=True)
+        embed.add_field(name="📊 Total", value=f"{gems_earned + gems_stolen} (before theft)", inline=False)
+    
+        try:
+            await user.send(embed=embed)
+        except:
+            print(f"❌ Could not send DM to user {user_id}")
+
+
 
     # ------------------------------------------------------------------
     # Admin: Set mining channel and send permanent message
@@ -4564,6 +4645,51 @@ class CullingGame(commands.Cog):
         self.mining_channel = channel.id
         self.mining_message = msg   # <-- store the message object
         await ctx.send(f"✅ Mining channel set to {channel.mention} with interactive buttons.", delete_after=5)
+
+
+    @commands.command(name='miningstatus')
+    async def mining_status(self, ctx):
+        """Check your current mining progress."""
+        user_id = str(ctx.author.id)
+        async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT mining_start, stolen_gems 
+                FROM player_stats 
+                WHERE user_id = $1 AND mining_start IS NOT NULL
+            """, user_id)
+    
+        if not row:
+            await ctx.send("❌ You are not currently mining.", ephemeral=True)
+            return
+    
+        start = row['mining_start']
+        if start.tzinfo is not None:
+            start = start.replace(tzinfo=None)
+        now = datetime.utcnow()
+        hours_mined = (now - start).total_seconds() / 3600
+        hours_remaining = max(0, 12 - hours_mined)
+    
+        # Calculate current pending gems
+        intervals = int(hours_mined // 2)
+        pending = intervals * 50
+        stolen = row['stolen_gems'] or 0
+        projected = max(0, pending - stolen)
+    
+        embed = discord.Embed(
+            title="⛏️ Mining Status",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="⏱️ Time Mined", value=f"{hours_mined:.1f} / 12 hours", inline=False)
+        embed.add_field(name="⏳ Time Remaining", value=f"{hours_remaining:.1f} hours", inline=False)
+        embed.add_field(name="💰 Current Gems", value=f"{projected}", inline=True)
+        embed.add_field(name="😭 Stolen", value=f"{stolen}", inline=True)
+    
+        await ctx.send(embed=embed, ephemeral=True)
+
+
+
+
+
 
     # ------------------------------------------------------------------
     # Core mining logic (called by buttons)
@@ -4969,6 +5095,7 @@ async def load_mining_persistence(bot):
         return
     for guild in bot.guilds:
         await cog.load_mining_messages(guild.id)
+
 
 bot.add_cog(CullingGame(bot, currency_system))
 
