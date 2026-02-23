@@ -3512,6 +3512,7 @@ class Shop(commands.Cog):
 
 
 # ========== PICKAXE PURCHASE ==========
+        # ========== PICKAXE PURCHASE ==========
         if item['type'] == 'pickaxe':
             balance = await currency_system.get_balance(user_id)
             if balance['gems'] < item['price']:
@@ -3523,12 +3524,19 @@ class Shop(commands.Cog):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
 
+            # Check if user already has a pickaxe
+            async with self.bot.db_pool.acquire() as conn:
+                has_pickaxe = await conn.fetchval("SELECT has_pickaxe FROM player_stats WHERE user_id = $1", user_id)
+                if has_pickaxe:
+                    await interaction.followup.send("❌ You already own a pickaxe! You cannot buy another.", ephemeral=True)
+                    return
+
             success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
             if not success:
                 await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
                 return
 
-            # Ensure player stats exist
+            # Ensure player stats exist (if not already)
             await self.bot.get_cog('CullingGame').ensure_player_stats(user_id)
 
             # Mark user as having a pickaxe
