@@ -4387,7 +4387,7 @@ class Shop(commands.Cog):
     async def my_inventory(self, ctx):
         """Display your personal inventory (gems, weapons, pickaxe, etc.)"""
         # Ensure it's only usable by the invoker and ephemeral
-        await ctx.defer(ephemeral=True)
+        
         user_id = str(ctx.author.id)
 
         # Get gems balance
@@ -4425,7 +4425,7 @@ class Shop(commands.Cog):
         # Optional: thumbnail of user avatar
         embed.set_thumbnail(url=ctx.author.display_avatar.url)
 
-        await ctx.send(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)
 
 
 # CULLING GAME 
