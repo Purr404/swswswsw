@@ -4437,6 +4437,7 @@ class CullingGame(commands.Cog):
         """Reattach the mining view after restart."""
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config WHERE guild_id = $1")
+
             if not row:
                 print("ℹ️ No mining config found.")
                 return
@@ -4956,8 +4957,11 @@ async def load_shop_persistence(bot):
 
 async def load_mining_persistence(bot):
     cog = bot.get_cog('CullingGame')
-    if cog:
-        await cog.load_mining_messages()
+    if not cog:
+        print("❌ CullingGame cog not found.")
+        return
+    for guild in bot.guilds:
+        await cog.load_mining_messages(guild.id)
 
 bot.add_cog(CullingGame(bot, currency_system))
 
