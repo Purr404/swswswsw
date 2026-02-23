@@ -2634,6 +2634,7 @@ async def on_ready():
         print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
         await load_active_bags()
         await load_shop_persistence(bot)
+        await load_mining_persistence(bot)
         print("✅ Your data will persist across redeploys")
     else:
         print("⚠️ Database not connected – fortune bags and shop will not be available.")
@@ -4377,36 +4378,16 @@ class Shop(commands.Cog):
 
 # CULLING GAME 
 
+class CullingGame(commands.Cog):
+    def __init__(self, bot, currency_system):
+        self.bot = bot
+        self.currency = currency_system
+        self.mining_channel = None
+        self.mining_message = None
+        self.energy_regen.start()
 
-async def cog_load(self):
-    await self.bot.wait_until_ready()
-    await log_to_discord(self.bot, "🔄 cog_load started", "INFO")
-    await log_to_discord(self.bot, "⏳ Waiting for database pool...", "INFO")
-    while self.bot.db_pool is None:
-        await asyncio.sleep(1)
-    await log_to_discord(self.bot, "✅ Database pool ready.", "INFO")
-    async with self.bot.db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
-        if row:
-            await log_to_discord(self.bot, f"🔍 Found mining config: channel={row['channel_id']}, msg={row['message_id']}", "INFO")
-            channel = self.bot.get_channel(row['channel_id'])
-            if channel:
-                try:
-                    msg = await channel.fetch_message(row['message_id'])
-                    self.mining_channel = channel.id
-                    self.mining_message = msg
-                    view = MiningMainView(self.bot, self)
-                    await msg.edit(view=view)
-                    await log_to_discord(self.bot, f"✅ Reattached mining view in #{channel.name}", "INFO")
-                except Exception as e:
-                    await log_to_discord(self.bot, f"❌ Failed to reattach: {e}", "ERROR", error=e)
-                    await conn.execute("DELETE FROM mining_config")
-            else:
-                await log_to_discord(self.bot, "❌ Channel not found", "ERROR")
-        else:
-            await log_to_discord(self.bot, "ℹ️ No mining config found. Run !!setminingchannel to create one.", "INFO")
-    await log_to_discord(self.bot, "🔄 cog_load finished", "INFO")
-
+    def cog_unload(self):
+        self.energy_regen.cancel()
     def cog_unload(self):
         self.energy_regen.cancel()
 
@@ -4883,6 +4864,36 @@ class AttackView(discord.ui.View):
             await interaction.followup.send(f"{interaction.user.mention} has been defeated! They will respawn with 1000 HP.")
             async with self.bot.db_pool.acquire() as conn:
                 await conn.execute("UPDATE player_stats SET hp = 1000 WHERE user_id = $1", self.defender_id)
+
+# MINE PERSISTENT FUNCTION 
+
+    async def load_mining_persistence(bot):
+        cog = bot.get_cog('CullingGame')
+        if not cog:
+            print("❌ CullingGame cog not found.")
+            return
+        async with bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
+            if not row:
+                print("ℹ️ No mining config found.")
+                return
+            channel = bot.get_channel(row['channel_id'])
+            if not channel:
+                print("❌ Mining channel not found.")
+                return
+            try:
+                msg = await channel.fetch_message(row['message_id'])
+                cog.mining_channel = channel.id
+                cog.mining_message = msg
+                view = MiningMainView(bot, cog)
+                await msg.edit(view=view)
+                print(f"✅ Reattached mining view in #{channel.name}")
+            except Exception as e:
+                print(f"❌ Failed to reattach mining view: {e}")
+                traceback.print_exc()
+                # Optionally delete the broken config
+                await conn.execute("DELETE FROM mining_config")
+
 
 
 # Add the shop cog to the bot
