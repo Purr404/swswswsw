@@ -4375,6 +4375,53 @@ class Shop(commands.Cog):
         await ctx.send(f"✅ Cleared Treasure Carriage purchase for {target.mention}. They can now buy it again.")
 
 
+# INVENTORY 
+
+
+    @commands.command(name='myinventory')
+    async def my_inventory(self, ctx):
+        """Display your personal inventory (gems, weapons, pickaxe, etc.)"""
+        # Ensure it's only usable by the invoker and ephemeral
+        await ctx.defer(ephemeral=True)
+        user_id = str(ctx.author.id)
+
+        # Get gems balance
+        balance = await currency_system.get_balance(user_id)
+        gems = balance['gems']
+
+        # Get weapons (similar to listweapons but without IDs)
+        async with self.bot.db_pool.acquire() as conn:
+            weapons = await conn.fetch("""
+                SELECT COALESCE(si.name, uw.generated_name) as name, uw.attack
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+            """, user_id)
+
+        weapon_list = [f"{w['name']} (+{w['attack']} ATK)" for w in weapons]
+        weapon_text = "\n".join(weapon_list) if weapon_list else "None"
+
+        # Get pickaxe status from player_stats
+        async with self.bot.db_pool.acquire() as conn:
+            pickaxe = await conn.fetchval("SELECT has_pickaxe FROM player_stats WHERE user_id = $1", user_id)
+        pickaxe_status = "✅ Owned" if pickaxe else "❌ Not owned"
+
+        # Build embed
+        embed = discord.Embed(
+            title=f"📦 {ctx.author.display_name}'s Inventory",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="💰 Gems", value=f"{gems}", inline=False)
+        embed.add_field(name="⚔️ Weapons", value=weapon_text[:1024] if weapon_text else "None", inline=False)  # field limit 1024 chars
+        embed.add_field(name="⛏️ Pickaxe", value=pickaxe_status, inline=False)
+        embed.add_field(name="🛡️ Other Items", value="*(Coming soon)*", inline=False)
+
+        # Optional: thumbnail of user avatar
+        embed.set_thumbnail(url=ctx.author.display_avatar.url)
+
+        await ctx.send(embed=embed, ephemeral=True)
+
 
 # CULLING GAME 
 
