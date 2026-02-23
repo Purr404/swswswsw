@@ -10,6 +10,31 @@ import io
 import textwrap
 import string
 
+
+async def log_to_discord(bot, message, level="INFO", error=None):
+    """ALWAYS prints to Railway logs. Best‑effort send to #bot-logs."""
+    print(f"[{level}] {message}")
+    if error:
+        tb = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
+        print(f"TRACEBACK:\n{tb}")
+
+    try:
+        for guild in bot.guilds:
+            channel = discord.utils.get(guild.text_channels, name="bot-logs")
+            if channel:
+                embed = discord.Embed(
+                    title=f"📋 Quiz Log – {level}",
+                    description=message[:2000],
+                    color=discord.Color.green() if level == "INFO" else discord.Color.red(),
+                    timestamp=datetime.now(timezone.utc)
+                )
+                if error:
+                    embed.add_field(name="Traceback", value=f"```py\n{tb[-1000:]}\n```", inline=False)
+                await channel.send(embed=embed)
+                return
+    except Exception as e:
+        print(f"⚠️ Failed to send log to Discord: {e}")
+
 # ULTIMATE ASYNCPG INSTALLER
 import subprocess
 
@@ -1083,27 +1108,7 @@ async def reply_message(
         await ctx.send(f"⚠️ Error: {e}")
 # END -----
 
-# FOR DISCORD LOG----------------
-async def log_to_discord(bot, message, level="INFO"):
-    """Send a log message to #bot-logs channel."""
-    for guild in bot.guilds:
-        channel = discord.utils.get(guild.text_channels, name="bot-logs")
-        if channel:
-            try:
-                embed = discord.Embed(
-                    title=f"📋 Quiz Log – {level}",
-                    description=message[:2000],
-                    color=discord.Color.green() if level == "INFO" else discord.Color.red(),
-                    timestamp=datetime.now(timezone.utc)
-                )
-                await channel.send(embed=embed)
-                return
-            except:
-                pass
-    print(f"[{level}] {message}")  # fallback
 
-
-# END ---=====-=-=-=------
 
 ## QUIZ SYSTEM-----------
 
