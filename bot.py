@@ -4659,7 +4659,7 @@ class CullingGame(commands.Cog):
             """, user_id)
     
         if not row:
-            await ctx.send("❌ You are not currently mining.", ephemeral=True)
+            await ctx.send("❌ You are not currently mining.")
             return
     
         start = row['mining_start']
@@ -4684,7 +4684,7 @@ class CullingGame(commands.Cog):
         embed.add_field(name="💰 Current Gems", value=f"{projected}", inline=True)
         embed.add_field(name="😭 Stolen", value=f"{stolen}", inline=True)
     
-        await ctx.send(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)
 
 
 
