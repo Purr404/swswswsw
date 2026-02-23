@@ -4889,37 +4889,6 @@ class AttackView(discord.ui.View):
 
 
 
-# MINE PERSISTENT FUNCTION 
-
-    async def load_mining_persistence(bot):
-        cog = bot.get_cog('CullingGame')
-        if not cog:
-            print("❌ CullingGame cog not found.")
-            return
-        async with bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
-            if not row:
-                print("ℹ️ No mining config found.")
-                return
-            channel = bot.get_channel(row['channel_id'])
-            if not channel:
-                print("❌ Mining channel not found.")
-                return
-            try:
-                msg = await channel.fetch_message(row['message_id'])
-                cog.mining_channel = channel.id
-                cog.mining_message = msg
-                view = MiningMainView(bot, cog)
-                await msg.edit(view=view)
-                print(f"✅ Reattached mining view in #{channel.name}")
-            except Exception as e:
-                print(f"❌ Failed to reattach mining view: {e}")
-                traceback.print_exc()
-                # Optionally delete the broken config
-                await conn.execute("DELETE FROM mining_config")
-
-
-
 # Add the shop cog to the bot
 bot.add_cog(Shop(bot))
 
