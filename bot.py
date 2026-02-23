@@ -4433,10 +4433,10 @@ class CullingGame(commands.Cog):
         self.mining_message = None
         self.energy_regen.start()
 
-    async def load_mining_messages(self):
+    async def load_mining_messages(self, guild_id: int):
         """Reattach the mining view after restart."""
         async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config LIMIT 1")
+            row = await conn.fetchrow("SELECT channel_id, message_id FROM mining_config WHERE guild_id = $1")
             if not row:
                 print("ℹ️ No mining config found.")
                 return
