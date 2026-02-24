@@ -170,14 +170,13 @@ class DatabaseSystem:
                     max_size=3,
                     **strategy_args
                 )
-                bot.db_pool = self.pool   #  FORTUNE BAG POOL
+                bot.db_pool = self.pool
 
-                # Test connection
                 async with self.pool.acquire() as conn:
                     result = await conn.fetchval('SELECT 1')
                     print(f"    ✅ Connection test: {result}")
 
-                    # Create table with all necessary fields
+                    # ========== CORE TABLES ==========
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_gems (
                             user_id TEXT PRIMARY KEY,
@@ -190,7 +189,6 @@ class DatabaseSystem:
                         )
                     ''')
 
-                    # Create transactions table for history
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_transactions (
                             id SERIAL PRIMARY KEY,
@@ -202,35 +200,29 @@ class DatabaseSystem:
                             balance_after INTEGER,
                             FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
                         )
-                    ''') 
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS mining_config (
-                            guild_id BIGINT PRIMARY KEY,
-                            channel_id BIGINT NOT NULL,
-                            message_id BIGINT
-                        )
-                    ''')               
+                    ''')
 
-                    # FORTUNE BAG TABLES
+                    # ========== FORTUNE BAG TABLES ==========
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS fortune_bags (
-                        message_id BIGINT PRIMARY KEY,
-                        channel_id BIGINT NOT NULL,
-                        remaining INTEGER NOT NULL,
-                        total INTEGER NOT NULL DEFAULT 1000,
-                        dropper_id BIGINT NOT NULL,
-                        active BOOLEAN NOT NULL DEFAULT TRUE
+                            message_id BIGINT PRIMARY KEY,
+                            channel_id BIGINT NOT NULL,
+                            remaining INTEGER NOT NULL,
+                            total INTEGER NOT NULL DEFAULT 1000,
+                            dropper_id BIGINT NOT NULL,
+                            active BOOLEAN NOT NULL DEFAULT TRUE
                         )
                     ''')
 
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS fortune_bag_participants (
-                        message_id BIGINT REFERENCES fortune_bags(message_id) ON DELETE CASCADE,
-                       user_id BIGINT NOT NULL,
-                       earned INTEGER NOT NULL,
-                       PRIMARY KEY (message_id, user_id)
+                            message_id BIGINT REFERENCES fortune_bags(message_id) ON DELETE CASCADE,
+                            user_id BIGINT NOT NULL,
+                            earned INTEGER NOT NULL,
+                            PRIMARY KEY (message_id, user_id)
                         )
                     ''')
+
                     # ========== SHOP SYSTEM TABLES ==========
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS shop_items (
@@ -238,15 +230,15 @@ class DatabaseSystem:
                             name TEXT NOT NULL,
                             description TEXT,
                             price INTEGER NOT NULL CHECK (price > 0),
-                            type TEXT NOT NULL CHECK (type IN ('role', 'color')),
+                            type TEXT NOT NULL,
                             role_id BIGINT,
                             color_hex TEXT,
+                            guild_id BIGINT,
+                            image_url TEXT,
                             created_at TIMESTAMP DEFAULT NOW(),
                             updated_at TIMESTAMP DEFAULT NOW()
                         )
                     ''')
-                    # Add guild_id column if not exists (for role removal on expiration)
-                    await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS guild_id BIGINT')
 
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_purchases (
@@ -265,7 +257,7 @@ class DatabaseSystem:
                             message_id BIGINT NOT NULL
                         )
                     ''')
-                    # Create carriage_bookings table
+
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS carriage_bookings (
                             booking_id SERIAL PRIMARY KEY,
@@ -276,15 +268,15 @@ class DatabaseSystem:
                             purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE CASCADE
                         )
                     ''')
-                    
+
+                    # ========== WEAPON SYSTEM TABLES ==========
                     await conn.execute('''
-                         CREATE TABLE IF NOT EXISTS weapon_types (
-                             type_id SERIAL PRIMARY KEY,
-                             name_base TEXT NOT NULL
+                        CREATE TABLE IF NOT EXISTS weapon_types (
+                            type_id SERIAL PRIMARY KEY,
+                            name_base TEXT NOT NULL
                         )
                     ''')
 
-                    # Create rarities table
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS rarities (
                             rarity_id SERIAL PRIMARY KEY,
@@ -294,7 +286,6 @@ class DatabaseSystem:
                         )
                     ''')
 
-                    # Create weapon_variants table (links type + rarity)
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS weapon_variants (
                             variant_id SERIAL PRIMARY KEY,
@@ -307,121 +298,100 @@ class DatabaseSystem:
                         )
                     ''')
 
+                    # ========== USER WEAPONS ==========
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_weapons (
                             id SERIAL PRIMARY KEY,
                             user_id TEXT NOT NULL,
                             weapon_item_id INTEGER REFERENCES shop_items(item_id) ON DELETE CASCADE,
                             attack INTEGER NOT NULL,
+                            purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL,
+                            generated_name TEXT,
+                            image_url TEXT,
+                            variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL,
+                            description TEXT,
+                            equipped BOOLEAN DEFAULT FALSE,
                             purchased_at TIMESTAMP DEFAULT NOW()
                         )
                     ''')
 
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL')
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS generated_name TEXT')
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS image_url TEXT')
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL')
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS description TEXT')
+                    # ========== PLAYER STATS ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS player_stats (
+                            user_id TEXT PRIMARY KEY REFERENCES user_gems(user_id) ON DELETE CASCADE,
+                            hp INTEGER NOT NULL DEFAULT 1000,
+                            max_hp INTEGER NOT NULL DEFAULT 1000,
+                            energy INTEGER NOT NULL DEFAULT 3,
+                            max_energy INTEGER NOT NULL DEFAULT 3,
+                            last_energy_regen TIMESTAMP DEFAULT NOW(),
+                            mining_start TIMESTAMP,
+                            mining_message_id BIGINT,
+                            mining_channel_id BIGINT,
+                            pending_reward INTEGER DEFAULT 0,
+                            stolen_gems INTEGER DEFAULT 0,
+                            plunder_count INTEGER DEFAULT 0,
+                            last_plunder_reset DATE DEFAULT CURRENT_DATE,
+                            has_pickaxe BOOLEAN DEFAULT FALSE
+                        )
+                    ''')
 
-                    # Seed default rarities (if not present)
+                    # ========== MINING CONFIG ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS mining_config (
+                            guild_id BIGINT PRIMARY KEY,
+                            channel_id BIGINT NOT NULL,
+                            message_id BIGINT
+                        )
+                    ''')
+
+                    # ========== ATTACK LOGS ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS attack_logs (
+                            id SERIAL PRIMARY KEY,
+                            attacker_id TEXT NOT NULL,
+                            defender_id TEXT NOT NULL,
+                            timestamp TIMESTAMP DEFAULT NOW(),
+                            damage INTEGER,
+                            attacker_weapon TEXT,
+                            defender_hp_left INTEGER
+                        )
+                    ''')
+
+                    # ========== SEED DATA ==========
+                    # Seed rarities
                     await conn.execute('''
                         INSERT INTO rarities (name, color, display_order) VALUES
-                        ('Common', 0xFFFFFF, 1),      -- white
-                        ('Uncommon', 0x00FF00, 2),     -- green
-                        ('Rare', 0x0000FF, 3),         -- blue (or adjust hex for purple)
-                        ('Epic', 0x800080, 4),         -- purple
-                        ('Legendary', 0xFFD700, 5)     -- gold
+                        ('Common', 0xFFFFFF, 1),
+                        ('Uncommon', 0x00FF00, 2),
+                        ('Rare', 0x0000FF, 3),
+                        ('Epic', 0x800080, 4),
+                        ('Legendary', 0xFFD700, 5)
                         ON CONFLICT (name) DO UPDATE SET color = EXCLUDED.color
                     ''')
 
-                    # Seed default weapon types (if not present)
+                    # Seed weapon types
                     await conn.execute('''
                         INSERT INTO weapon_types (name_base) VALUES
                         ('Sword'), ('Axe'), ('Dagger')
                         ON CONFLICT DO NOTHING
                     ''')
 
-                    # Seed some variants –  URLs with actual ones.
-                    rows = await conn.fetch("SELECT type_id, name_base FROM weapon_types")
-                    type_map = {row['name_base']: row['type_id'] for row in rows}
-                    rows = await conn.fetch("SELECT rarity_id, name FROM rarities")
-                    rarity_map = {row['name']: row['rarity_id'] for row in rows}
-
-                    
-
-
-                    # Allow 'weapon' and 'random_weapon_box' as valid
+                    # ========== UPDATE CONSTRAINTS ==========
+                    # Update shop_items type constraint
                     await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
                     await conn.execute('''
                         ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check 
-    CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box', 'pickaxe'))
+                        CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box', 'pickaxe'))
                     ''')
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS user_weapons (
-                            id SERIAL PRIMARY KEY,
-                            user_id TEXT NOT NULL,
-                            weapon_item_id INTEGER REFERENCES shop_items(item_id) ON DELETE CASCADE,
-                            attack INTEGER NOT NULL,
-                            purchased_at TIMESTAMP DEFAULT NOW()
-                        )
-                    ''')
-                    # Add purchase_id column to user_weapons 
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL')
 
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS generated_name TEXT')
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS image_url TEXT')
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS variant_id INTEGER REFERENCES weapon_variants(variant_id) ON DELETE SET NULL')
-                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS description TEXT')
-
-                    # Ensure expires_at column exists and is timezone‑aware
+                    # Add expires_at to user_purchases
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
-# If the column already existed as TIMESTAMP (naive), convert it:
-                    await conn.execute('ALTER TABLE user_purchases ALTER COLUMN expires_at TYPE TIMESTAMPTZ')
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS used BOOLEAN DEFAULT FALSE')
-                    # Add image_url column for weapons (if not exists)
-                    await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS image_url TEXT')
 
-
-                    # Player stats (extend existing or create new)
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS player_stats (
-                        user_id TEXT PRIMARY KEY REFERENCES user_gems(user_id) ON DELETE CASCADE,
-                        hp INTEGER NOT NULL DEFAULT 1000,
-                        max_hp INTEGER NOT NULL DEFAULT 1000,
-                        energy INTEGER NOT NULL DEFAULT 3,
-                        max_energy INTEGER NOT NULL DEFAULT 3,
-                        last_energy_regen TIMESTAMP DEFAULT NOW(),
-                        mining_start TIMESTAMP,
-                        mining_message_id BIGINT,
-                        mining_channel_id BIGINT,
-                        pending_reward INTEGER DEFAULT 0,  -- gems accumulated while mining
-                        stolen_gems INTEGER DEFAULT 0,  
-                        plunder_count INTEGER DEFAULT 0,   -- daily plunder uses
-                        last_plunder_reset DATE DEFAULT CURRENT_DATE,
-                        has_pickaxe BOOLEAN DEFAULT FALSE
-                        )
-                    ''')
-                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_gems INTEGER DEFAULT 0')
-                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS has_pickaxe BOOLEAN DEFAULT FALSE')
-
-                    # Attack logs (for cooldowns, optional)
-                    await conn.execute('''
-                        CREATE TABLE IF NOT EXISTS attack_logs (
-                        id SERIAL PRIMARY KEY,
-                        attacker_id TEXT NOT NULL,
-                        defender_id TEXT NOT NULL,
-                        timestamp TIMESTAMP DEFAULT NOW(),
-                        damage INTEGER,
-                        attacker_weapon TEXT,
-                        defender_hp_left INTEGER
-                        )
-                    ''')
-
-                    # Optional indexes
+                    # ========== INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
-
-
-                    # Optional indexes for performance
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_weapons_user ON user_weapons(user_id)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_weapons_equipped ON user_weapons(user_id, equipped)')
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_fortune_bags_active ON fortune_bags(active)')
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_participants_message_id ON fortune_bag_participants(message_id)')
 
@@ -435,6 +405,7 @@ class DatabaseSystem:
                 continue
 
         raise ConnectionError("All connection strategies failed. Could not connect to PostgreSQL.")
+
 
     async def add_gems(self, user_id: str, gems: int, reason: str = ""):
         """Add gems to a user"""
