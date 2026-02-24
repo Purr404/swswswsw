@@ -388,7 +388,23 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
                     await conn.execute('ALTER TABLE user_purchases ADD COLUMN IF NOT EXISTS used BOOLEAN DEFAULT FALSE')
 
-                    # ========== INDEXES ==========
+                    # ========== 🔧 ADD MISSING COLUMNS TO EXISTING TABLES 🔧 ==========
+                    # Add equipped column to user_weapons (already in CREATE, but safe to have)
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS equipped BOOLEAN DEFAULT FALSE')
+                    
+                    # Add missing columns to player_stats
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_gems INTEGER DEFAULT 0')
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS has_pickaxe BOOLEAN DEFAULT FALSE')
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS mining_message_id BIGINT')
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS mining_channel_id BIGINT')
+                    
+                    # Add image_url to shop_items if missing
+                    await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS image_url TEXT')
+                    
+                    # Add guild_id to shop_items if missing
+                    await conn.execute('ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS guild_id BIGINT')
+
+                    # ========== ADD INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_weapons_user ON user_weapons(user_id)')
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_weapons_equipped ON user_weapons(user_id, equipped)')
