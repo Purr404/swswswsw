@@ -9,8 +9,6 @@ import aiohttp
 import io
 import textwrap
 import string
-from culling_game import CullingGame
-import currency_system
 
 async def log_to_discord(bot, message, level="INFO", error=None):
     """ALWAYS prints to Railway logs. Best‑effort send to #bot-logs."""
