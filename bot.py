@@ -4510,7 +4510,7 @@ class Shop(commands.Cog):
                 stats.append(f"💰 **Gems:** {self.inventory['gems']}")
         
             embed.description = "\n".join(stats)
- embed.set_thumbnail(url=self.cog.bot.get_user(int(self.user_id)).display_avatar.url)
+            embed.set_thumbnail(url=self.cog.bot.get_user(int(self.user_id)).display_avatar.url)
         
             # Category counters
             embed.add_field(name="⚔️ Weapons", value=str(len(self.inventory['weapons'])), inline=True)
