@@ -2648,10 +2648,10 @@ async def custom_help(ctx, command: str = None):
         await ctx.send(embed=embed)
 
 # === SIMPLE BOT COMMANDS ===
-@bot.command(name="ping")
+@bot.command(name="meow")
 async def ping(ctx):
     """Check if bot is alive"""
-    await ctx.send("🏓 Pong!")
+    await ctx.send("Meow~")
 
 # FORTUNE BAG COMMAND
 @bot.command(name='fortunebagto')
@@ -4464,97 +4464,64 @@ class Shop(commands.Cog):
 
     @commands.command(name='myinventory')
     async def my_inventory(self, ctx):
-        """Display your MMORPG-style inventory."""
+        """Display your interactive MMORPG inventory"""
         user_id = str(ctx.author.id)
     
-        # Get all player data in one go
         async with self.bot.db_pool.acquire() as conn:
-            # Get gems balance and player stats
-            gems = await currency_system.get_balance(user_id)
-            player = await conn.fetchrow("""
-                SELECT hp, max_hp, energy, max_energy, has_pickaxe 
-                FROM player_stats WHERE user_id = $1
-            """, user_id)
-        
-            # Get all weapons
+            # Get weapons
             weapons = await conn.fetch("""
-                SELECT COALESCE(si.name, uw.generated_name) as name, uw.attack
+                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                       uw.attack, uw.equipped, uw.description,
+                       COALESCE(si.image_url, uw.image_url) as image_url,
+                       r.color as rarity_color
                 FROM user_weapons uw
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
                 WHERE uw.user_id = $1
-                ORDER BY uw.purchased_at DESC
+                ORDER BY uw.equipped DESC, uw.purchased_at DESC
             """, user_id)
         
-            # Count total items for footer
-            total_items = len(weapons) + (1 if player and player['has_pickaxe'] else 0)
+            # Get armor (placeholder for now)
+            armor = await conn.fetch("""
+                SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                   at.image_url, at.description, r.color as rarity_color
+                FROM user_armor ua
+                JOIN armor_types at ON ua.armor_id = at.armor_id
+                LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                WHERE ua.user_id = $1
+                ORDER BY ua.equipped DESC, ua.purchased_at DESC
+            """, user_id)
+        
+            # Get accessories
+            accessories = await conn.fetch("""
+                SELECT ua.id, a.name, ua.bonus_value, a.bonus_stat,
+                       ua.equipped, ua.slot, a.image_url, a.description,
+                       r.color as rarity_color
+                FROM user_accessories ua
+                JOIN accessories a ON ua.accessory_id = a.accessory_id
+                LEFT JOIN rarities r ON a.rarity_id = r.rarity_id
+                WHERE ua.user_id = $1
+                ORDER BY ua.equipped DESC, ua.purchased_at DESC
+            """, user_id)
+        
+            # Get player stats
+            player = await conn.fetchrow("SELECT * FROM player_stats WHERE user_id = $1", user_id)
+    
+        balance = await currency_system.get_balance(user_id)
+    
+        inventory_data = {
+            'weapons': [dict(w) for w in weapons],
+            'armor': [dict(a) for a in armor],
+            'accessories': [dict(a) for a in accessories],
+            'player': player,
+            'gems': balance['gems']
+        }
+    
+        view = InventoryView(user_id, inventory_data, self)
+        await ctx.send(embed=view.create_main_embed(), view=view)
 
-        # Create main inventory embed
-        embed = discord.Embed(
-            title=f"📦 **{ctx.author.display_name}'s Inventory**",
-            color=discord.Color.purple(),
-            timestamp=datetime.now(timezone.utc)
-        )
-    
-        # Character thumbnail
-        embed.set_thumbnail(url=ctx.author.display_avatar.url)
-    
-        # STATS SECTION (Top)
-        if player:
-            hp_percent = (player['hp'] / player['max_hp']) * 10
-            hp_bar = "❤️" + "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
-            energy_percent = (player['energy'] / player['max_energy']) * 10
-            energy_bar = "⚡" + "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
-        
-            stats_text = (
-                f"{hp_bar} `{player['hp']}/{player['max_hp']} HP`\n"
-                f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`\n"
-                f"💰 **Gems:** `{gems['gems']}`"
-            )
-        else:
-            stats_text = "❤️ No stats yet. Buy a weapon to start!"
-    
-        embed.add_field(name="📊 **Character Stats**", value=stats_text, inline=False)
-    
-        # EQUIPMENT SECTION (Middle)
-        equipment_text = []
-    
-        # Weapon slot (first weapon in inventory)
-        if weapons:
-            weapon = weapons[0]
-            equipment_text.append(f"⚔️ **Weapon:** `{weapon['name']} (+{weapon['attack']} ATK)`")
-        else:
-            equipment_text.append("⚔️ **Weapon:** `None`")
-    
-        # Pickaxe slot
-        if player and player['has_pickaxe']:
-            equipment_text.append("⛏️ **Pickaxe:** `Equipped`")
-        else:
-            equipment_text.append("⛏️ **Pickaxe:** `None`")
-    
-        # Armor slot (placeholder for future)
-        equipment_text.append("🛡️ **Armor:** `Coming Soon`")
-    
-        embed.add_field(name="⚙️ **Equipment**", value="\n".join(equipment_text), inline=False)
-    
-        # INVENTORY GRID (Bottom) - Show weapons in a grid format
-        if weapons:
-            # Create a grid of weapons (3 per row)
-            grid = []
-            for i, w in enumerate(weapons[:9]):  # Show first 9 weapons
-                if i % 3 == 0 and i > 0:
-                    grid.append("")  # New line
-                grid.append(f"`{w['name'][:10]}...` +{w['attack']}")
-        
-            weapon_display = "\n".join(grid) if grid else "None"
-            embed.add_field(name="🗡️ **Weapons**", value=weapon_display, inline=False)
-        
-            if len(weapons) > 9:
-                embed.set_footer(text=f"And {len(weapons)-9} more weapons... | Total Items: {total_items}")
-        else:
-            embed.add_field(name="🗡️ **Weapons**", value="`None`", inline=False)
-            embed.set_footer(text=f"Total Items: {total_items}")
-    
-        await ctx.send(embed=embed)
+
 
 
 # CULLING GAME 
