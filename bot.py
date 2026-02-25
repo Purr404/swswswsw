@@ -4476,8 +4476,14 @@ class Shop(commands.Cog):
             super().__init__(label=label[:50], style=style, custom_id=f"inv_{item_type}_{item_data['id']}")
 
         async def callback(self, interaction: discord.Interaction):
-            view = self.view
-            await view.show_item_details(interaction, self.item_data, self.item_type)
+            try:
+                view = self.view
+           
+                await view.show_item_details(interaction, self.item_data, self.item_type)
+            except Exception as e:
+                print(f"Error in InventoryItemButton: {e}")
+                traceback.print_exc()
+                await interaction.response.send_message("An error occurred.", ephemeral=True)
 
 
     class CategoryView(discord.ui.View):
@@ -4506,38 +4512,45 @@ class Shop(commands.Cog):
 
         @discord.ui.button(label="⚔️ Equip", style=discord.ButtonStyle.success, row=0)
         async def equip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
+            try:
+                if interaction.user.id != int(self.user_id):
+                    await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                    return
 
-            if self.item_data.get('equipped'):
-                await interaction.response.send_message("This item is already equipped!", ephemeral=True)
-                return
+                if self.item_data.get('equipped'):
+                    await interaction.response.send_message("This item is already equipped!", ephemeral=True)
+                    return
 
-            async with self.parent.cog.bot.db_pool.acquire() as conn:
-                if self.item_type == 'weapon':
-                    await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE user_id = $1", str(self.user_id))
-                    await conn.execute("UPDATE user_weapons SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+                await interaction.response.defer(ephemeral=True)
 
-                elif self.item_type == 'armor':
-                    slot = self.item_data.get('slot', 'armor')
-                    await conn.execute("""
-                        UPDATE user_armor SET equipped = FALSE 
-                        WHERE user_id = $1 AND armor_id IN 
-                        (SELECT armor_id FROM armor_types WHERE slot = $2)
-                    """, str(self.user_id), slot)
-                    await conn.execute("UPDATE user_armor SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+                async with self.parent.cog.bot.db_pool.acquire() as conn:
+                    if self.item_type == 'weapon':
+                        await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE user_id = $1", str(self.user_id))
+                        await conn.execute("UPDATE user_weapons SET equipped = TRUE WHERE id = $1", self.item_data['id'])
 
-                elif self.item_type == 'accessory':
-                    slot = self.item_data['slot']
-                    await conn.execute("""
-                        UPDATE user_accessories SET equipped = FALSE 
-                        WHERE user_id = $1 AND slot = $2
-                    """, str(self.user_id), slot)
-                    await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+                    elif self.item_type == 'armor':
+                        slot = self.item_data.get('slot', 'armor')
+                        await conn.execute("""
+                            UPDATE user_armor SET equipped = FALSE 
+                            WHERE user_id = $1 AND armor_id IN 
+                            (SELECT armor_id FROM armor_types WHERE slot = $2)
+                        """, str(self.user_id), slot)
+                        await conn.execute("UPDATE user_armor SET equipped = TRUE WHERE id = $1", self.item_data['id'])
 
-            await interaction.response.send_message(f"✅ Equipped **{self.item_data['name']}**!", ephemeral=True)
-            await self.parent.parent.refresh_inventory(interaction)
+                    elif self.item_type == 'accessory':
+                        slot = self.item_data['slot']
+                        await conn.execute("""
+                            UPDATE user_accessories SET equipped = FALSE 
+                            WHERE user_id = $1 AND slot = $2
+                        """, str(self.user_id), slot)
+                        await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+
+                await interaction.followup.send(f"✅ Equipped **{self.item_data['name']}**!", ephemeral=True)
+                await self.parent.parent.refresh_inventory(interaction)
+            except Exception as e:
+                print(f"Error in equip_item: {e}")
+                traceback.print_exc()
+                await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
 
         @discord.ui.button(label="❌ Unequip", style=discord.ButtonStyle.danger, row=0)
         async def unequip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4548,6 +4561,8 @@ class Shop(commands.Cog):
             if not self.item_data.get('equipped'):
                 await interaction.response.send_message("This item is not equipped!", ephemeral=True)
                 return
+
+            await interaction.response.defer(ephemeral=True)
 
             async with self.parent.cog.bot.db_pool.acquire() as conn:
                 if self.item_type == 'weapon':
