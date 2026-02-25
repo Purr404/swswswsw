@@ -4763,12 +4763,12 @@ class Shop(commands.Cog):
         
             # Get accessories
             accessories = await conn.fetch("""
-                SELECT ua.id, a.name, ua.bonus_value, a.bonus_stat,
-                       ua.equipped, ua.slot, a.image_url, a.description,
+                SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                       ua.equipped, ua.slot, at.image_url, at.description,
                        r.color as rarity_color
                 FROM user_accessories ua
-                JOIN accessories a ON ua.accessory_id = a.accessory_id
-                LEFT JOIN rarities r ON a.rarity_id = r.rarity_id
+                JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
                 WHERE ua.user_id = $1
                 ORDER BY ua.equipped DESC, ua.purchased_at DESC
             """, user_id)
@@ -4824,9 +4824,9 @@ class Shop(commands.Cog):
         
             # Get equipped accessories by slot
             accessories = await conn.fetch("""
-                SELECT a.name, ua.bonus_value, a.bonus_stat, ua.slot, a.image_url
+                SELECT a.name, ua.bonus_value, at.bonus_stat, ua.slot, at.image_url
                 FROM user_accessories ua
-                JOIN accessories a ON ua.accessory_id = a.accessory_id
+                JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                 WHERE ua.user_id = $1 AND ua.equipped = TRUE
             """, user_id)
     
