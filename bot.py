@@ -4459,6 +4459,274 @@ class Shop(commands.Cog):
         await ctx.send(f"✅ Cleared Treasure Carriage purchase for {target.mention}. They can now buy it again.")
 
 
+
+class InventoryItemButton(discord.ui.Button):
+    def __init__(self, item_data, item_type):
+        self.item_data = item_data
+        self.item_type = item_type
+        label = f"{item_data['name']}"
+        if item_type == 'weapon':
+            label += f" (+{item_data['attack']} ATK)"
+        elif item_type == 'armor':
+            label += f" ({item_data['defense']} DEF)"
+        elif item_type == 'accessory':
+            label += f" (+{item_data['bonus_value']} {item_data['bonus_stat']})"
+        
+        style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
+        super().__init__(label=label[:50], style=style, custom_id=f"inv_{item_type}_{item_data['id']}")
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        await view.show_item_details(interaction, self.item_data, self.item_type)
+
+
+class InventoryView(discord.ui.View):
+    def __init__(self, user_id, inventory_data, cog):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+        self.inventory = inventory_data
+        self.cog = cog
+        self.current_page = 0
+        self.items_per_page = 6
+        
+    def create_main_embed(self):
+        """Create the main inventory overview"""
+        embed = discord.Embed(
+            title=f"📦 **{self.cog.bot.get_user(int(self.user_id)).display_name}'s Inventory**",
+            color=discord.Color.purple()
+        )
+        
+        # Stats summary at top
+        stats = []
+        if self.inventory['player']:
+            hp_percent = (self.inventory['player']['hp'] / self.inventory['player']['max_hp']) * 10
+            hp_bar = "❤️" + "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
+            energy_percent = (self.inventory['player']['energy'] / self.inventory['player']['max_energy']) * 10
+            energy_bar = "⚡" + "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
+            
+            stats.append(hp_bar)
+            stats.append(energy_bar)
+            stats.append(f"⚔️ **ATK:** {self.calculate_total_atk()} | 🛡️ **DEF:** {self.inventory['player']['defense']}")
+            stats.append(f"💰 **Gems:** {self.inventory['gems']}")
+        
+        embed.description = "\n".join(stats)
+        embed.set_thumbnail(url=self.cog.bot.get_user(int(self.user_id)).display_avatar.url)
+        
+        # Category counters
+        embed.add_field(name="⚔️ Weapons", value=str(len(self.inventory['weapons'])), inline=True)
+        embed.add_field(name="🛡️ Armor", value=str(len(self.inventory['armor'])), inline=True)
+        embed.add_field(name="📿 Accessories", value=str(len(self.inventory['accessories'])), inline=True)
+        
+        return embed
+    
+    def calculate_total_atk(self):
+        total = 0
+        for weapon in self.inventory['weapons']:
+            if weapon.get('equipped'):
+                total += weapon['attack']
+        for accessory in self.inventory['accessories']:
+            if accessory.get('equipped') and accessory['bonus_stat'] == 'atk':
+                total += accessory['bonus_value']
+        return total
+    
+    async def show_item_details(self, interaction: discord.Interaction, item_data, item_type):
+        """Show detailed view of a single item with equip button"""
+        embed = discord.Embed(
+            title=f"**{item_data['name']}**",
+            color=discord.Color.gold()
+        )
+        
+        # Item image
+        if item_data.get('image_url'):
+            embed.set_image(url=item_data['image_url'])
+        
+        # Stats based on type
+        stats = []
+        if item_type == 'weapon':
+            stats.append(f"⚔️ **ATK:** +{item_data['attack']}")
+        elif item_type == 'armor':
+            stats.append(f"🛡️ **DEF:** +{item_data['defense']}")
+        elif item_type == 'accessory':
+            stats.append(f"✨ **{item_data['bonus_stat'].upper()}:** +{item_data['bonus_value']}")
+            stats.append(f"📌 **Slot:** {item_data['slot']}")
+        
+        stats.append(f"📝 **Description:** {item_data.get('description', 'No description')}")
+        embed.description = "\n".join(stats)
+        
+        # Rarity color
+        if item_data.get('rarity_color'):
+            embed.color = item_data['rarity_color']
+        
+        # Status
+        status = "✅ **EQUIPPED**" if item_data.get('equipped') else "❌ **NOT EQUIPPED**"
+        embed.add_field(name="Status", value=status, inline=False)
+        
+        # Create view with equip button
+        view = ItemActionView(self.user_id, item_data, item_type, self)
+        await interaction.response.edit_message(embed=embed, view=view)
+    
+    @discord.ui.button(label="⚔️ Weapons", style=discord.ButtonStyle.primary, row=0)
+    async def show_weapons(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        
+        if not self.inventory['weapons']:
+            await interaction.response.send_message("You have no weapons!", ephemeral=True)
+            return
+        
+        embed = discord.Embed(title="⚔️ **Weapons**", color=discord.Color.red())
+        view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
+        
+        # Show first 6 weapons as buttons
+        for weapon in self.inventory['weapons'][:6]:
+            view.add_item(InventoryItemButton(weapon, 'weapon'))
+        
+        await interaction.response.edit_message(embed=embed, view=view)
+    
+    @discord.ui.button(label="🛡️ Armor", style=discord.ButtonStyle.primary, row=0)
+    async def show_armor(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        
+        if not self.inventory['armor']:
+            await interaction.response.send_message("You have no armor!", ephemeral=True)
+            return
+        
+        embed = discord.Embed(title="🛡️ **Armor**", color=discord.Color.blue())
+        view = CategoryView(self.user_id, self.inventory['armor'], 'armor', self)
+        
+        for armor in self.inventory['armor'][:6]:
+            view.add_item(InventoryItemButton(armor, 'armor'))
+        
+        await interaction.response.edit_message(embed=embed, view=view)
+    
+    @discord.ui.button(label="📿 Accessories", style=discord.ButtonStyle.primary, row=0)
+    async def show_accessories(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        
+        if not self.inventory['accessories']:
+            await interaction.response.send_message("You have no accessories!", ephemeral=True)
+            return
+        
+        embed = discord.Embed(title="📿 **Accessories**", color=discord.Color.green())
+        view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)
+        
+        for accessory in self.inventory['accessories'][:6]:
+            view.add_item(InventoryItemButton(accessory, 'accessory'))
+        
+        await interaction.response.edit_message(embed=embed, view=view)
+    
+    @discord.ui.button(label="🔙 Back to Inventory", style=discord.ButtonStyle.secondary, row=1)
+    async def back_to_main(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=self.create_main_embed(), view=self)
+
+
+class CategoryView(discord.ui.View):
+    def __init__(self, user_id, items, item_type, parent_view):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.items = items
+        self.item_type = item_type
+        self.parent = parent_view
+    
+    @discord.ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, row=4)
+    async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=self.parent.create_main_embed(), view=self.parent)
+
+
+class ItemActionView(discord.ui.View):
+    def __init__(self, user_id, item_data, item_type, parent_view):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.item_data = item_data
+        self.item_type = item_type
+        self.parent = parent_view
+    
+    @discord.ui.button(label="⚔️ Equip", style=discord.ButtonStyle.success, row=0)
+    async def equip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        
+        if self.item_data.get('equipped'):
+            await interaction.response.send_message("This item is already equipped!", ephemeral=True)
+            return
+        
+        async with self.parent.cog.bot.db_pool.acquire() as conn:
+            # Handle different item types
+            if self.item_type == 'weapon':
+                # Unequip all weapons first
+                await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE user_id = $1", str(self.user_id))
+                # Equip this weapon
+                await conn.execute("UPDATE user_weapons SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+                
+            elif self.item_type == 'armor':
+                # Unequip all armor of same slot
+                slot = self.item_data.get('slot', 'armor')
+                await conn.execute("""
+                    UPDATE user_armor SET equipped = FALSE 
+                    WHERE user_id = $1 AND armor_id IN 
+                    (SELECT armor_id FROM armor_types WHERE slot = $2)
+                """, str(self.user_id), slot)
+                # Equip this armor
+                await conn.execute("UPDATE user_armor SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+                
+            elif self.item_type == 'accessory':
+                # For accessories, each slot can have one equipped
+                slot = self.item_data['slot']
+                await conn.execute("""
+                    UPDATE user_accessories SET equipped = FALSE 
+                    WHERE user_id = $1 AND slot = $2
+                """, str(self.user_id), slot)
+                await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+        
+        await interaction.response.send_message(f"✅ Equipped **{self.item_data['name']}**!", ephemeral=True)
+        await self.parent.parent.refresh_inventory(interaction)
+    
+    @discord.ui.button(label="❌ Unequip", style=discord.ButtonStyle.danger, row=0)
+    async def unequip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        
+        if not self.item_data.get('equipped'):
+            await interaction.response.send_message("This item is not equipped!", ephemeral=True)
+            return
+        
+        async with self.parent.cog.bot.db_pool.acquire() as conn:
+            if self.item_type == 'weapon':
+                await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE id = $1", self.item_data['id'])
+            elif self.item_type == 'armor':
+                await conn.execute("UPDATE user_armor SET equipped = FALSE WHERE id = $1", self.item_data['id'])
+            elif self.item_type == 'accessory':
+                await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE id = $1", self.item_data['id'])
+        
+        await interaction.response.send_message(f"❌ Unequipped **{self.item_data['name']}**!", ephemeral=True)
+        await self.parent.parent.refresh_inventory(interaction)
+    
+    @discord.ui.button(label="🔙 Back", style=discord.ButtonStyle.secondary, row=1)
+    async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        # Go back to category view
+        embed = discord.Embed(title=f"**{self.item_type.capitalize()}s**", color=discord.Color.blue())
+        view = CategoryView(self.user_id, self.parent.items, self.item_type, self.parent)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+
+
 # INVENTORY 
 
 
@@ -4520,6 +4788,117 @@ class Shop(commands.Cog):
     
         view = InventoryView(user_id, inventory_data, self)
         await ctx.send(embed=view.create_main_embed(), view=view)
+
+
+
+
+    @commands.command(name='myprofile')
+    async def my_profile(self, ctx):
+        """Display your character profile with all equipped gear"""
+        user_id = str(ctx.author.id)
+    
+        async with self.bot.db_pool.acquire() as conn:
+            # Get player stats
+            player = await conn.fetchrow("""
+                SELECT hp, max_hp, energy, max_energy, defense 
+                FROM player_stats WHERE user_id = $1
+            """, user_id)
+        
+            # Get equipped weapon
+            weapon = await conn.fetchrow("""
+                SELECT COALESCE(si.name, uw.generated_name) as name, uw.attack,
+                       COALESCE(si.image_url, uw.image_url) as image_url
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1 AND uw.equipped = TRUE
+                LIMIT 1
+            """, user_id)
+        
+            # Get equipped armor by slot
+            armor = await conn.fetch("""
+                SELECT at.name, ua.defense, at.slot, at.image_url
+                FROM user_armor ua
+                JOIN armor_types at ON ua.armor_id = at.armor_id
+                WHERE ua.user_id = $1 AND ua.equipped = TRUE
+            """, user_id)
+        
+            # Get equipped accessories by slot
+            accessories = await conn.fetch("""
+                SELECT a.name, ua.bonus_value, a.bonus_stat, ua.slot, a.image_url
+                FROM user_accessories ua
+                JOIN accessories a ON ua.accessory_id = a.accessory_id
+                WHERE ua.user_id = $1 AND ua.equipped = TRUE
+            """, user_id)
+    
+        # Calculate total stats
+        total_atk = weapon['attack'] if weapon else 0
+        total_def = player['defense'] if player else 0
+    
+        for acc in accessories:
+            if acc['bonus_stat'] == 'atk':
+                total_atk += acc['bonus_value']
+            elif acc['bonus_stat'] == 'def':
+                total_def += acc['bonus_value']
+    
+        # Create profile embed
+        embed = discord.Embed(
+            title=f"📜 **{ctx.author.display_name}'s Profile**",
+            color=discord.Color.gold()
+        )
+        embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    
+        # Stats with bars
+        if player:
+            hp_percent = (player['hp'] / player['max_hp']) * 10
+            hp_bar = "❤️" + "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
+            energy_percent = (player['energy'] / player['max_energy']) * 10
+            energy_bar = "⚡" + "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
+        
+            stats = (
+                f"{hp_bar} `{player['hp']}/{player['max_hp']} HP`\n"
+                f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`\n"
+                f"⚔️ **ATK:** `{total_atk}` | 🛡️ **DEF:** `{total_def}`"
+            )
+            embed.description = stats
+    
+        # Equipment slots organized like FlyFF
+        equipment = []
+    
+        # Weapon slot
+        if weapon:
+            equipment.append(f"⚔️ **Weapon:** {weapon['name']} (+{weapon['attack']} ATK)")
+            if weapon['image_url']:
+                embed.set_image(url=weapon['image_url'])
+        else:
+            equipment.append("⚔️ **Weapon:** `None`")
+    
+        # Armor slots
+        armor_dict = {a['slot']: a for a in armor}
+        equipment.append(f"🪖 **Helm:** {armor_dict.get('helm', {}).get('name', '`None`')}")
+        equipment.append(f"👕 **Armor:** {armor_dict.get('armor', {}).get('name', '`None`')}")
+        equipment.append(f"🧤 **Gloves:** {armor_dict.get('gloves', {}).get('name', '`None`')}")
+        equipment.append(f"👢 **Boots:** {armor_dict.get('boots', {}).get('name', '`None`')}")
+    
+        embed.add_field(name="🎽 **Armor**", value="\n".join(equipment[1:]), inline=False)
+    
+        # Accessories
+        acc_dict = {a['slot']: a for a in accessories}
+        acc_list = []
+        acc_list.append(f"💍 **Ring 1:** {acc_dict.get('ring1', {}).get('name', '`None`')}")
+        acc_list.append(f"💍 **Ring 2:** {acc_dict.get('ring2', {}).get('name', '`None`')}")
+        acc_list.append(f"📿 **Pendant:** {acc_dict.get('pendant', {}).get('name', '`None`')}")
+        acc_list.append(f"👂 **Earring 1:** {acc_dict.get('earring1', {}).get('name', '`None`')}")
+        acc_list.append(f"👂 **Earring 2:** {acc_dict.get('earring2', {}).get('name', '`None`')}")
+    
+        embed.add_field(name="📿 **Accessories**", value="\n".join(acc_list), inline=False)
+    
+        # Pet (placeholder)
+        embed.add_field(name="🐾 **Pet**", value="`Coming Soon`", inline=False)
+    
+        # Weapon at top
+        embed.insert_field_at(0, name="🗡️ **Weapon**", value=equipment[0], inline=False)
+    
+        await ctx.send(embed=embed)
 
 
 
