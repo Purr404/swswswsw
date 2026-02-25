@@ -4718,21 +4718,30 @@ class Shop(commands.Cog):
 
         @discord.ui.button(label="⚔️ Weapons", style=discord.ButtonStyle.primary, row=0)
         async def show_weapons(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
+            print(f"DEBUG: show_weapons called")
+            print(f"DEBUG: type(interaction) = {type(interaction)}")
+            print(f"DEBUG: type(button) = {type(button)}")
+            print(f"DEBUG: dir(interaction)[:10] = {dir(interaction)[:10]}")
+            try:
+                if interaction.user.id != int(self.user_id):
+                    await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                    return
 
-            if not self.inventory['weapons']:
-                await interaction.response.send_message("You have no weapons!", ephemeral=True)
-                return
+                if not self.inventory['weapons']:
+                    await interaction.response.send_message("You have no weapons!", ephemeral=True)
+                    return
 
-            embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
-            view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
+                embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
+                view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
 
-            for weapon in self.inventory['weapons'][:6]:
-                view.add_item(InventoryItemButton(weapon, 'weapon'))
+                for weapon in self.inventory['weapons'][:6]:
+                    view.add_item(InventoryItemButton(weapon, 'weapon'))
 
-            await interaction.response.edit_message(embed=embed, view=view)
+                await interaction.response.edit_message(embed=embed, view=view)
+            except Exception as e:
+                print(f"Error in show_weapons: {e}")
+                traceback.print_exc()
+                await interaction.response.send_message("An error occurred.", ephemeral=True)
 
         @discord.ui.button(label="🛡️ Armor", style=discord.ButtonStyle.primary, row=0)
         async def show_armor(self, interaction: discord.Interaction, button: discord.ui.Button):
