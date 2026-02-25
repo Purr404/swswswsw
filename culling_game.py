@@ -351,4 +351,5 @@ class AttackView(discord.ui.View):
             async with self.bot.db_pool.acquire() as conn:
                 await conn.execute("UPDATE player_stats SET hp = 1000 WHERE user_id = $1", self.defender_id)
 
-bot.add_cog(CullingGame(bot))
+async def setup(bot):
+    await bot.add_cog(CullingGame(bot, currency_system))
