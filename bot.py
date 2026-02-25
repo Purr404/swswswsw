@@ -356,6 +356,98 @@ class DatabaseSystem:
                             defender_hp_left INTEGER
                         )
                     ''')
+                    # ========== NEW GEAR SYSTEM TABLES ==========
+
+                    # Armor types (defines available armor pieces)
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS armor_types (
+                            armor_id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            slot TEXT NOT NULL CHECK (slot IN ('helm', 'armor', 'gloves', 'boots')),
+                            defense INTEGER NOT NULL DEFAULT 0,
+                            rarity_id INTEGER REFERENCES rarities(rarity_id) ON DELETE SET NULL,
+                            image_url TEXT,
+                            description TEXT,
+                            created_at TIMESTAMP DEFAULT NOW()
+                        )
+                    ''')
+
+                    # Accessory types (defines available accessories)
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS accessory_types (
+                            accessory_id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            slot TEXT NOT NULL CHECK (slot IN ('ring', 'pendant', 'earring')),
+                            bonus_stat TEXT NOT NULL CHECK (bonus_stat IN ('atk', 'def', 'hp', 'energy')),
+                            bonus_value INTEGER NOT NULL DEFAULT 0,
+                            rarity_id INTEGER REFERENCES rarities(rarity_id) ON DELETE SET NULL,
+                            image_url TEXT,
+                            description TEXT,
+                            created_at TIMESTAMP DEFAULT NOW()
+                        )
+                    ''')
+
+                    # User owned armor
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_armor (
+                            id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            armor_id INTEGER REFERENCES armor_types(armor_id) ON DELETE CASCADE,
+                            defense INTEGER NOT NULL,
+                            equipped BOOLEAN DEFAULT FALSE,
+                            purchased_at TIMESTAMP DEFAULT NOW(),
+                            FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
+                        )
+                    ''')
+
+                    # User owned accessories (with specific slot positions)
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_accessories (
+                            id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            accessory_id INTEGER REFERENCES accessory_types(accessory_id) ON DELETE CASCADE,
+                            bonus_value INTEGER NOT NULL,
+                            equipped BOOLEAN DEFAULT FALSE,
+                            slot TEXT NOT NULL CHECK (slot IN ('ring1', 'ring2', 'pendant', 'earring1', 'earring2')),
+                            purchased_at TIMESTAMP DEFAULT NOW(),
+                            FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE,
+                            UNIQUE(user_id, slot)  -- One accessory per slot per user
+                        )
+                    ''')
+
+                    # Pet types (for future)
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS pet_types (
+                            pet_id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            bonus_stat TEXT CHECK (bonus_stat IN ('atk', 'def', 'hp', 'energy')),
+                            bonus_value INTEGER DEFAULT 0,
+                            image_url TEXT,
+                            description TEXT
+                        )
+                    ''')
+
+                    # User owned pets (for future)
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_pets (
+                            id SERIAL PRIMARY KEY,
+                            user_id TEXT NOT NULL,
+                            pet_id INTEGER REFERENCES pet_types(pet_id) ON DELETE CASCADE,
+                            equipped BOOLEAN DEFAULT FALSE,
+                            purchased_at TIMESTAMP DEFAULT NOW(),
+                            FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
+                        )
+                    ''')
+
+                    # Add defense column to player_stats (if not exists)
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS defense INTEGER DEFAULT 0')
+
+                    # ========== INDEXES FOR NEW TABLES ==========
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_armor_user ON user_armor(user_id)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_armor_equipped ON user_armor(user_id, equipped)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_accessories_user ON user_accessories(user_id)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_accessories_equipped ON user_accessories(user_id, equipped, slot)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_pets_user ON user_pets(user_id)')
 
                     # ========== SEED DATA ==========
                     # Seed rarities
