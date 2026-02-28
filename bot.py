@@ -3290,7 +3290,7 @@ class Shop(commands.Cog):
         )
 
         # Buttons with emoji parameter and plain text label
-            button_custom = discord.ui.Button(
+        button_custom = discord.ui.Button(
             label="Customization",
             emoji=customization_emoji,
             style=discord.ButtonStyle.secondary,
