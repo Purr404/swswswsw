@@ -396,6 +396,19 @@ async def testexpire(ctx):
         await ctx.send("✅ Expiration check completed. Check logs.")
     else:
         await ctx.send("❌ Shop cog not found.")
+@bot.command()
+async def recentpurchases(ctx):
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT up.user_id, si.name, up.expires_at
+            FROM user_purchases up
+            JOIN shop_items si ON up.item_id = si.item_id
+            WHERE si.type = 'color'
+            ORDER BY up.purchased_at DESC
+            LIMIT 5
+        """)
+    msg = "\n".join([f"{r['name']} – expires {r['expires_at']}" for r in rows])
+    await ctx.send(msg or "No purchases.")
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
