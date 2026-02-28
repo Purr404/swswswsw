@@ -3343,7 +3343,7 @@ class Shop(commands.Cog):
         if role_items:
             for item in role_items:
                 button = discord.ui.Button(
-                    label=f"{item['name'][:15]} – {item['price']}g",
+                    label=f"🎭 {item['name'][:15]} – {item['price']}g",
                     style=discord.ButtonStyle.primary,
                     custom_id=f"shop_buy_{item['item_id']}"
                 )
@@ -3352,15 +3352,7 @@ class Shop(commands.Cog):
         if color_items:
             for item in color_items:
                 button = discord.ui.Button(
-                    label=f"{item['name'][:15]} – {item['price']}g",
-                    style=discord.ButtonStyle.primary,
-                    custom_id=f"shop_buy_{item['item_id']}"
-                )
-                view.add_item(button)
-
-            for item in color_items:
-                button = discord.ui.Button(
-                    label=f"{item['name'][:15]} – {item['price']}g",
+                    label=f"🎨 {item['name'][:15]} – {item['price']}g",
                     style=discord.ButtonStyle.primary,
                     custom_id=f"shop_buy_{item['item_id']}"
                 )
@@ -3370,14 +3362,13 @@ class Shop(commands.Cog):
             embed.description = "No customization items available yet."
 
         back = discord.ui.Button(
-            label=f"◀ Back",
+            label="◀ Back",
             style=discord.ButtonStyle.secondary,
             custom_id="shop_back_to_main"
         )
         view.add_item(back)
 
         await interaction.response.edit_message(embed=embed, view=view)
-
     # -------------------------------------------------------------------------
     # SHOW EQUIPMENT CATEGORY (all random boxes)
     # -------------------------------------------------------------------------
