@@ -440,6 +440,40 @@ async def checkmember(ctx, member: discord.Member):
         status = "EXPIRED" if expires < datetime.now(timezone.utc) else "active"
         msg += f"{r['name']} – expires {expires} ({status})\n"
     await ctx.send(msg)
+@bot.command()
+async def checkexpired(ctx, member: discord.Member):
+    user_id = str(member.id)
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT up.purchase_id, si.name, si.guild_id, up.expires_at
+            FROM user_purchases up
+            JOIN shop_items si ON up.item_id = si.item_id
+            WHERE up.user_id = $1 AND si.type IN ('role', 'color') AND up.used = FALSE
+        """, user_id)
+    if not rows:
+        await ctx.send(f"{member.mention} has no active role/color purchases.")
+        return
+    msg = f"**{member.display_name}'s purchases:**\n"
+    for r in rows:
+        guild_id = r['guild_id']
+        expires = r['expires_at']
+        status = "EXPIRED" if expires < datetime.now(timezone.utc) else "active"
+        msg += f"ID {r['purchase_id']}: {r['name']} – guild_id: {guild_id} – expires {expires} ({status})\n"
+    await ctx.send(msg[:1900])
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def fixoldguild(ctx, purchase_id: int, guild_id: int):
+    """Manually set guild_id for a specific purchase's shop item."""
+    async with bot.db_pool.acquire() as conn:
+        # Get the item_id from the purchase
+        row = await conn.fetchrow("SELECT item_id FROM user_purchases WHERE purchase_id = $1", purchase_id)
+        if not row:
+            await ctx.send("Purchase not found.")
+            return
+        item_id = row['item_id']
+        await conn.execute("UPDATE shop_items SET guild_id = $1 WHERE item_id = $2", guild_id, item_id)
+        await ctx.send(f"✅ Updated item {item_id} with guild_id {guild_id}.")
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
