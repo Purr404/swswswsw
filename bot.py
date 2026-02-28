@@ -3335,11 +3335,11 @@ class Shop(commands.Cog):
             role_descriptions = []
             for item in role_items:
                 role_descriptions.append(f"{CUSTOM_EMOJIS['shadow']} **{item['name']}** – {item['price']} {self.GEM_UNICODE}")
-            embed.add_field(name="🎭 Roles", value="\n".join(role_descriptions), inline=False)
+            embed.add_field(name="Roles", value="\n".join(role_descriptions), inline=False)
 
             for item in role_items:
                 button = discord.ui.Button(
-                    label=f"🎭 {item['name'][:15]} – {item['price']}g",
+                    label=f"{item['name'][:15]} – {item['price']}g",
                     style=discord.ButtonStyle.primary,
                     custom_id=f"shop_buy_{item['item_id']}"
                 )
@@ -3349,11 +3349,11 @@ class Shop(commands.Cog):
             color_descriptions = []
             for item in color_items:
                 color_descriptions.append(f"{self.RING_UNICODE} **{item['name']}** – {item['price']} {self.GEM_UNICODE}")
-            embed.add_field(name="🎨 Name Colors", value="\n".join(color_descriptions), inline=False)
+            embed.add_field(name="Name Colors", value="\n".join(color_descriptions), inline=False)
 
             for item in color_items:
                 button = discord.ui.Button(
-                    label=f"🎨 {item['name'][:15]} – {item['price']}g",
+                    label=f"{item['name'][:15]} – {item['price']}g",
                     style=discord.ButtonStyle.primary,
                     custom_id=f"shop_buy_{item['item_id']}"
                 )
@@ -3363,7 +3363,7 @@ class Shop(commands.Cog):
             embed.description = "No customization items available yet."
 
         back = discord.ui.Button(
-            label=f"{self.RING_UNICODE} Back",
+            label=f"◀ Back",
             style=discord.ButtonStyle.secondary,
             custom_id="shop_back_to_main"
         )
@@ -3492,9 +3492,7 @@ class Shop(commands.Cog):
 
         if pickaxes:
             tools_info = (
-                f"{CUSTOM_EMOJIS['pickaxe']} **Pickaxes**\n\n"
-                f"• Required to start mining\n"
-                f"• Earn gems while mining\n"
+                f"{CUSTOM_EMOJIS['pickaxe']} **Pickaxes**\n\n"                
                 f"**Purchase a pickaxe to begin your mining journey!**"
             )
             embed.description = tools_info
@@ -3606,8 +3604,7 @@ class Shop(commands.Cog):
                 f"🩸 **Bleed Chance:** {bleed_chance}%\n"
                 f"⚡ **Crit Chance:** {crit_chance}%\n"
                 f"💥 **Crit Damage:** {crit_damage}%"
-            )
-            weapon_embed.add_field(name="📊 Stats", value=stats, inline=False)
+                       
             await interaction.followup.send(embed=weapon_embed, ephemeral=True)
 
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
@@ -3702,7 +3699,7 @@ class Shop(commands.Cog):
             stats = f"🛡️ **DEF:** {defense}\n❤️ **HP:** +{hp_bonus}"
             if reflect:
                 stats += f"\n🔄 **Reflect:** {reflect}%"
-            armor_embed.add_field(name="📊 Stats", value=stats, inline=False)
+            
             await interaction.followup.send(embed=armor_embed, ephemeral=True)
 
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
@@ -3799,7 +3796,7 @@ class Shop(commands.Cog):
             )
             stat_emoji = '⚔️' if set_data['stat'] == 'atk' else '🛡️'
             stats = f"{stat_emoji} **{set_data['stat'].upper()}:** +{bonus_value}\n📌 **Slot:** {slot}"
-            acc_embed.add_field(name="📊 Stats", value=stats, inline=False)
+            
             await interaction.followup.send(embed=acc_embed, ephemeral=True)
 
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
