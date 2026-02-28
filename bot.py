@@ -356,23 +356,13 @@ async def check_emojis(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.command()
-async def testall(ctx):
+@@bot.command()
+async def testpartial(ctx):
     view = discord.ui.View()
-    # Test all custom emojis used in the shop
-    emojis_to_test = [
-        ('def_ring', CUSTOM_EMOJIS['def_ring']),
-        ('champ_ring', CUSTOM_EMOJIS['champ_ring']),
-        ('zenith_sword', CUSTOM_EMOJIS['zenith_sword']),
-        ('pickaxe', CUSTOM_EMOJIS['pickaxe']),
-        ('bilari_armor', CUSTOM_EMOJIS['bilari_armor']),
-    ]
-    for name, emoji in emojis_to_test:
-        button = discord.ui.Button(label=f"{emoji} {name}", style=discord.ButtonStyle.primary)
-        view.add_item(button)
-    # Add a Unicode control
-    view.add_item(discord.ui.Button(label="💍 Unicode Ring", style=discord.ButtonStyle.secondary))
-    await ctx.send("Test all emojis in buttons:", view=view)
+    emoji = discord.PartialEmoji(name="def_ring", id=1477133279802036225)
+    button = discord.ui.Button(label="Test", emoji=emoji, style=discord.ButtonStyle.primary)
+    view.add_item(button)
+    await ctx.send("PartialEmoji test:", view=view)
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
