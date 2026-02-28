@@ -365,6 +365,14 @@ async def testpartial(ctx):
     button = discord.ui.Button(label="Test", emoji=emoji, style=discord.ButtonStyle.primary)
     view.add_item(button)
     await ctx.send("PartialEmoji test:", view=view)
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def testremove(ctx, member: discord.Member, role: discord.Role):
+    try:
+        await member.remove_roles(role)
+        await ctx.send(f"Removed {role.name} from {member.mention}")
+    except Exception as e:
+        await ctx.send(f"Failed: {e}")
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
@@ -3291,14 +3299,6 @@ class Shop(commands.Cog):
         await ctx.message.delete(delay=5)
 
 
-    @bot.command()
-    @commands.has_permissions(administrator=True)
-    async def testremove(ctx, member: discord.Member, role: discord.Role):
-        try:
-            await member.remove_roles(role)
-            await ctx.send(f"Removed {role.name} from {member.mention}")
-        except Exception as e:
-            await ctx.send(f"Failed: {e}")
 
     # -------------------------------------------------------------------------
     # INTERACTION HANDLER
