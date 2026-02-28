@@ -765,7 +765,9 @@ class DatabaseSystem:
                 return True
 
             except Exception as e:
-                print(f"    ❌ Failed: {type(e).__name__}: {str(e)[:100]}")
+                print(f"    ❌ Failed: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()  # prints full traceback
                 continue
 
         raise ConnectionError("All connection strategies failed. Could not connect to PostgreSQL.")
