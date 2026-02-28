@@ -257,100 +257,100 @@ def get_item_emoji(item_name: str, item_type: str) -> str:
 # ============================================================
 
 
-@bot.command(name='testemojis')
-async def test_emojis(ctx):
-    """Test if custom emojis are working"""
-    embed = discord.Embed(title="Emoji Test", color=discord.Color.blue())
+    @bot.command(name='testemojis')
+    async def test_emojis(ctx):
+        """Test if custom emojis are working"""
+        embed = discord.Embed(title="Emoji Test", color=discord.Color.blue())
     
-    # Test a few emojis
-    test_emojis = [
-        f"Zenith Sword: {CUSTOM_EMOJIS['zenith_sword']}",
-        f"Bilari Helm: {CUSTOM_EMOJIS['bilari_helm']}",
-        f"Champion Ring: {CUSTOM_EMOJIS['champ_ring']}",
-        f"Defender Ring: {CUSTOM_EMOJIS['def_ring']}",
-        f"Angel Ring: {CUSTOM_EMOJIS['wing_ring']}",
-    ]
+        # Test a few emojis
+        test_emojis = [
+            f"Zenith Sword: {CUSTOM_EMOJIS['zenith_sword']}",
+            f"Bilari Helm: {CUSTOM_EMOJIS['bilari_helm']}",
+            f"Champion Ring: {CUSTOM_EMOJIS['champ_ring']}",
+            f"Defender Ring: {CUSTOM_EMOJIS['def_ring']}",
+            f"Angel Ring: {CUSTOM_EMOJIS['wing_ring']}",
+        ]
     
-    embed.description = "\n".join(test_emojis)
-    await ctx.send(embed=embed)
+        embed.description = "\n".join(test_emojis)
+        await ctx.send(embed=embed)
     
-    # Also send raw message
-    await ctx.send(f"Raw: {CUSTOM_EMOJIS['zenith_sword']}")
+        # Also send raw message
+        await ctx.send(f"Raw: {CUSTOM_EMOJIS['zenith_sword']}")
 
-@bot.command(name='checkperms')
-async def check_permissions(ctx):
-    """Check if bot has necessary permissions"""
-    bot_member = ctx.guild.me
-    permissions = bot_member.guild_permissions
+    @bot.command(name='checkperms')
+    async def check_permissions(ctx):
+        """Check if bot has necessary permissions"""
+        bot_member = ctx.guild.me
+        permissions = bot_member.guild_permissions
     
-    embed = discord.Embed(
-        title="Bot Permissions",
-        color=discord.Color.blue()
-    )
+        embed = discord.Embed(
+            title="Bot Permissions",
+            color=discord.Color.blue()
+        )
     
-    # Check critical permissions
-    embed.add_field(
-        name="Use External Emojis",
-        value="✅ Yes" if permissions.external_emojis else "❌ No - This is likely the issue!",
-        inline=False
-    )
+        # Check critical permissions
+        embed.add_field(
+            name="Use External Emojis",
+            value="✅ Yes" if permissions.external_emojis else "❌ No - This is likely the issue!",
+            inline=False
+        )
     
-    embed.add_field(
-        name="Send Messages",
-        value="✅ Yes" if permissions.send_messages else "❌ No",
-        inline=True
-    )
+        embed.add_field(
+            name="Send Messages",
+            value="✅ Yes" if permissions.send_messages else "❌ No",
+            inline=True
+        )
     
-    embed.add_field(
-        name="Embed Links",
-        value="✅ Yes" if permissions.embed_links else "❌ No",
-        inline=True
-    )
+        embed.add_field(
+            name="Embed Links",
+            value="✅ Yes" if permissions.embed_links else "❌ No",
+            inline=True
+        )
     
-    await ctx.send(embed=embed)
+        await ctx.send(embed=embed)
 
-@bot.command(name='checkemojis')
-async def check_emojis(ctx):
-    """Check if bot can access your custom emojis"""
-    guild = ctx.guild
-    bot_guilds = bot.guilds
+    @bot.command(name='checkemojis')
+    async def check_emojis(ctx):
+        """Check if bot can access your custom emojis"""
+        guild = ctx.guild
+        bot_guilds = bot.guilds
     
-    embed = discord.Embed(
-        title="Emoji Access Check",
-        color=discord.Color.blue()
-    )
+        embed = discord.Embed(
+            title="Emoji Access Check",
+            color=discord.Color.blue()
+        )
     
-    # List all guilds the bot is in
-    guild_list = [f"• {g.name} (ID: {g.id})" for g in bot_guilds]
-    embed.add_field(
-        name="Bot is in these servers:",
-        value="\n".join(guild_list) or "None",
-        inline=False
-    )
+        # List all guilds the bot is in
+        guild_list = [f"• {g.name} (ID: {g.id})" for g in bot_guilds]
+        embed.add_field(
+            name="Bot is in these servers:",
+            value="\n".join(guild_list) or "None",
+            inline=False
+        )
     
-    # Check if current guild has the emojis
-    emoji_ids = [
-        1477018808068866150,  # zenith_sword
-        1475222013650931923,  # bilari_helm
-        1477132404165578836,  # champ_ring
-    ]
+        # Check if current guild has the emojis
+        emoji_ids = [
+            1477018808068866150,  # zenith_sword
+            1475222013650931923,  # bilari_helm
+            1477132404165578836,  # champ_ring
+        ]
     
-    found_emojis = []
-    missing_emojis = []
+        found_emojis = []
+        missing_emojis = []
     
-    for emoji_id in emoji_ids:
-        emoji = discord.utils.get(guild.emojis, id=emoji_id)
-        if emoji:
-            found_emojis.append(f"✅ {emoji.name} (ID: {emoji_id})")
-        else:
-            missing_emojis.append(f"❌ Emoji ID: {emoji_id}")
+        for emoji_id in emoji_ids:
+            emoji = discord.utils.get(guild.emojis, id=emoji_id)
+            if emoji:
+                found_emojis.append(f"✅ {emoji.name} (ID: {emoji_id})")
+            else:
+                missing_emojis.append(f"❌ Emoji ID: {emoji_id}")
     
-    if found_emojis:
-        embed.add_field(name="Found Emojis", value="\n".join(found_emojis), inline=False)
-    if missing_emojis:
-        embed.add_field(name="Missing Emojis", value="\n".join(missing_emojis), inline=False)
+        if found_emojis:
+            embed.add_field(name="Found Emojis", value="\n".join(found_emojis), inline=False)
+        if missing_emojis:
+            embed.add_field(name="Missing Emojis", value="\n".join(missing_emojis), inline=False)
     
-    await ctx.send(embed=embed)
+         await ctx.send(embed=embed)
 
 
 # --- Create the bot instance ---
