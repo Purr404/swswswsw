@@ -149,8 +149,8 @@ CUSTOM_EMOJIS = {
     'pet_lion': '<:pet_lion:000000000000000000>',  # Replace with actual ID
     
     # Tools/Misc
-    'pickaxe': '<:pickaxe:000000000000000000>',  # Replace with actual ID
-    'treasure': '<:treasure:000000000000000000>',  # Replace with actual ID
+    'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
+    'treasure': '<:treasure:1477024057382666383>',  # Replace with actual ID
     'gem': '<:gem:000000000000000000>',  # Replace with actual ID
     'ring_1': '<:ring_1:000000000000000000>',  # Default ring for customization - Replace with actual ID
 }
