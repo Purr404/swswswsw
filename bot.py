@@ -386,6 +386,16 @@ async def checkcolors(ctx):
     for r in rows:
         msg += f"ID {r['item_id']}: {r['name']} – Role ID: {r['role_id']}\n"
     await ctx.send(msg[:1900])  # avoid message length limit
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def testexpire(ctx):
+    """Manually trigger expired purchase check."""
+    cog = bot.get_cog('Shop')
+    if cog:
+        await cog.check_expired_purchases()
+        await ctx.send("✅ Expiration check completed. Check logs.")
+    else:
+        await ctx.send("❌ Shop cog not found.")
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
