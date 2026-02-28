@@ -3272,7 +3272,7 @@ class Shop(commands.Cog):
     # -------------------------------------------------------------------------
     # BACKGROUND TASK: Remove expired roles every hour
     # -------------------------------------------------------------------------
-    @tasks.loop(hours=1)
+    @tasks.loop(minutes=1)
     async def check_expired_purchases(self):
         await self.bot.wait_until_ready()
         if not hasattr(self.bot, 'db_pool') or self.bot.db_pool is None:
