@@ -150,6 +150,7 @@ CUSTOM_EMOJIS = {
     
     # Tools/Misc
     'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
+    'shadow': '<:shadow:1477258013256454339>',
 
 }
 # ============================================================
@@ -3460,7 +3461,7 @@ class Shop(commands.Cog):
             embed.description = "No equipment boxes available yet."
 
         back = discord.ui.Button(
-            label=f"{CUSTOM_EMOJIS['zenith_sword']} Back",
+            label="◀ Back",
             style=discord.ButtonStyle.secondary,
             custom_id="shop_back_to_main"
         )
@@ -3507,7 +3508,7 @@ class Shop(commands.Cog):
             embed.description = "No tools available yet."
 
         back = discord.ui.Button(
-            label=f"{CUSTOM_EMOJIS['pickaxe']} Back",
+            label="◀ Back",
             style=discord.ButtonStyle.secondary,
             custom_id="shop_back_to_main"
         )
