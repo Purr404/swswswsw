@@ -1930,7 +1930,7 @@ async def send_gem_notification(user, admin, amount, new_balance):
         embed.add_field(name="💎 Amount Added", value=f"**+{amount} gems**", inline=True)
         embed.add_field(name="💰 New Balance", value=f"**{new_balance} gems**", inline=True)
         
-        embed.set_footer(text="Thank you for joining the server!")
+        
         
         # Try to send DM
         await user.send(embed=embed)
@@ -1946,21 +1946,7 @@ async def send_gem_notification(user, admin, amount, new_balance):
         return False
 
 
-# QUIZ DIAGNOSTICS---------
-@bot.command(name="quiz_diagnostic")
-@commands.has_permissions(administrator=True)
-async def quiz_diagnostic(ctx):
-    """Test logging and reward system."""
-    await log_to_discord(bot, "🧪 Diagnostic: log_to_discord works!", "INFO")
-    
-    # Test currency.add_gems
-    try:
-        result = await currency_system.add_gems(str(ctx.author.id), 1, "🧪 Diagnostic test")
-        await ctx.send(f"✅ Currency system works! Added 1 gem. New balance: {result['balance']}")
-    except Exception as e:
-        await ctx.send(f"❌ Currency system FAILED: {e}")
-        await log_to_discord(bot, "❌ Diagnostic: currency.add_gems failed", "ERROR", e)
-# END QUIZ DIAG---------
+
 
 # --- ANNOUNCEMENT COMMANDS ---
 @bot.group(name="announce", invoke_without_command=True)
@@ -2211,44 +2197,6 @@ async def quiz_stop(ctx):
         await ctx.send(f"❌ Error while stopping quiz: {str(e)[:100]}")
         await log_to_discord(bot, f"Error in quiz_stop: {e}", "ERROR")
 
-@quiz_group.command(name="addq")
-@commands.has_permissions(administrator=True)
-async def quiz_addq(ctx, points: int, time_limit: int, *, question_data: str):
-    """
-    Add a new quiz question
-    Format: !!quiz addq 300 60 Question? | correct answer 1 | correct answer 2
-    Example: !!quiz addq 300 60 Capital of France? | paris
-    """
-    try:
-        parts = question_data.split(" | ")
-        if len(parts) < 2:
-            await ctx.send("❌ Format: `Question? | correct answer 1 | correct answer 2`")
-            return
-        
-        new_question = {
-            "question": parts[0],
-            "correct_answers": [ans.lower().strip() for ans in parts[1:]],
-            "points": points,
-            "time_limit": time_limit
-        }
-        
-        quiz_system.quiz_questions.append(new_question)
-        
-        embed = discord.Embed(
-            title="✅ **Question Added!**",
-            description=new_question["question"],
-            color=discord.Color.green()
-        )
-        
-        embed.add_field(name="✅ Correct Answers", 
-                       value=", ".join(new_question["correct_answers"]))
-        embed.add_field(name="⭐ Points", value=str(points))
-        embed.add_field(name="⏱️ Time Limit", value=f"{time_limit}s")
-        
-        await ctx.send(embed=embed)
-        
-    except Exception as e:
-        await ctx.send(f"❌ Error: {str(e)[:100]}")
 
 # CURRENCY COMMANDS -----
 @bot.group(name="currency", invoke_without_command=True)
@@ -2605,46 +2553,6 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# --- HELP COMMAND ---
-@bot.command(name="help")
-async def custom_help(ctx, command: str = None):
-    """Show help for commands"""
-    if command:
-        # Show specific command help
-        cmd = bot.get_command(command)
-        if cmd:
-            embed = discord.Embed(
-                title=f"Help: {cmd.name}",
-                description=cmd.help or "No description available",
-                color=0x5865F2
-            )
-            await ctx.send(embed=embed)
-        else:
-            await ctx.send("❌ Command not found!")
-    else:
-        # Show all commands
-        embed = discord.Embed(
-            title="📚 Bot Commands",
-            description="**Announcement System**\n"
-                       "• `!!announce` - Announcement management\n"
-                       "• `!!a <message>` - Quick announcement\n\n"
-                       "**Message System**\n"
-                       "• `!!say` - Send messages\n"
-                       "• `!!embed` - Send embed message\n"
-                       "• `!!dm` - DM a user\n"
-                       "• `!!smartreply` - Reply to message\n\n"
-                       "**Quiz System**\n"
-                       "• `!!quiz` - Quiz management\n\n"
-                       "**Currency System**\n"
-                       "• `!!currency` - Check your gems\n"
-                       "• `!!currency daily` - Claim daily reward\n"
-                       "• `!!currency leaderboard` - Top earners\n\n"
-                       "**Utility**\n"
-                       "• `!!ping` - Check bot latency\n"
-                       "• `!!help <command>` - Get command help",
-            color=0x5865F2
-        )
-        await ctx.send(embed=embed)
 
 # === SIMPLE BOT COMMANDS ===
 @bot.command(name="meow")
@@ -3932,90 +3840,8 @@ class Shop(commands.Cog):
     #END SHOP LOGS
 
 
-    #
-
-# -------------------------------------------------------------------------
-# PAGINATED WEAPON VIEWER
-# -------------------------------------------------------------------------
-    class WeaponPaginationView(discord.ui.View):
-        def __init__(self, weapons, user_id):
-            super().__init__(timeout=300)
-            self.weapons = weapons
-            self.user_id = user_id
-            self.current_index = 0
-
-        def create_embed(self):
-            weapon = self.weapons[self.current_index]
-            color = weapon.get('rarity_color') or 0x5865F2
-            embed = discord.Embed(
-                title=f"{weapon['name']} (+{weapon['attack']} ATK)",
-                description=weapon.get('description') or "No description available.",
-                color=color
-            )
-            if weapon.get('image_url'):
-                embed.set_image(url=weapon['image_url'])
-            embed.set_footer(text=f"Weapon {self.current_index+1}/{len(self.weapons)}")
-            return embed
-
-        @discord.ui.button(label="◀", style=discord.ButtonStyle.primary)
-        async def previous_button(self, *args):
-            # Find the Interaction object among the arguments
-            interaction = next((arg for arg in args if isinstance(arg, discord.Interaction)), None)
-            if not interaction:
-                return
-            if interaction.user.id != self.user_id:
-                await interaction.response.send_message("You cannot control this view.", ephemeral=True)
-                return
-            if self.current_index > 0:
-                self.current_index -= 1
-                await interaction.response.edit_message(embed=self.create_embed(), view=self)
-            else:
-                await interaction.response.defer()
-
-        @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
-        async def next_button(self, *args):
-            interaction = next((arg for arg in args if isinstance(arg, discord.Interaction)), None)
-            if not interaction:
-                return
-            if interaction.user.id != self.user_id:
-                await interaction.response.send_message("You cannot control this view.", ephemeral=True)
-                return
-            if self.current_index < len(self.weapons) - 1:
-                self.current_index += 1
-                await interaction.response.edit_message(embed=self.create_embed(), view=self)
-            else:
-                await interaction.response.defer()
-
-    @commands.command(name='myweapon')
-    async def my_weapon(self, ctx):
-        user_id = str(ctx.author.id)
-        async with self.bot.db_pool.acquire() as conn:
-            weapons = await conn.fetch("""
-                SELECT 
-                    uw.id,
-                    COALESCE(si.name, uw.generated_name) as name,
-                    COALESCE(si.image_url, uw.image_url) as image_url,
-                    COALESCE(si.description, uw.description) as description,
-                    uw.attack,
-                    uw.purchased_at,
-                    r.color as rarity_color
-                FROM user_weapons uw
-                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
-                LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
-                WHERE uw.user_id = $1
-                ORDER BY uw.purchased_at DESC
-            """, user_id)
-
-        if not weapons:
-            await ctx.send("You don't own any weapons yet.")
-            return
-
-
-        weapons_list = [dict(row) for row in weapons]
-        view = self.WeaponPaginationView(weapons_list, ctx.author.id)
-        await ctx.send(embed=view.create_embed(), view=view)
-
+ 
+   
 
     # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
     # -------------------------------------------------------------------------
@@ -4223,83 +4049,7 @@ class Shop(commands.Cog):
 
 
 
-# CHECK DUPES
 
-    @commands.command(name='check_dupes')
-    @commands.has_permissions(administrator=True)
-    async def check_duplicates(self, ctx):
-        async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT type_id, rarity_id, COUNT(*) as cnt
-                FROM weapon_variants
-                GROUP BY type_id, rarity_id
-                HAVING COUNT(*) > 1
-            """)
-        if not rows:
-            await ctx.send("No duplicates found.")
-        else:
-            msg = "**Duplicates found:**\n"
-            for r in rows:
-                msg += f"Type {r['type_id']}, Rarity {r['rarity_id']}: {r['cnt']} copies\n"
-            await ctx.send(msg)
-
-
-
-    @commands.command(name='reset_variants')
-    @commands.has_permissions(administrator=True)
-    async def reset_variants(self, ctx):
-        async with self.bot.db_pool.acquire() as conn:
-            # Delete all variants
-            await conn.execute("DELETE FROM weapon_variants")
-            # Fetch type and rarity maps
-            types = await conn.fetch("SELECT type_id, name_base FROM weapon_types")
-            rarities = await conn.fetch("SELECT rarity_id, name FROM rarities WHERE name IN ('Common','Uncommon','Rare','Epic','Legendary') ORDER BY display_order")
-            type_map = {row['name_base']: row['type_id'] for row in types}
-            rarity_map = {row['name']: row['rarity_id'] for row in rarities}
-
-            # Insert for Sword, Axe, Dagger (you can add more types here)
-            for weapon in ['Sword', 'Axe', 'Dagger']:
-                if weapon not in type_map:
-                    continue
-                type_id = type_map[weapon]
-                # Define attack ranges (you can adjust)
-                ranges = [
-                    (rarity_map['Common'], 50, 100),
-                    (rarity_map['Uncommon'], 101, 180),
-                    (rarity_map['Rare'], 181, 270),
-                    (rarity_map['Epic'], 271, 380),
-                    (rarity_map['Legendary'], 381, 500)
-                ]
-                for rarity_id, min_atk, max_atk in ranges:
-                    await conn.execute("""
-                        INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url)
-                        VALUES ($1, $2, $3, $4, 'https://example.com/placeholder.png')
-                        ON CONFLICT (type_id, rarity_id) DO NOTHING
-                    """, type_id, rarity_id, min_atk, max_atk)
-        await ctx.send("✅ All variants reset. Now you have 5 per type (placeholders). Use `!!variant list` to see them, and update image URLs with `!!variant add`.")
-
-
-    @commands.command(name='clear_variants')
-    @commands.has_permissions(administrator=True)
-    async def clear_variants(self, ctx):
-        """⚠️ DANGER: Deletes ALL weapon variants from the database."""
-        # Confirmation
-        confirm = await ctx.send("**WARNING:** This will delete **ALL** weapon variants. Existing weapons will lose their rarity color. Type `CONFIRM` to proceed.")
-
-        def check(m):
-            return m.author == ctx.author and m.channel == ctx.channel and m.content == "CONFIRM"
-
-        try:
-            await self.bot.wait_for('message', timeout=30.0, check=check)
-        except asyncio.TimeoutError:
-            await ctx.send("❌ Deletion cancelled.")
-            return
-
-        async with self.bot.db_pool.acquire() as conn:
-            # Delete all variants
-            result = await conn.execute("DELETE FROM weapon_variants")
-            count = result.split()[1]  # Get number of deleted rows
-            await ctx.send(f"✅ Deleted **{count}** weapon variants. The table is now empty.")
 
     @commands.command(name='listweapons')
     async def list_weapons(self, ctx):
