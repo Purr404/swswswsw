@@ -150,9 +150,7 @@ CUSTOM_EMOJIS = {
     
     # Tools/Misc
     'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
-    'treasure': '<:treasure:1477024057382666383>',  # Replace with actual ID
-    'gem': '<:gem:000000000000000000>',  # Replace with actual ID
-    'ring_1': '<:ring_1:000000000000000000>',  # Default ring for customization - Replace with actual ID
+
 }
 # ============================================================
 # EMOJIS HELPER FUNCTIONS 
@@ -3227,7 +3225,7 @@ class Shop(commands.Cog):
         view = discord.ui.View(timeout=300)
     
         main_cats = [
-            (f"{CUSTOM_EMOJIS['ring_1']} Customization", "customization"),
+            (f"{CUSTOM_EMOJIS['def_ring']} Customization", "customization"),
             (f"{CUSTOM_EMOJIS['zenith_sword']} Equipment", "equipment"),
             (f"{CUSTOM_EMOJIS['pickaxe']} Tools", "tools")
         ]
