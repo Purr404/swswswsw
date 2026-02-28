@@ -356,6 +356,16 @@ async def check_emojis(ctx):
     
     await ctx.send(embed=embed)
 
+@bot.command()
+async def testbutton(ctx):
+    view = discord.ui.View()
+    button = discord.ui.Button(
+        label=f"{CUSTOM_EMOJIS['def_ring']} Test",
+        style=discord.ButtonStyle.primary
+    )
+    view.add_item(button)
+    await ctx.send("Test button:", view=view)
+
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
