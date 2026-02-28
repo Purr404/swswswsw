@@ -3104,36 +3104,35 @@ async def on_command_error(ctx, error):
 class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=6992e102&is=69918f82&hm=8a7bf535085e1dd0af98d977c5cc9766ecf463b73dbb5330444ff739b62c3571&"  # 🔁 REPLACE
+        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=6992e102&is=69918f82&hm=8a7bf535085e1dd0af98d977c5cc9766ecf463b73dbb5330444ff739b62c3571&"
         self.check_expired_purchases.start()
         self.booking_sessions = {}
 
     def cog_unload(self):
         self.check_expired_purchases.cancel()
 
+    # Unicode fallbacks for emojis that are not custom
+    RING_UNICODE = "💍"
+    GEM_UNICODE = "💎"
+    TREASURE_UNICODE = "🎁"
 
     # -------------------------------------------------------------------------
     # BACKGROUND TASK: Remove expired roles every hour
     # -------------------------------------------------------------------------
     @tasks.loop(hours=1)
     async def check_expired_purchases(self):
-        """Remove expired purchases: delete record and remove role from user."""
-        # Wait for bot to be fully ready and db_pool to be set
         await self.bot.wait_until_ready()
         if not hasattr(self.bot, 'db_pool') or self.bot.db_pool is None:
             print("⏳ check_expired_purchases: db_pool not ready, skipping.")
             return
-
         try:
             async with self.bot.db_pool.acquire() as conn:
-                # Fetch expired purchases with guild_id
                 rows = await conn.fetch("""
                     SELECT up.user_id, up.item_id, si.role_id, si.guild_id, si.name
                     FROM user_purchases up
                     JOIN shop_items si ON up.item_id = si.item_id
                     WHERE up.expires_at < NOW()
                 """)
-
                 for row in rows:
                     user_id = row['user_id']
                     guild_id = row['guild_id']
@@ -3160,11 +3159,11 @@ class Shop(commands.Cog):
                     else:
                         print(f"⚠️ Guild {guild_id} not found")
 
-                # Delete all expired purchase records
                 result = await conn.execute("DELETE FROM user_purchases WHERE expires_at < NOW()")
                 print(f"🧹 Cleaned up {result.split()[1]} expired purchase records.")
         except Exception as e:
             print(f"❌ Error in check_expired_purchases: {e}")
+
     # -------------------------------------------------------------------------
     # LOAD PERSISTENT SHOP MESSAGES
     # -------------------------------------------------------------------------
@@ -3245,27 +3244,26 @@ class Shop(commands.Cog):
 
         if custom_id == "shop_open_main":
             await self.show_main_categories(interaction)
-    
+
         elif custom_id.startswith("shop_maincat_"):
             main_cat = custom_id.replace("shop_maincat_", "")
-        
+
             if main_cat == "customization":
                 await self.show_customization(interaction)
-            
             elif main_cat == "equipment":
                 await self.show_equipment(interaction)
-            
             elif main_cat == "tools":
                 await self.show_tools(interaction)
-    
+
         elif custom_id == "shop_back_to_main":
             await self.show_main_categories(interaction)
-    
+
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
+
     # -------------------------------------------------------------------------
-    # SHOW MAIN CATEGORIES
+    # SHOW MAIN CATEGORIES (using PartialEmoji for custom emojis)
     # -------------------------------------------------------------------------
     async def show_main_categories(self, interaction: discord.Interaction):
         embed = discord.Embed(
@@ -3275,21 +3273,11 @@ class Shop(commands.Cog):
         )
         view = discord.ui.View(timeout=300)
 
-        # Create PartialEmoji objects for each custom emoji
-        customization_emoji = discord.PartialEmoji(
-            name="shadow", 
-            id=1477258013256454339   
-        )
-        equipment_emoji = discord.PartialEmoji(
-            name="zenith_sword", 
-            id=1477018808068866150
-        )
-        tools_emoji = discord.PartialEmoji(
-            name="pickaxe", 
-            id=1477024057382666383
-        )
+        # PartialEmoji objects for custom emojis
+        customization_emoji = discord.PartialEmoji(name="shadow", id=1477258013256454339)
+        equipment_emoji = discord.PartialEmoji(name="zenith_sword", id=1477018808068866150)
+        tools_emoji = discord.PartialEmoji(name="pickaxe", id=1477024057382666383)
 
-        # Buttons with emoji parameter and plain text label
         button_custom = discord.ui.Button(
             label="Customization",
             emoji=customization_emoji,
@@ -3316,50 +3304,7 @@ class Shop(commands.Cog):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # -------------------------------------------------------------------------
-    # SHOW SUBCATEGORIES
-    # -------------------------------------------------------------------------
-    async def show_subcategories(self, interaction: discord.Interaction, main_cat: str):
-        if main_cat == "customization":
-            embed = discord.Embed(
-                title="🎨 Customization",
-                description="What would you like to buy?",
-                color=discord.Color.purple()
-            )
-            view = discord.ui.View(timeout=300)
-            subcats = [
-                ("🪯 Roles", "roles"),
-                ("🎨 Name Color Change", "colors")
-            ]
-            for label, sub_id in subcats:
-                button = discord.ui.Button(
-                    label=label,
-                    style=discord.ButtonStyle.primary,
-                    custom_id=f"shop_subcat_{sub_id}"
-                )
-                view.add_item(button)
-            back = discord.ui.Button(
-                label="◀ Back to Categories",
-                style=discord.ButtonStyle.secondary,
-                custom_id="shop_back_to_main"
-            )
-            view.add_item(back)
-            await interaction.response.edit_message(embed=embed, view=view)
-
-        elif main_cat == "weapons":
-            embed = discord.Embed(
-                title="⚔️ Weapons Shop",
-                description="Choose a weapon to purchase. Each weapon gets a random attack bonus!",
-                color=discord.Color.red()
-            )
-            view = discord.ui.View(timeout=300)
-            await self.show_weapon_items(interaction, embed, view)
-            return
-
-        else:
-            await interaction.response.send_message("Coming soon!", ephemeral=True)
-
-    # -------------------------------------------------------------------------
-    # SHOW ITEMS FOR A SUBCATEGORY
+    # SHOW CUSTOMIZATION CATEGORY (uses Unicode for ring and gem)
     # -------------------------------------------------------------------------
     async def show_customization(self, interaction: discord.Interaction):
         embed = discord.Embed(
@@ -3368,8 +3313,7 @@ class Shop(commands.Cog):
             color=discord.Color.purple()
         )
         view = discord.ui.View(timeout=300)
-    
-        # Get role items from database
+
         async with self.bot.db_pool.acquire() as conn:
             role_items = await conn.fetch("""
                 SELECT item_id, name, description, price
@@ -3377,26 +3321,19 @@ class Shop(commands.Cog):
                 WHERE type = 'role'
                 ORDER BY price ASC
             """)
-        
             color_items = await conn.fetch("""
                 SELECT item_id, name, description, price
                 FROM shop_items
                 WHERE type = 'color'
                 ORDER BY price ASC
             """)
-    
-        # Role items section
+
         if role_items:
             role_descriptions = []
             for item in role_items:
-                role_descriptions.append(f"{CUSTOM_EMOJIS['shadow']} **{item['name']}** – {item['price']} {CUSTOM_EMOJIS['gem']}")
-        
-            embed.add_field(
-                name="🎭 Roles",
-                value="\n".join(role_descriptions),
-                inline=False
-            )
-        
+                role_descriptions.append(f"{CUSTOM_EMOJIS['shadow']} **{item['name']}** – {item['price']} {self.GEM_UNICODE}")
+            embed.add_field(name="🎭 Roles", value="\n".join(role_descriptions), inline=False)
+
             for item in role_items:
                 button = discord.ui.Button(
                     label=f"🎭 {item['name'][:15]} – {item['price']}g",
@@ -3404,19 +3341,13 @@ class Shop(commands.Cog):
                     custom_id=f"shop_buy_{item['item_id']}"
                 )
                 view.add_item(button)
-    
-        # Color items section
+
         if color_items:
             color_descriptions = []
             for item in color_items:
-                color_descriptions.append(f"{CUSTOM_EMOJIS['ring_1']} **{item['name']}** – {item['price']} {CUSTOM_EMOJIS['gem']}")
-        
-            embed.add_field(
-                name="🎨 Name Colors",
-                value="\n".join(color_descriptions),
-                inline=False
-            )
-        
+                color_descriptions.append(f"{self.RING_UNICODE} **{item['name']}** – {item['price']} {self.GEM_UNICODE}")
+            embed.add_field(name="🎨 Name Colors", value="\n".join(color_descriptions), inline=False)
+
             for item in color_items:
                 button = discord.ui.Button(
                     label=f"🎨 {item['name'][:15]} – {item['price']}g",
@@ -3424,16 +3355,22 @@ class Shop(commands.Cog):
                     custom_id=f"shop_buy_{item['item_id']}"
                 )
                 view.add_item(button)
-    
+
         if not role_items and not color_items:
             embed.description = "No customization items available yet."
-    
-        back = discord.ui.Button(label=f"{CUSTOM_EMOJIS['shadow']} Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+
+        back = discord.ui.Button(
+            label=f"{self.RING_UNICODE} Back",
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_back_to_main"
+        )
         view.add_item(back)
-    
+
         await interaction.response.edit_message(embed=embed, view=view)
 
-
+    # -------------------------------------------------------------------------
+    # SHOW EQUIPMENT CATEGORY (all random boxes)
+    # -------------------------------------------------------------------------
     async def show_equipment(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title=f"{CUSTOM_EMOJIS['zenith_sword']} Equipment",
@@ -3441,31 +3378,27 @@ class Shop(commands.Cog):
             color=discord.Color.orange()
         )
         view = discord.ui.View(timeout=300)
-    
+
         async with self.bot.db_pool.acquire() as conn:
-            # Get all random boxes
             weapon_boxes = await conn.fetch("""
                 SELECT item_id, name, description, price
                 FROM shop_items
                 WHERE type = 'random_weapon_box'
                 ORDER BY price ASC
             """)
-        
             armor_boxes = await conn.fetch("""
                 SELECT item_id, name, description, price
                 FROM shop_items
                 WHERE type = 'random_gear_box'
                 ORDER BY price ASC
             """)
-        
             accessory_boxes = await conn.fetch("""
                 SELECT item_id, name, description, price
                 FROM shop_items
                 WHERE type = 'random_accessories_box'
                 ORDER BY price ASC
             """)
-    
-        # Weapon Boxes Section
+
         if weapon_boxes:
             weapon_info = (
                 f"{CUSTOM_EMOJIS['zenith_sword']} **Random Weapon Box**\n"
@@ -3475,7 +3408,7 @@ class Shop(commands.Cog):
                 f"**Buy to get a random weapon with random stats!**"
             )
             embed.add_field(name="🗡️ Weapons", value=weapon_info, inline=False)
-        
+
             for box in weapon_boxes:
                 button = discord.ui.Button(
                     label=f"🗡️ {box['name'][:15]} – {box['price']}g",
@@ -3483,8 +3416,7 @@ class Shop(commands.Cog):
                     custom_id=f"shop_buy_{box['item_id']}"
                 )
                 view.add_item(button)
-    
-        # Armor Boxes Section
+
         if armor_boxes:
             armor_info = (
                 f"{CUSTOM_EMOJIS['bilari_armor']} **Random Armor Box**\n"
@@ -3496,7 +3428,7 @@ class Shop(commands.Cog):
                 f"**Buy to get a random armor piece from a random set!**"
             )
             embed.add_field(name="🛡️ Armor", value=armor_info, inline=False)
-        
+
             for box in armor_boxes:
                 button = discord.ui.Button(
                     label=f"🛡️ {box['name'][:15]} – {box['price']}g",
@@ -3504,8 +3436,7 @@ class Shop(commands.Cog):
                     custom_id=f"shop_buy_{box['item_id']}"
                 )
                 view.add_item(button)
-    
-        # Accessory Boxes Section
+
         if accessory_boxes:
             accessory_info = (
                 f"{CUSTOM_EMOJIS['champ_ring']} **Random Accessory Box**\n"
@@ -3516,7 +3447,7 @@ class Shop(commands.Cog):
                 f"**Buy to get a random accessory piece from a random set!**"
             )
             embed.add_field(name="💍 Accessories", value=accessory_info, inline=False)
-        
+
             for box in accessory_boxes:
                 button = discord.ui.Button(
                     label=f"💍 {box['name'][:15]} – {box['price']}g",
@@ -3524,18 +3455,22 @@ class Shop(commands.Cog):
                     custom_id=f"shop_buy_{box['item_id']}"
                 )
                 view.add_item(button)
-    
+
         if not weapon_boxes and not armor_boxes and not accessory_boxes:
             embed.description = "No equipment boxes available yet."
-    
-        back = discord.ui.Button(label=f"{CUSTOM_EMOJIS['zenith_sword']} Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+
+        back = discord.ui.Button(
+            label=f"{CUSTOM_EMOJIS['zenith_sword']} Back",
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_back_to_main"
+        )
         view.add_item(back)
-    
+
         await interaction.response.edit_message(embed=embed, view=view)
 
-
-
-
+    # -------------------------------------------------------------------------
+    # SHOW TOOLS CATEGORY (pickaxes)
+    # -------------------------------------------------------------------------
     async def show_tools(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title=f"{CUSTOM_EMOJIS['pickaxe']} Tools",
@@ -3543,25 +3478,24 @@ class Shop(commands.Cog):
             color=discord.Color.orange()
         )
         view = discord.ui.View(timeout=300)
-    
+
         async with self.bot.db_pool.acquire() as conn:
-            # Get pickaxes only
             pickaxes = await conn.fetch("""
                 SELECT item_id, name, description, price
                 FROM shop_items
                 WHERE type = 'pickaxe'
                 ORDER BY price ASC
             """)
-    
+
         if pickaxes:
             tools_info = (
-                f"{CUSTOM_EMOJIS['pickaxe']} **Pickaxes**\n\n"               
+                f"{CUSTOM_EMOJIS['pickaxe']} **Pickaxes**\n\n"
                 f"• Required to start mining\n"
-                f"• Earn gems while mining\n"                                          
+                f"• Earn gems while mining\n"
                 f"**Purchase a pickaxe to begin your mining journey!**"
             )
             embed.description = tools_info
-        
+
             for pick in pickaxes:
                 button = discord.ui.Button(
                     label=f"⛏️ {pick['name'][:15]} – {pick['price']}g",
@@ -3571,186 +3505,22 @@ class Shop(commands.Cog):
                 view.add_item(button)
         else:
             embed.description = "No tools available yet."
-    
-        back = discord.ui.Button(label=f"{CUSTOM_EMOJIS['pickaxe']} Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+
+        back = discord.ui.Button(
+            label=f"{CUSTOM_EMOJIS['pickaxe']} Back",
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_back_to_main"
+        )
         view.add_item(back)
-    
+
         await interaction.response.edit_message(embed=embed, view=view)
 
-
-
-
-# RARITY
-    @commands.group(name='rarity', invoke_without_command=True)
-    @commands.has_permissions(administrator=True)
-    async def rarity_admin(self, ctx):
-        """Manage rarities for weapons."""
-        embed = discord.Embed(
-            title="✨ Rarity Admin",
-            description=(
-                "`!!rarity add <name> [color]` – e.g. `Epic 0xFFD700`\n"
-                "`!!rarity list`\n"
-                "`!!rarity remove <name>`"
-            ),
-            color=discord.Color.gold()
-        )
-        await ctx.send(embed=embed)
-
-    @rarity_admin.command(name='add')
-    @commands.has_permissions(administrator=True)
-    async def rarity_add(self, ctx, name: str, color: int = None):
-        async with self.bot.db_pool.acquire() as conn:
-            try:
-                await conn.execute(
-                    "INSERT INTO rarities (name, color) VALUES ($1, $2)",
-                    name, color
-                )
-                await ctx.send(f"✅ Added rarity: **{name}**")
-            except asyncpg.UniqueViolationError:
-                await ctx.send(f"❌ Rarity '{name}' already exists.")
-
-    @rarity_admin.command(name='list')
-    @commands.has_permissions(administrator=True)
-    async def rarity_list(self, ctx):
-        async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT * FROM rarities ORDER BY display_order, name")
-        if not rows:
-            await ctx.send("No rarities defined yet.")
-            return
-        embed = discord.Embed(title="Rarities", color=discord.Color.blue())
-        for r in rows:
-            embed.add_field(
-                name=f"ID {r['rarity_id']}: {r['name']}",
-                value=f"Color: {r['color'] or 'Default'}",
-                inline=False
-            )
-        await ctx.send(embed=embed)
-
-    @rarity_admin.command(name='remove')
-    @commands.has_permissions(administrator=True)
-    async def rarity_remove(self, ctx, name: str):
-        async with self.bot.db_pool.acquire() as conn:
-            result = await conn.execute("DELETE FROM rarities WHERE name = $1", name)
-        if result == "DELETE 0":
-            await ctx.send(f"❌ Rarity '{name}' not found.")
-        else:
-            await ctx.send(f"✅ Removed rarity: **{name}**")
-# END RARITY
-
-# VARIANT
-    @commands.group(name='variant', invoke_without_command=True)
-    @commands.has_permissions(administrator=True)
-    async def variant_admin(self, ctx):
-        """Link a weapon type with a rarity (create a variant)."""
-        embed = discord.Embed(
-            title="🔗 Weapon Variant Admin",
-            description=(
-                "`!!variant add <type_id> <rarity_id> <min_atk> <max_atk> <image_url>`\n"
-                "`!!variant list [type_id]`\n"
-                "`!!variant remove <variant_id>`"
-            ),
-            color=discord.Color.purple()
-        )
-        await ctx.send(embed=embed)
-
-    @variant_admin.command(name='add')
-    @commands.has_permissions(administrator=True)
-    async def variant_add(self, ctx, type_id: int, rarity_id: int, min_attack: int, max_attack: int, image_url: str):
-        if min_attack < 0 or max_attack < min_attack:
-            await ctx.send("❌ Invalid attack range.")
-            return
-        if not (image_url.startswith('http://') or image_url.startswith('https://')):
-            await ctx.send("❌ Image URL must start with http:// or https://")
-            return
-
-        async with self.bot.db_pool.acquire() as conn:
-            type_exists = await conn.fetchval("SELECT 1 FROM weapon_types WHERE type_id = $1", type_id)
-            rarity_exists = await conn.fetchval("SELECT 1 FROM rarities WHERE rarity_id = $1", rarity_id)
-            if not type_exists:
-                await ctx.send(f"❌ Weapon type {type_id} not found.")
-                return
-            if not rarity_exists:
-                await ctx.send(f"❌ Rarity {rarity_id} not found.")
-                return
-
-            try:
-                await conn.execute("""
-                    INSERT INTO weapon_variants (type_id, rarity_id, min_attack, max_attack, image_url)
-                    VALUES ($1, $2, $3, $4, $5)
-                """, type_id, rarity_id, min_attack, max_attack, image_url)
-                await ctx.send(f"✅ Added variant for type {type_id} + rarity {rarity_id} (ATK {min_attack}–{max_attack})")
-            except asyncpg.UniqueViolationError:
-                await ctx.send("❌ This variant already exists (type + rarity combination is unique).")
-
-    @variant_admin.command(name='list')
-    @commands.has_permissions(administrator=True)
-    async def variant_list(self, ctx, type_id: int = None):
-        async with self.bot.db_pool.acquire() as conn:
-            if type_id:
-                rows = await conn.fetch("""
-                    SELECT v.*, t.name_base, r.name as rarity_name
-                    FROM weapon_variants v
-                    JOIN weapon_types t ON v.type_id = t.type_id
-                    JOIN rarities r ON v.rarity_id = r.rarity_id
-                    WHERE v.type_id = $1
-                    ORDER BY r.display_order, t.name_base
-                """, type_id)
-            else:
-                rows = await conn.fetch("""
-                    SELECT v.*, t.name_base, r.name as rarity_name
-                    FROM weapon_variants v
-                    JOIN weapon_types t ON v.type_id = t.type_id
-                    JOIN rarities r ON v.rarity_id = r.rarity_id
-                    ORDER BY t.name_base, r.display_order
-                """)
-        if not rows:
-            await ctx.send("No variants found.")
-            return
-
-        embed = discord.Embed(title="Weapon Variants", color=discord.Color.green())
-        for r in rows:
-            embed.add_field(
-                name=f"ID {r['variant_id']}: {r['rarity_name']} {r['name_base']}",
-                value=f"ATK: {r['min_attack']}–{r['max_attack']}",
-                inline=False
-            )
-        await ctx.send(embed=embed)
-
-    @variant_admin.command(name='remove')
-    @commands.has_permissions(administrator=True)
-    async def variant_remove(self, ctx, variant_id: int):
-        async with self.bot.db_pool.acquire() as conn:
-            result = await conn.execute("DELETE FROM weapon_variants WHERE variant_id = $1", variant_id)
-        if result == "DELETE 0":
-            await ctx.send(f"❌ Variant {variant_id} not found.")
-        else:
-            await ctx.send(f"✅ Removed variant {variant_id}.")
-# END VARIANT
-
-# RANDOM BOX
-    @commands.command(name='addrandombox')
-    @commands.has_permissions(administrator=True)
-    async def add_random_box(self, ctx, name: str, price: int, *, description: str = "Open to get a random weapon!", image_url: str = None):
-        """Add a random weapon box item to the shop."""
-        if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
-            await ctx.send("❌ Invalid image URL.")
-            return
-        async with self.bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO shop_items (name, description, price, type, guild_id, image_url)
-                VALUES ($1, $2, $3, 'random_weapon_box', $4, $5)
-            """, name, description, price, ctx.guild.id, image_url)
-        await ctx.send(f"✅ Added random weapon box **{name}** for **{price} gems**.")
-# END RANDOM BOX
-
-
     # -------------------------------------------------------------------------
-    # PURCHASE ITEM – with duplicate & expiration checks
+    # PURCHASE ITEM HANDLER (includes all box types)
     # -------------------------------------------------------------------------
     async def purchase_item(self, interaction: discord.Interaction, item_id: int):
         await interaction.response.defer(ephemeral=True)
 
-        # Fetch item details
         async with self.bot.db_pool.acquire() as conn:
             item = await conn.fetchrow(
                 "SELECT * FROM shop_items WHERE item_id = $1",
@@ -3762,69 +3532,6 @@ class Shop(commands.Cog):
 
         user_id = str(interaction.user.id)
         now = datetime.now(timezone.utc)
-
-        # ========== WEAPON PURCHASE ==========
-        if item['type'] == 'weapon':
-            # Check if user already owns this weapon (in user_weapons)
-            async with self.bot.db_pool.acquire() as conn:
-                exists = await conn.fetchval("""
-                    SELECT 1 FROM user_weapons
-                    WHERE user_id = $1 AND weapon_item_id = $2
-                """, user_id, item_id)
-            if exists:
-                embed = discord.Embed(
-                    title="❌ Already Owned",
-                    description=f"You already own **{item['name']}**.",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
-                return
-
-            # Check balance
-            balance = await currency_system.get_balance(user_id)
-            if balance['gems'] < item['price']:
-                embed = discord.Embed(
-                    title="❌ Insufficient Gems",
-                    description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
-                return
-
-            # Deduct gems
-            success = await currency_system.deduct_gems(
-                user_id=user_id,
-                gems=item['price'],
-                reason=f"🛒 Purchased {item['name']}"
-            )
-            if not success:
-                await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
-                return
-
-            # Generate random attack
-            attack = random.randint(50, 500)
-
-            # Insert into user_weapons (no purchase record needed)
-            async with self.bot.db_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO user_weapons (user_id, weapon_item_id, attack)
-                    VALUES ($1, $2, $3)
-                """, user_id, item_id, attack)
-
-            # Compact embed for weapon
-            desc = item.get('description') or "No description available."
-            wrapped_desc = "\n".join(textwrap.wrap(desc, width=45))
-            embed = discord.Embed(
-                title=f"{item['name']} (+{attack} ATK)",
-                description=f"*{wrapped_desc}*",
-                color=discord.Color.red()
-            )
-            if item.get('image_url'):
-                embed.set_image(url=item['image_url'])
-            embed.set_footer(text="Added to your collection!")
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return   # <-- stop here – weapon handled
 
         # ========== RANDOM WEAPON BOX ==========
         if item['type'] == 'random_weapon_box':
@@ -3843,76 +3550,308 @@ class Shop(commands.Cog):
                 await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
                 return
 
-            # Fetch all variants with type and rarity info
+            # Get all weapon items from shop_items
             async with self.bot.db_pool.acquire() as conn:
-                variants = await conn.fetch("""
-                    SELECT v.*, t.name_base, r.name as rarity_name, r.color
-                    FROM weapon_variants v
-                    JOIN weapon_types t ON v.type_id = t.type_id
-                    JOIN rarities r ON v.rarity_id = r.rarity_id
-                """)             
-
-            if not variants:
-                await interaction.followup.send("❌ No weapon variants configured. Contact an admin.", ephemeral=True)
+                weapons = await conn.fetch("""
+                    SELECT item_id, name, description FROM shop_items
+                    WHERE type = 'weapon'
+                """)
+            if not weapons:
+                await interaction.followup.send("❌ No weapons available in the shop.", ephemeral=True)
                 return
 
-            # Randomly pick a variant 
-            chosen = random.choice(variants)
+            chosen = random.choice(weapons)
+            weapon_name = chosen['name']
+            weapon_item_id = chosen['item_id']
+            description = chosen['description'] or "A random weapon."
 
-            # Build name: e.g., "Epic Sword"         
-            weapon_name = f"{chosen['rarity_name']} {chosen['name_base']}"
+            # Generate random stats
+            attack = random.randint(405, 750)
+            bleed_chance = round(random.uniform(5.0, 9.0), 1)
+            crit_chance = round(random.uniform(9.0, 25.0), 1)
+            crit_damage = round(random.uniform(23.0, 35.0), 1)
 
-            # Generate attack within variant's range
-            attack = random.randint(chosen['min_attack'], chosen['max_attack'])
-            # Generate description based on rarity
-            rarity_descriptions = {
-                'Common': 'A basic weapon, mass‑produced for everyday use.',
-                'Uncommon': 'Slightly better than common, with improved craftsmanship.',
-                'Rare': 'A well‑made weapon, sought after by experienced warriors.',
-                'Epic': 'An exceptional weapon, forged with rare materials and skill.',
-                'Legendary': 'A weapon of incredible power, said to be blessed by the gods.'
-            }
-            description = rarity_descriptions.get(chosen['rarity_name'], 'A random weapon.')
-
-            # Insert into user_weapons (create a purchase record if needed)
             async with self.bot.db_pool.acquire() as conn:
                 purchase_id = await conn.fetchval("""
                     INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
                     VALUES ($1, $2, $3, $4)
                     RETURNING purchase_id
-                """, user_id, item['item_id'], item['price'], datetime.now(timezone.utc) + timedelta(days=7))
+                """, user_id, item['item_id'], item['price'], now + timedelta(days=7))
 
                 await conn.execute("""
-                    INSERT INTO user_weapons (user_id, weapon_item_id, attack, purchase_id, generated_name, image_url, variant_id, description)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                """, user_id, None, attack, purchase_id, weapon_name, chosen['image_url'], chosen['variant_id'], description)
+                    INSERT INTO user_weapons (
+                        user_id, weapon_item_id, attack, purchase_id, description,
+                        bleeding_chance, crit_chance, crit_damage
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """, user_id, weapon_item_id, attack, purchase_id, description,
+                   bleed_chance, crit_chance, crit_damage)
 
-            # Show result: box image then weapon image
             box_embed = discord.Embed(
-                title="Box Opened!",
-                description=f"You received: **{weapon_name}**",
+                title="📦 Random Weapon Box",
+                description=f"{self.TREASURE_UNICODE} Opening box...\nYou received: **{weapon_name}**",
                 color=discord.Color.purple()
             )
-            if item['image_url']:
-                box_embed.set_image(url=item['image_url'])
             await interaction.followup.send(embed=box_embed, ephemeral=True)
 
-            rarity_color = chosen['color'] or 0xED4245  # fallback to 
-            weapon_embed = discord.Embed(          
-                title=f"{weapon_name} (+{attack} ATK)",
+            weapon_embed = discord.Embed(
+                title=f"{get_item_emoji(weapon_name, 'weapon')} **{weapon_name}** (+{attack} ATK)",
                 description=description,
-                color=rarity_color
+                color=discord.Color.red()
             )
-            if chosen['image_url']:
-                weapon_embed.set_image(url=chosen['image_url'])
+            stats = (
+                f"⚔️ **ATK:** {attack}\n"
+                f"🩸 **Bleed Chance:** {bleed_chance}%\n"
+                f"⚡ **Crit Chance:** {crit_chance}%\n"
+                f"💥 **Crit Damage:** {crit_damage}%"
+            )
+            weapon_embed.add_field(name="📊 Stats", value=stats, inline=False)
             await interaction.followup.send(embed=weapon_embed, ephemeral=True)
 
-            # Log the purchase
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
             return
 
+        # ========== RANDOM ARMOR BOX ==========
+        if item['type'] == 'random_gear_box':
+            balance = await currency_system.get_balance(user_id)
+            if balance['gems'] < item['price']:
+                embed = discord.Embed(
+                    title="❌ Insufficient Gems",
+                    description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
 
-# ========== PICKAXE PURCHASE ==========
+            success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
+            if not success:
+                await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
+                return
+
+            # Armor sets and pieces
+            armor_sets = {
+                'bilari': {'name': 'Bilari', 'color': 0x4A90E2},
+                'cryo': {'name': 'Cryo', 'color': 0x00FFFF},
+                'bane': {'name': 'Bane', 'color': 0x8B0000},
+            }
+            pieces = ['helm', 'suit', 'gauntlets', 'boots']
+            piece_ranges = {
+                'helm': {'def': (441, 946), 'hp': (1000, 2000), 'reflect': False},
+                'suit': {'def': (959, 1549), 'hp': (1500, 3000), 'reflect': (5, 15)},
+                'gauntlets': {'def': (441, 946), 'hp': (1000, 2000), 'reflect': False},
+                'boots': {'def': (210, 705), 'hp': (700, 1400), 'reflect': False},
+            }
+
+            set_name = random.choice(list(armor_sets.keys()))
+            set_data = armor_sets[set_name]
+            piece = random.choice(pieces)
+            ranges = piece_ranges[piece]
+
+            defense = random.randint(ranges['def'][0], ranges['def'][1])
+            hp_bonus = random.randint(ranges['hp'][0], ranges['hp'][1])
+            reflect = random.randint(ranges['reflect'][0], ranges['reflect'][1]) if ranges['reflect'] else 0
+
+            # Map piece to emoji key (bilari_helm, bilari_armor, etc.)
+            emoji_map = {
+                'helm': '_helm',
+                'suit': '_armor',
+                'gauntlets': '_gloves',
+                'boots': '_boots'
+            }
+            emoji_key = f"{set_name}{emoji_map[piece]}"
+            emoji = CUSTOM_EMOJIS.get(emoji_key, '🛡️')
+            armor_name = f"{set_data['name']} {piece.capitalize()}"
+
+            async with self.bot.db_pool.acquire() as conn:
+                # Check if armor_type exists
+                armor_type = await conn.fetchrow("SELECT armor_id FROM armor_types WHERE name = $1", armor_name)
+                if not armor_type:
+                    armor_type = await conn.fetchrow("""
+                        INSERT INTO armor_types (name, slot, defense, hp_bonus, reflect_damage, set_name)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        RETURNING armor_id
+                    """, armor_name, piece, defense, hp_bonus, reflect, set_data['name'])
+                    armor_id = armor_type['armor_id']
+                else:
+                    armor_id = armor_type['armor_id']
+
+                purchase_id = await conn.fetchval("""
+                    INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING purchase_id
+                """, user_id, item['item_id'], item['price'], now + timedelta(days=7))
+
+                await conn.execute("""
+                    INSERT INTO user_armor (user_id, armor_id, defense, hp_bonus, reflect_damage, set_name, purchase_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, user_id, armor_id, defense, hp_bonus, reflect, set_data['name'], purchase_id)
+
+            box_embed = discord.Embed(
+                title="📦 Random Armor Box",
+                description=f"{self.TREASURE_UNICODE} Opening box...\nYou received: **{armor_name}**",
+                color=set_data['color']
+            )
+            await interaction.followup.send(embed=box_embed, ephemeral=True)
+
+            armor_embed = discord.Embed(
+                title=f"{emoji} **{armor_name}**",
+                color=set_data['color']
+            )
+            stats = f"🛡️ **DEF:** {defense}\n❤️ **HP:** +{hp_bonus}"
+            if reflect:
+                stats += f"\n🔄 **Reflect:** {reflect}%"
+            armor_embed.add_field(name="📊 Stats", value=stats, inline=False)
+            await interaction.followup.send(embed=armor_embed, ephemeral=True)
+
+            await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
+            return
+
+        # ========== RANDOM ACCESSORY BOX ==========
+        if item['type'] == 'random_accessories_box':
+            balance = await currency_system.get_balance(user_id)
+            if balance['gems'] < item['price']:
+                embed = discord.Embed(
+                    title="❌ Insufficient Gems",
+                    description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
+            if not success:
+                await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
+                return
+
+            # Accessory sets
+            accessory_sets = {
+                'champion': {'name': 'Champion', 'color': 0xFFD700, 'stat': 'atk', 'range': (55, 150)},
+                'defender': {'name': 'Defender', 'color': 0x4A90E2, 'stat': 'def', 'range': (55, 150)},
+                'angel': {'name': 'Angel', 'color': 0xFF69B4, 'stat': 'atk', 'range': (55, 300)},
+            }
+            piece_types = ['ring', 'earring', 'pendant']
+            slots = {
+                'ring': ['ring1', 'ring2'],
+                'earring': ['earring1', 'earring2'],
+                'pendant': ['pendant']
+            }
+            emoji_map = {
+                ('champion', 'ring'): 'champ_ring',
+                ('champion', 'earring'): 'champ_earring',
+                ('champion', 'pendant'): 'champ_pen',
+                ('defender', 'ring'): 'def_ring',
+                ('defender', 'earring'): 'def_earring',
+                ('defender', 'pendant'): 'def_pen',
+                ('angel', 'ring'): 'wing_ring',
+                ('angel', 'earring'): 'harp_earring',
+                ('angel', 'pendant'): 'angel_pen',
+            }
+
+            set_name = random.choice(list(accessory_sets.keys()))
+            set_data = accessory_sets[set_name]
+            piece = random.choice(piece_types)
+
+            # Check available slot
+            async with self.bot.db_pool.acquire() as conn:
+                taken = await conn.fetch("SELECT slot FROM user_accessories WHERE user_id = $1", user_id)
+                taken_slots = [row['slot'] for row in taken]
+                available_slots = [s for s in slots[piece] if s not in taken_slots]
+                if not available_slots:
+                    await interaction.followup.send(f"❌ You already have all {piece} slots filled. Unequip one first.", ephemeral=True)
+                    return
+                slot = random.choice(available_slots)
+
+            bonus_value = random.randint(set_data['range'][0], set_data['range'][1])
+            emoji_key = emoji_map.get((set_name, piece), 'ring_1')
+            emoji = CUSTOM_EMOJIS.get(emoji_key, self.RING_UNICODE)
+            accessory_name = f"{set_data['name']} {piece.capitalize()}"
+
+            async with self.bot.db_pool.acquire() as conn:
+                acc_type = await conn.fetchrow("""
+                    INSERT INTO accessory_types (name, slot, bonus_stat, bonus_value, set_name)
+                    VALUES ($1, $2, $3, $4, $5)
+                    RETURNING accessory_id
+                """, accessory_name, slot, set_data['stat'], bonus_value, set_name)
+
+                purchase_id = await conn.fetchval("""
+                    INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING purchase_id
+                """, user_id, item['item_id'], item['price'], now + timedelta(days=7))
+
+                await conn.execute("""
+                    INSERT INTO user_accessories (user_id, accessory_id, bonus_value, slot, set_name, purchase_id)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                """, user_id, acc_type['accessory_id'], bonus_value, slot, set_name, purchase_id)
+
+            box_embed = discord.Embed(
+                title="📦 Random Accessory Box",
+                description=f"{self.TREASURE_UNICODE} Opening box...\nYou received: **{accessory_name}**",
+                color=set_data['color']
+            )
+            await interaction.followup.send(embed=box_embed, ephemeral=True)
+
+            acc_embed = discord.Embed(
+                title=f"{emoji} **{accessory_name}**",
+                color=set_data['color']
+            )
+            stat_emoji = '⚔️' if set_data['stat'] == 'atk' else '🛡️'
+            stats = f"{stat_emoji} **{set_data['stat'].upper()}:** +{bonus_value}\n📌 **Slot:** {slot}"
+            acc_embed.add_field(name="📊 Stats", value=stats, inline=False)
+            await interaction.followup.send(embed=acc_embed, ephemeral=True)
+
+            await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
+            return
+
+        # ========== WEAPON PURCHASE (direct) ==========
+        if item['type'] == 'weapon':
+            async with self.bot.db_pool.acquire() as conn:
+                exists = await conn.fetchval("""
+                    SELECT 1 FROM user_weapons
+                    WHERE user_id = $1 AND weapon_item_id = $2
+                """, user_id, item_id)
+            if exists:
+                embed = discord.Embed(
+                    title="❌ Already Owned",
+                    description=f"You already own **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            balance = await currency_system.get_balance(user_id)
+            if balance['gems'] < item['price']:
+                embed = discord.Embed(
+                    title="❌ Insufficient Gems",
+                    description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
+            if not success:
+                await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
+                return
+
+            attack = random.randint(50, 500)  # or your desired range
+            async with self.bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO user_weapons (user_id, weapon_item_id, attack)
+                    VALUES ($1, $2, $3)
+                """, user_id, item_id, attack)
+
+            desc = item.get('description') or "No description available."
+            embed = discord.Embed(
+                title=f"{item['name']} (+{attack} ATK)",
+                description=f"*{desc}*",
+                color=discord.Color.red()
+            )
+            if item.get('image_url'):
+                embed.set_image(url=item['image_url'])
+            embed.set_footer(text="Added to your collection!")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
         # ========== PICKAXE PURCHASE ==========
         if item['type'] == 'pickaxe':
             balance = await currency_system.get_balance(user_id)
@@ -3925,7 +3864,6 @@ class Shop(commands.Cog):
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 return
 
-            # Check if user already has a pickaxe
             async with self.bot.db_pool.acquire() as conn:
                 has_pickaxe = await conn.fetchval("SELECT has_pickaxe FROM player_stats WHERE user_id = $1", user_id)
                 if has_pickaxe:
@@ -3937,14 +3875,9 @@ class Shop(commands.Cog):
                 await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
                 return
 
-            # Ensure player stats exist (if not already)
             await self.bot.get_cog('CullingGame').ensure_player_stats(user_id)
-
-            # Mark user as having a pickaxe
             async with self.bot.db_pool.acquire() as conn:
-                await conn.execute("""
-                    UPDATE player_stats SET has_pickaxe = TRUE WHERE user_id = $1
-                """, user_id)
+                await conn.execute("UPDATE player_stats SET has_pickaxe = TRUE WHERE user_id = $1", user_id)
 
             embed = discord.Embed(
                 title="✅ Pickaxe Purchased!",
@@ -3955,17 +3888,11 @@ class Shop(commands.Cog):
                 embed.set_image(url=item['image_url'])
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-            # Log the purchase
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
             return
 
-
-
-
-# ENDPICKAXE 
-
         # ========== NON-WEAPON ITEMS (roles/colors) ==========
-        # Check user_purchases for existing active purchase
+        # Check for existing active purchase
         async with self.bot.db_pool.acquire() as conn:
             active = await conn.fetchval("""
                 SELECT 1 FROM user_purchases
@@ -3974,13 +3901,12 @@ class Shop(commands.Cog):
         if active:
             embed = discord.Embed(
                 title="❌ Already Owned",
-                description="You already own this item and it hasn't expired yet.\nIt will expire in a few days – you can buy it again after that.",
+                description="You already own this item and it hasn't expired yet.",
                 color=discord.Color.red()
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
-        # Balance check
         balance = await currency_system.get_balance(user_id)
         if balance['gems'] < item['price']:
             embed = discord.Embed(
@@ -4007,17 +3933,11 @@ class Shop(commands.Cog):
             await interaction.followup.send(f"❌ Failed to assign role: {e}", ephemeral=True)
             return
 
-        # Deduct gems
-        success = await currency_system.deduct_gems(
-            user_id=user_id,
-            gems=item['price'],
-            reason=f"🛒 Purchased {item['name']}"
-        )
+        success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
         if not success:
             await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
             return
 
-        # Record purchase with expiration (7 days)
         expires_at = now + timedelta(days=7)
         async with self.bot.db_pool.acquire() as conn:
             purchase_id = await conn.fetchval("""
@@ -4026,7 +3946,6 @@ class Shop(commands.Cog):
                 RETURNING purchase_id
             """, user_id, item_id, item['price'], expires_at)
 
-        # Success embed for non-weapons
         new_balance = await currency_system.get_balance(user_id)
         embed = discord.Embed(
             title="✅ Purchase Successful!",
@@ -4041,9 +3960,8 @@ class Shop(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-        # --- SPECIAL CASE: Treasure Carriage ---
-        if item['name'].lower() == "treasure carriage":  # case-insensitive match
-            # Send ephemeral message with a button to open the secret shop
+        # Special case: Treasure Carriage
+        if item['name'].lower() == "treasure carriage":
             view = discord.ui.View(timeout=300)
             button = discord.ui.Button(
                 label="Continue",
@@ -4056,42 +3974,20 @@ class Shop(commands.Cog):
                 title="🎫 Treasure Carriage Seat Purchased!",
                 description=(
                     f"You have bought a **Treasure Carriage** Seat for **{item['price']} gems**.\n"
-                    f"Click the button below to continue " 
-                    f"and book your ride (in‑game name + time).\n\n"
-                    f"⚠️ This button will disappear after use or after 5 minutes of inactivity."
+                    f"Click the button below to continue and book your ride."
                 ),
                 color=discord.Color.gold()
             )
             embed.set_footer(text="The item will be removed after you book your ride.")
-
-            # Store the purchase_id in the view for later use? Not needed, it's in custom_id.
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            return
 
-            # Log the purchase normally as well
-            await self.send_shop_log(guild, member, item['name'], item['price'], balance['gems'] - item['price'])
-            return  # stop here – don't send the normal success embed
-
-        # Success message
-        new_balance = await currency_system.get_balance(user_id)
-        # Send log to #shop-logs
         await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], new_balance['gems'])
-        embed = discord.Embed(
-            title="✅ Purchase Successful!",
-            description=f"You have bought **{item['name']}** for **{item['price']} gems**.",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="💰 New Balance", value=f"{new_balance['gems']} gems")
-        embed.add_field(name="⏳ Expires", value=f"<t:{int(expires_at.timestamp())}:R>", inline=False)
-        if item['type'] == 'color' and item.get('color_hex'):
-            embed.color = discord.Color(int(item['color_hex'].lstrip('#'), 16))
-        embed.set_footer(text="Thank you for shopping!")
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-
-    # SECRET SHOP ===============
+    # -------------------------------------------------------------------------
+    # SECRET SHOP (Treasure Carriage booking)
+    # -------------------------------------------------------------------------
     async def secret_shop_button(self, interaction: discord.Interaction, purchase_id: int):
-        """Start DM booking process."""
         async with self.bot.db_pool.acquire() as conn:
             purchase = await conn.fetchrow(
                 "SELECT * FROM user_purchases WHERE purchase_id = $1 AND used = FALSE",
@@ -4129,26 +4025,21 @@ class Shop(commands.Cog):
             await message.channel.send("✅ Got it. Now provide **ride time** in UTC: `YYYY-MM-DD HH:MM`")
 
         elif session["step"] == "time":
-            print(f"[DEBUG TIME] Received: '{message.content}'")
             try:
                 dt = datetime.strptime(message.content.strip(), "%Y-%m-%d %H:%M")
                 dt = dt.replace(tzinfo=timezone.utc)
                 if dt < datetime.now(timezone.utc):
                     await message.channel.send("❌ Time must be in future. Try again:")
                     return
-                print("[DEBUG TIME] Parsed successfully:", dt)
-            except ValueError as e:
-                print(f"[DEBUG TIME] Parse error: {e}")
+            except ValueError:
                 await message.channel.send("❌ Invalid format. Use `YYYY-MM-DD HH:MM`")
                 return
 
-            # Save booking
             purchase_id = session["purchase_id"]
             ign = session["ign"]
-            print(f"[DEBUG TIME] Purchase ID: {purchase_id}, IGN: {ign}")
+            dt_naive = dt.replace(tzinfo=None)
 
             try:
-                dt_naive = dt.replace(tzinfo=None)  # remove timezone
                 async with self.bot.db_pool.acquire() as conn:
                     async with conn.transaction():
                         await conn.execute("""
@@ -4156,13 +4047,12 @@ class Shop(commands.Cog):
                             VALUES ($1, $2, $3, $4)
                         """, str(user_id), ign, dt_naive, purchase_id)
                         await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
-                print("[DEBUG TIME] Database insert/update succeeded")
             except Exception as e:
                 print(f"[DEBUG TIME] Database error: {e}")
                 await message.channel.send("❌ Database error – booking failed. Please contact an admin.")
                 return
 
-            # Remove role
+            # Remove role if any
             try:
                 async with self.bot.db_pool.acquire() as conn:
                     row = await conn.fetchrow("""
@@ -4171,29 +4061,20 @@ class Shop(commands.Cog):
                         JOIN user_purchases up ON up.item_id = si.item_id
                         WHERE up.purchase_id = $1
                     """, purchase_id)
-                print(f"[DEBUG TIME] Role row: {row}")
-            except Exception as e:
-                print(f"[DEBUG TIME] Role fetch error: {e}")
-                row = None
-
-            if row:
-                guild = self.bot.get_guild(row['guild_id'])
-                if guild:
-                    member = guild.get_member(user_id)
-                    if member:
-                        role = guild.get_role(row['role_id'])
-                        if role:
-                            try:
+                if row:
+                    guild = self.bot.get_guild(row['guild_id'])
+                    if guild:
+                        member = guild.get_member(user_id)
+                        if member:
+                            role = guild.get_role(row['role_id'])
+                            if role:
                                 await member.remove_roles(role, reason="Carriage used")
-                                print("[DEBUG TIME] Role removed")
-                            except Exception as e:
-                                print(f"[DEBUG TIME] Role removal error: {e}")
+            except Exception as e:
+                print(f"[DEBUG TIME] Role removal error: {e}")
 
-            # Confirm to user
             embed = discord.Embed(title="✅ Schedule Confirmed!", color=discord.Color.green())
             embed.description = f"**IGN:** {ign}\n**Ride Time:** <t:{int(dt.timestamp())}:F>\n\nYour ride has been scheduled. Please wait for confirmation."
             await message.channel.send(embed=embed)
-            print("[DEBUG TIME] Confirmation sent")
 
             # Notify admins
             if row and (guild := self.bot.get_guild(row['guild_id'])):
@@ -4205,30 +4086,19 @@ class Shop(commands.Cog):
                         log_embed.add_field(name="IGN", value=ign)
                         log_embed.add_field(name="Ride Time", value=f"<t:{int(dt.timestamp())}:F>")
                         log_embed.add_field(name="Purchase ID", value=str(purchase_id))
-                        if member:
-                            log_embed.set_thumbnail(url=member.display_avatar.url)
                         await log_channel.send(embed=log_embed)
-                        print("[DEBUG TIME] Admin log sent")
                     except Exception as e:
                         print(f"[DEBUG TIME] Admin log error: {e}")
 
-            # Clean up session
             del self.booking_sessions[user_id]
-            print("[DEBUG TIME] Session deleted")
 
-
-# END SECRET SHOP =================
-
-
+    # -------------------------------------------------------------------------
     # SHOP LOGS
-
+    # -------------------------------------------------------------------------
     async def send_shop_log(self, guild: discord.Guild, user: discord.Member, item_name: str, price: int, balance: int):
-        """Send a purchase log to the #shop-logs channel if it exists."""
-        # Find channel named "shop logs" (case‑insensitive)
         channel = discord.utils.get(guild.text_channels, name="shop logs")
         if not channel:
-            return  # No log channel found
-
+            return
         embed = discord.Embed(
             title="🛒 **Shop Purchase**",
             color=discord.Color.green(),
@@ -4240,19 +4110,13 @@ class Shop(commands.Cog):
         embed.add_field(name="💰 New Balance", value=f"{balance} gems", inline=True)
         embed.set_thumbnail(url=user.display_avatar.url)
         embed.set_footer(text="Shop Logger")
-
         try:
             await channel.send(embed=embed)
         except Exception as e:
             print(f"⚠️ Failed to send shop log: {e}")
 
-    #END SHOP LOGS
-
-
- 
-   
-
-    # ADMIN COMMANDS (unchanged, but we need to add guild_id to shop_items? Not now.)
+    # -------------------------------------------------------------------------
+    # ADMIN COMMANDS
     # -------------------------------------------------------------------------
     @commands.group(name='shopadmin', invoke_without_command=True)
     @commands.has_permissions(administrator=True)
@@ -4264,7 +4128,11 @@ class Shop(commands.Cog):
                 "`!!shopadmin add color <name> <price> <role_id> <hex>`\n"
                 "`!!shopadmin remove <item_id>`\n"
                 "`!!shopadmin edit price <item_id> <new_price>`\n"
-                "`!!shopadmin edit description <item_id> <new_desc>`"
+                "`!!shopadmin edit description <item_id> <new_desc>`\n"
+                "`!!shopadmin addweaponbox <name> <price> [description]`\n"
+                "`!!shopadmin addarmorbox <name> <price> [description]`\n"
+                "`!!shopadmin addaccessorybox <name> <price> [description]`\n"
+                "`!!shopadmin addpickaxe <name> <price> [description]`"
             ),
             color=discord.Color.orange()
         )
@@ -4278,12 +4146,10 @@ class Shop(commands.Cog):
             await ctx.send("❌ Type must be `role`, `color`, or `weapon`.")
             return
 
-        # Validate based on type
         if item_type == 'role':
             if not role_id:
                 await ctx.send("❌ For role items, you must provide a role_id.")
                 return
-            # Validate role exists
             role = ctx.guild.get_role(role_id)
             if not role:
                 await ctx.send(f"❌ Role with ID `{role_id}` not found.")
@@ -4306,7 +4172,6 @@ class Shop(commands.Cog):
             color_hex = None
             description = f"Weapon: {name}"
 
-        # Optional image URL validation
         if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
             await ctx.send("❌ Image URL must start with `http://` or `https://`.")
             return
@@ -4322,41 +4187,55 @@ class Shop(commands.Cog):
     @shop_admin.command(name='addweapon')
     @commands.has_permissions(administrator=True)
     async def shop_add_weapon(self, ctx, name: str, price: int, description: str, image_url: str = None):
-        """Add a weapon with custom description.
-        Usage: !!shopadmin addweapon "Dragon Slayer" 500 "A legendary blade forged in dragon fire." [image_url]
-    """
-        # Optional image URL validation
         if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
             await ctx.send("❌ Image URL must start with `http://` or `https://`.")
             return
-
         async with self.bot.db_pool.acquire() as conn:
             await conn.execute("""
                 INSERT INTO shop_items (name, description, price, type, role_id, color_hex, guild_id, image_url)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            """, name, description, price, 'weapon', None, None, ctx.guild.id, image_url)
+                VALUES ($1, $2, $3, 'weapon', NULL, NULL, $4, $5)
+            """, name, description, price, ctx.guild.id, image_url)
+        await ctx.send(f"✅ Added weapon **{name}** for **{price} gems**.")
 
-        await ctx.send(f"✅ Added weapon **{name}** for **{price} gems** with custom description.")
+    @shop_admin.command(name='addweaponbox')
+    @commands.has_permissions(administrator=True)
+    async def add_weapon_box(self, ctx, name: str, price: int, description: str = "Open to get a random weapon!"):
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO shop_items (name, description, price, type, guild_id)
+                VALUES ($1, $2, $3, 'random_weapon_box', $4)
+            """, name, description, price, ctx.guild.id)
+        await ctx.send(f"✅ Added random weapon box **{name}** for **{price} gems**.")
 
+    @shop_admin.command(name='addarmorbox')
+    @commands.has_permissions(administrator=True)
+    async def add_armor_box(self, ctx, name: str, price: int, description: str = "Contains a random piece of armor!"):
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO shop_items (name, description, price, type, guild_id)
+                VALUES ($1, $2, $3, 'random_gear_box', $4)
+            """, name, description, price, ctx.guild.id)
+        await ctx.send(f"✅ Added random armor box **{name}** for **{price} gems**.")
+
+    @shop_admin.command(name='addaccessorybox')
+    @commands.has_permissions(administrator=True)
+    async def add_accessory_box(self, ctx, name: str, price: int, description: str = "Contains a random accessory piece!"):
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO shop_items (name, description, price, type, guild_id)
+                VALUES ($1, $2, $3, 'random_accessories_box', $4)
+            """, name, description, price, ctx.guild.id)
+        await ctx.send(f"✅ Added random accessory box **{name}** for **{price} gems**.")
 
     @shop_admin.command(name='addpickaxe')
     @commands.has_permissions(administrator=True)
-    async def shop_add_pickaxe(self, ctx, name: str, price: int, description: str = "A sturdy pickaxe for mining.", image_url: str = None):
-        """Add a pickaxe item to the shop."""
-        if image_url and not (image_url.startswith('http://') or image_url.startswith('https://')):
-            await ctx.send("❌ Image URL must start with `http://` or `https://`.")
-            return
-
+    async def add_pickaxe(self, ctx, name: str, price: int, description: str = "A sturdy pickaxe for mining."):
         async with self.bot.db_pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO shop_items (name, description, price, type, guild_id, image_url)
-                VALUES ($1, $2, $3, 'pickaxe', $4, $5)
-            """, name, description, price, ctx.guild.id, image_url)
-
+                INSERT INTO shop_items (name, description, price, type, guild_id)
+                VALUES ($1, $2, $3, 'pickaxe', $4)
+            """, name, description, price, ctx.guild.id)
         await ctx.send(f"✅ Added pickaxe **{name}** for **{price} gems**.")
-
-# END
-
 
     @shop_admin.command(name='remove')
     @commands.has_permissions(administrator=True)
@@ -4375,7 +4254,6 @@ class Shop(commands.Cog):
         if field not in ('price', 'description'):
             await ctx.send("❌ Can only edit `price` or `description`.")
             return
-
         async with self.bot.db_pool.acquire() as conn:
             if field == 'price':
                 try:
@@ -4389,106 +4267,32 @@ class Shop(commands.Cog):
                     return
             else:
                 await conn.execute("UPDATE shop_items SET description = $1 WHERE item_id = $2", value, item_id)
-
         await ctx.send(f"✅ Updated `{field}` of item #{item_id}.")
 
-    @commands.command(name='adminweapons')
-    @commands.has_permissions(administrator=True)
-    async def admin_list_weapons(self, ctx, user: discord.Member):
-        """List all weapons owned by a user with their IDs (admin only)."""
-        user_id = str(user.id)
-        async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT uw.id, si.name, uw.attack
-                FROM user_weapons uw
-                JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                WHERE uw.user_id = $1
-                ORDER BY uw.purchased_at DESC
-            """, user_id)
-
-        if not rows:
-            await ctx.send(f"{user.display_name} doesn't own any weapons.")
-            return
-
-        embed = discord.Embed(
-            title=f"🗡️ {user.display_name}'s Weapons",
-            color=discord.Color.blue()
-        )
-        for row in rows:
-            embed.add_field(
-                name=f"ID: {row['id']}",
-                value=f"**{row['name']}** (+{row['attack']} ATK)",
-                inline=False
-            )
-        await ctx.send(embed=embed)
-
-    @commands.command(name='adminremoveweapon')
-    @commands.has_permissions(administrator=True)
-    async def admin_remove_weapon(self, ctx, weapon_id: int):
-        """Remove a weapon by its unique ID and allow re-purchase (admin only)."""
-        async with self.bot.db_pool.acquire() as conn:
-            # Get weapon info and linked purchase_id
-            row = await conn.fetchrow("""
-                SELECT uw.id, si.name, uw.user_id, uw.purchase_id
-                FROM user_weapons uw
-                JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                WHERE uw.id = $1
-            """, weapon_id)
-
-            if not row:
-                await ctx.send(f"❌ Weapon with ID `{weapon_id}` not found.")
-                return
-
-            # Delete the weapon
-            await conn.execute("DELETE FROM user_weapons WHERE id = $1", weapon_id)
-
-            # Mark the associated purchase as used so the item can be bought again
-            if row['purchase_id']:
-                await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", row['purchase_id'])
-
-        user = self.bot.get_user(int(row['user_id']))
-        user_mention = user.mention if user else f"User ID {row['user_id']}"
-
-        embed = discord.Embed(
-            title="✅ Weapon Removed",
-            description=f"Removed **{row['name']}** (ID: {weapon_id}) from {user_mention}. They can now buy it again.",
-            color=discord.Color.green()
-        )
-        await ctx.send(embed=embed)
-
-
-
-
-
+    # -------------------------------------------------------------------------
+    # UTILITY COMMANDS
+    # -------------------------------------------------------------------------
     @commands.command(name='listweapons')
     async def list_weapons(self, ctx):
-        """List all your weapons with their IDs."""
         user_id = str(ctx.author.id)
         async with self.bot.db_pool.acquire() as conn:
             weapons = await conn.fetch("""
-                SELECT uw.id, 
-                       COALESCE(si.name, uw.generated_name) as name,
-                       uw.attack
+                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.attack
                 FROM user_weapons uw
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
                 WHERE uw.user_id = $1
                 ORDER BY uw.purchased_at DESC
             """, user_id)
-
         if not weapons:
             await ctx.send("You don't own any weapons.")
             return
-
         lines = [f"ID {w['id']}: {w['name']} (+{w['attack']} ATK)" for w in weapons]
         await ctx.send("**Your weapons:**\n" + "\n".join(lines))
 
-
     @commands.command(name='removeweapon')
     async def remove_weapon(self, ctx, weapon_id: int):
-        """Delete a weapon you own by its ID (use !!listweapons to see IDs)."""
         user_id = str(ctx.author.id)
         async with self.bot.db_pool.acquire() as conn:
-            # Check if weapon exists and belongs to user
             weapon = await conn.fetchrow(
                 "SELECT id, COALESCE(si.name, uw.generated_name) as name "
                 "FROM user_weapons uw "
@@ -4499,83 +4303,67 @@ class Shop(commands.Cog):
             if not weapon:
                 await ctx.send("❌ Weapon not found or does not belong to you.")
                 return
-
-            # Ask for confirmation
             confirm = await ctx.send(f"Are you sure you want to delete **{weapon['name']}**? Reply with `yes` within 30 seconds.")
-
-            def check(m):
-                return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "yes"
-
+            def check(m): return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "yes"
             try:
                 await self.bot.wait_for('message', timeout=30.0, check=check)
             except asyncio.TimeoutError:
                 await ctx.send("⏰ Deletion cancelled.")
                 return
-
-            # Delete the weapon
             await conn.execute("DELETE FROM user_weapons WHERE id = $1", weapon_id)
             await ctx.send(f"✅ Weapon **{weapon['name']}** deleted.")
 
-
-    @commands.command(name='removeallweapons')
-    async def remove_all_weapons(self, ctx):
-        """Delete ALL weapons you own. This action cannot be undone."""
-        user_id = str(ctx.author.id)
+    @commands.command(name='adminweapons')
+    @commands.has_permissions(administrator=True)
+    async def admin_list_weapons(self, ctx, user: discord.Member):
+        user_id = str(user.id)
         async with self.bot.db_pool.acquire() as conn:
-            # Count how many weapons the user has
-            count = await conn.fetchval(
-                "SELECT COUNT(*) FROM user_weapons WHERE user_id = $1",
-                user_id
-            )
-            if count == 0:
-                await ctx.send("❌ You don't own any weapons.")
-                return
-
-        # Ask for confirmation
-        confirm_msg = await ctx.send(
-            f"⚠️ **WARNING:** You are about to delete **all {count} of your weapons**. "
-            "This cannot be undone. Reply with `yes` within 30 seconds to confirm."
-        )
-
-        def check(m):
-            return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "yes"
-
-        try:
-            await self.bot.wait_for('message', timeout=30.0, check=check)
-        except asyncio.TimeoutError:
-            await ctx.send("❌ Deletion cancelled (timeout).")
+            rows = await conn.fetch("""
+                SELECT uw.id, si.name, uw.attack
+                FROM user_weapons uw
+                JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.purchased_at DESC
+            """, user_id)
+        if not rows:
+            await ctx.send(f"{user.display_name} doesn't own any weapons.")
             return
+        embed = discord.Embed(title=f"🗡️ {user.display_name}'s Weapons", color=discord.Color.blue())
+        for row in rows:
+            embed.add_field(name=f"ID: {row['id']}", value=f"**{row['name']}** (+{row['attack']} ATK)", inline=False)
+        await ctx.send(embed=embed)
 
-        # Perform deletion
+    @commands.command(name='adminremoveweapon')
+    @commands.has_permissions(administrator=True)
+    async def admin_remove_weapon(self, ctx, weapon_id: int):
         async with self.bot.db_pool.acquire() as conn:
-            await conn.execute(
-                "DELETE FROM user_weapons WHERE user_id = $1",
-                user_id
-            )
-
-        await ctx.send(f"✅ Successfully deleted all {count} weapons.")
-
-
-
-# TEMPORARY COMMAND
+            row = await conn.fetchrow("""
+                SELECT uw.id, si.name, uw.user_id, uw.purchase_id
+                FROM user_weapons uw
+                JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.id = $1
+            """, weapon_id)
+            if not row:
+                await ctx.send(f"❌ Weapon with ID `{weapon_id}` not found.")
+                return
+            await conn.execute("DELETE FROM user_weapons WHERE id = $1", weapon_id)
+            if row['purchase_id']:
+                await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", row['purchase_id'])
+        user = self.bot.get_user(int(row['user_id']))
+        user_mention = user.mention if user else f"User ID {row['user_id']}"
+        embed = discord.Embed(title="✅ Weapon Removed", color=discord.Color.green())
+        embed.description = f"Removed **{row['name']}** (ID: {weapon_id}) from {user_mention}. They can now buy it again."
+        await ctx.send(embed=embed)
 
     @commands.command(name='clear_carriage')
     @commands.has_permissions(administrator=True)
     async def clear_carriage(self, ctx, user: discord.Member = None):
-        """Admin only: Clear the Treasure Carriage purchase for a user (mark as used)."""
-        print(f"[DEBUG] clear_carriage called by {ctx.author}")
-        await ctx.send("Command received, processing...")   # temporary
-
         target = user or ctx.author
         user_id = str(target.id)
-
-        # Check database connection
         if not self.bot.db_pool:
             await ctx.send("❌ Database not connected.")
             return
-
         async with self.bot.db_pool.acquire() as conn:
-            # Find the active Treasure Carriage purchase
             row = await conn.fetchrow("""
                 SELECT up.purchase_id 
                 FROM user_purchases up
@@ -4586,17 +4374,11 @@ class Shop(commands.Cog):
                   AND up.expires_at > NOW()
                 LIMIT 1
             """, user_id)
-
             if not row:
                 await ctx.send(f"❌ No active Treasure Carriage purchase found for {target.mention}.")
                 return
-
             purchase_id = row['purchase_id']
-
-            # Mark as used
             await conn.execute("UPDATE user_purchases SET used = TRUE WHERE purchase_id = $1", purchase_id)
-
-            # Remove role if still present
             guild = ctx.guild
             member = guild.get_member(target.id)
             if member:
@@ -4613,9 +4395,9 @@ class Shop(commands.Cog):
                             await member.remove_roles(role, reason="Cleared by admin")
                         except Exception as e:
                             print(f"Role removal error: {e}")
-
         await ctx.send(f"✅ Cleared Treasure Carriage purchase for {target.mention}. They can now buy it again.")
 
+# Make sure to add the cog to the bot after this definition
 
 
     class InventoryItemButton(discord.ui.Button):
