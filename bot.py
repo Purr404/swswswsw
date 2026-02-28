@@ -726,9 +726,10 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE user_armor ADD COLUMN IF NOT EXISTS hp_bonus INTEGER DEFAULT 0')
                     await conn.execute('ALTER TABLE user_armor ADD COLUMN IF NOT EXISTS reflect_damage INTEGER DEFAULT 0')
                     await conn.execute('ALTER TABLE user_armor ADD COLUMN IF NOT EXISTS set_name TEXT')
+                    await conn.execute('ALTER TABLE user_armor ADD COLUMN IF NOT EXISTS purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL')
 
                     # Accessory types
-                    await conn.execute('ALTER TABLE accessory_types ADD COLUMN IF NOT EXISTS set_name TEXT')
+                    await conn.execute('ALTER TABLE accessory_types ADD COLUMN IF NOT EXISTS set_name TEXT')                   
                     await conn.execute('ALTER TABLE accessory_types ADD COLUMN IF NOT EXISTS slot_count INTEGER DEFAULT 1')
                     # Update slot constraint for accessory_types
                     await conn.execute('ALTER TABLE accessory_types DROP CONSTRAINT IF EXISTS accessory_types_slot_check')
@@ -745,6 +746,7 @@ class DatabaseSystem:
 
                     # User accessories
                     await conn.execute('ALTER TABLE user_accessories ADD COLUMN IF NOT EXISTS set_name TEXT')
+                    await conn.execute('ALTER TABLE user_accessories ADD COLUMN IF NOT EXISTS purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL')
 
                     # Player stats
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS defense INTEGER DEFAULT 0')
