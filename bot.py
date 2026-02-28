@@ -3119,6 +3119,46 @@ class Shop(commands.Cog):
     GEM_UNICODE = "💎"
     TREASURE_UNICODE = "🎁"
 
+
+
+   
+    def build_main_categories(self):
+        embed = discord.Embed(
+            title="🛍️ Shop Categories",
+            description="Select a category to browse.",
+            color=discord.Color.blue()
+        )
+        view = discord.ui.View(timeout=300)
+
+        customization_emoji = discord.PartialEmoji(name="shadow", id=1477258013256454339)
+        equipment_emoji = discord.PartialEmoji(name="zenith_sword", id=1477018808068866150)
+        tools_emoji = discord.PartialEmoji(name="pickaxe", id=1477024057382666383)
+
+        button_custom = discord.ui.Button(
+            label="Customization",
+            emoji=customization_emoji,
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_maincat_customization"
+        )
+        button_equip = discord.ui.Button(
+            label="Equipment",
+            emoji=equipment_emoji,
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_maincat_equipment"
+        )
+        button_tools = discord.ui.Button(
+            label="Tools",
+            emoji=tools_emoji,
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_maincat_tools"
+        )
+
+        view.add_item(button_custom)
+        view.add_item(button_equip)
+        view.add_item(button_tools)
+
+        return embed, view
+
     # -------------------------------------------------------------------------
     # BACKGROUND TASK: Remove expired roles every hour
     # -------------------------------------------------------------------------
@@ -3259,7 +3299,10 @@ class Shop(commands.Cog):
                 await self.show_tools(interaction)
 
         elif custom_id == "shop_back_to_main":
-            await self.show_main_categories(interaction)
+            # Build the main categories embed and view
+            embed, view = self.build_main_categories()
+            # Edit the current message
+            await interaction.response.edit_message(embed=embed, view=view)
 
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
@@ -3269,41 +3312,7 @@ class Shop(commands.Cog):
     # SHOW MAIN CATEGORIES (using PartialEmoji for custom emojis)
     # -------------------------------------------------------------------------
     async def show_main_categories(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="🛍️ Shop Categories",
-            description="Select a category to browse.",
-            color=discord.Color.blue()
-        )
-        view = discord.ui.View(timeout=300)
-
-        # PartialEmoji objects for custom emojis
-        customization_emoji = discord.PartialEmoji(name="shadow", id=1477258013256454339)
-        equipment_emoji = discord.PartialEmoji(name="zenith_sword", id=1477018808068866150)
-        tools_emoji = discord.PartialEmoji(name="pickaxe", id=1477024057382666383)
-
-        button_custom = discord.ui.Button(
-            label="Customization",
-            emoji=customization_emoji,
-            style=discord.ButtonStyle.secondary,
-            custom_id="shop_maincat_customization"
-        )
-        button_equip = discord.ui.Button(
-            label="Equipment",
-            emoji=equipment_emoji,
-            style=discord.ButtonStyle.secondary,
-            custom_id="shop_maincat_equipment"
-        )
-        button_tools = discord.ui.Button(
-            label="Tools",
-            emoji=tools_emoji,
-            style=discord.ButtonStyle.secondary,
-            custom_id="shop_maincat_tools"
-        )
-
-        view.add_item(button_custom)
-        view.add_item(button_equip)
-        view.add_item(button_tools)
-
+        embed, view = self.build_main_categories()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # -------------------------------------------------------------------------
@@ -3332,11 +3341,6 @@ class Shop(commands.Cog):
             """)
 
         if role_items:
-            role_descriptions = []
-            for item in role_items:
-                role_descriptions.append(f"{CUSTOM_EMOJIS['shadow']} **{item['name']}** – {item['price']} {self.GEM_UNICODE}")
-            embed.add_field(name="Roles", value="\n".join(role_descriptions), inline=False)
-
             for item in role_items:
                 button = discord.ui.Button(
                     label=f"{item['name'][:15]} – {item['price']}g",
@@ -3346,10 +3350,13 @@ class Shop(commands.Cog):
                 view.add_item(button)
 
         if color_items:
-            color_descriptions = []
             for item in color_items:
-                color_descriptions.append(f"{self.RING_UNICODE} **{item['name']}** – {item['price']} {self.GEM_UNICODE}")
-            embed.add_field(name="Name Colors", value="\n".join(color_descriptions), inline=False)
+                button = discord.ui.Button(
+                    label=f"{item['name'][:15]} – {item['price']}g",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"shop_buy_{item['item_id']}"
+                )
+                view.add_item(button)
 
             for item in color_items:
                 button = discord.ui.Button(
@@ -3403,15 +3410,6 @@ class Shop(commands.Cog):
             """)
 
         if weapon_boxes:
-            weapon_info = (
-                f"{CUSTOM_EMOJIS['zenith_sword']} **Random Weapon Box**\n"
-                f"├─ **ATK Range:** 405-750\n"
-                f"├─ **Effects:** Bleed (5-9%), Crit Chance (9-25%), Crit DMG (23-35%)\n"
-                f"└─ **Weapons:** Zenith, Abyssal, Dawn Breaker, Bloodmoon, Shadowbane\n\n"
-                f"**Buy to get a random weapon with random stats!**"
-            )
-            embed.add_field(name="🗡️ Weapons", value=weapon_info, inline=False)
-
             for box in weapon_boxes:
                 button = discord.ui.Button(
                     label=f"🗡️ {box['name'][:15]} – {box['price']}g",
@@ -3421,17 +3419,6 @@ class Shop(commands.Cog):
                 view.add_item(button)
 
         if armor_boxes:
-            armor_info = (
-                f"{CUSTOM_EMOJIS['bilari_armor']} **Random Armor Box**\n"
-                f"├─ **Helm:** 441-946 DEF | 1000-2000 HP\n"
-                f"├─ **Suit:** 959-1549 DEF | 1500-3000 HP | 5-15% Reflect\n"
-                f"├─ **Gauntlets:** 441-946 DEF | 1000-2000 HP\n"
-                f"└─ **Boots:** 210-705 DEF | 700-1400 HP\n\n"
-                f"**Sets:** Bilari, Cryo, Bane (4-piece set bonus)\n"
-                f"**Buy to get a random armor piece from a random set!**"
-            )
-            embed.add_field(name="🛡️ Armor", value=armor_info, inline=False)
-
             for box in armor_boxes:
                 button = discord.ui.Button(
                     label=f"🛡️ {box['name'][:15]} – {box['price']}g",
@@ -3441,16 +3428,6 @@ class Shop(commands.Cog):
                 view.add_item(button)
 
         if accessory_boxes:
-            accessory_info = (
-                f"{CUSTOM_EMOJIS['champ_ring']} **Random Accessory Box**\n"
-                f"├─ **Champion Set:** 55-150 ATK per piece\n"
-                f"├─ **Defender Set:** 55-150 DEF per piece\n"
-                f"└─ **Angel Set:** 55-300 ATK per piece\n\n"
-                f"**Requirements:** 2 Rings + 2 Earrings + 1 Pendant (5-piece set bonus)\n"
-                f"**Buy to get a random accessory piece from a random set!**"
-            )
-            embed.add_field(name="💍 Accessories", value=accessory_info, inline=False)
-
             for box in accessory_boxes:
                 button = discord.ui.Button(
                     label=f"💍 {box['name'][:15]} – {box['price']}g",
