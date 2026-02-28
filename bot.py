@@ -3169,42 +3169,54 @@ class Shop(commands.Cog):
         if not hasattr(self.bot, 'db_pool') or self.bot.db_pool is None:
             print("⏳ check_expired_purchases: db_pool not ready, skipping.")
             return
+
         try:
             async with self.bot.db_pool.acquire() as conn:
+                # Fetch expired purchases that are still unused and have a role_id
                 rows = await conn.fetch("""
-                    SELECT up.user_id, up.item_id, si.role_id, si.guild_id, si.name
+                    SELECT up.purchase_id, up.user_id, si.role_id, si.guild_id, si.name
                     FROM user_purchases up
                     JOIN shop_items si ON up.item_id = si.item_id
-                    WHERE up.expires_at < NOW()
+                    WHERE up.expires_at < NOW() AND up.used = FALSE AND si.role_id IS NOT NULL
                 """)
+
                 for row in rows:
+                    purchase_id = row['purchase_id']
                     user_id = row['user_id']
                     guild_id = row['guild_id']
                     role_id = row['role_id']
                     item_name = row['name']
 
                     guild = self.bot.get_guild(guild_id)
-                    if guild:
-                        member = guild.get_member(int(user_id))
-                        if member:
-                            role = guild.get_role(role_id)
-                            if role:
-                                try:
-                                    await member.remove_roles(role, reason="Shop item expired (7 days)")
-                                    print(f"✅ Removed expired role '{item_name}' from {member} (ID: {user_id})")
-                                except discord.Forbidden:
-                                    print(f"❌ No permission to remove role {role_id} from user {user_id} in guild {guild_id}")
-                                except Exception as e:
-                                    print(f"⚠️ Error removing role: {e}")
-                            else:
-                                print(f"⚠️ Role {role_id} not found in guild {guild_id}")
-                        else:
-                            print(f"⚠️ Member {user_id} not found in guild {guild_id}")
-                    else:
-                        print(f"⚠️ Guild {guild_id} not found")
+                    if not guild:
+                        print(f"⚠️ Guild {guild_id} not found for expired item {item_name} (purchase {purchase_id}) – skipping removal, will retry later.")
+                        continue
 
-                result = await conn.execute("DELETE FROM user_purchases WHERE expires_at < NOW()")
-                print(f"🧹 Cleaned up {result.split()[1]} expired purchase records.")
+                    member = guild.get_member(int(user_id))
+                    if not member:
+                        print(f"⚠️ Member {user_id} not found in guild {guild_id} for expired item {item_name} – cannot remove role. Deleting purchase record anyway.")
+                        # Member left the guild, so role is gone anyway – safe to delete.
+                        await conn.execute("DELETE FROM user_purchases WHERE purchase_id = $1", purchase_id)
+                        continue
+
+                    role = guild.get_role(role_id)
+                    if not role:
+                        print(f"⚠️ Role {role_id} not found in guild {guild_id} for expired item {item_name} – deleting purchase record.")
+                        await conn.execute("DELETE FROM user_purchases WHERE purchase_id = $1", purchase_id)
+                        continue
+
+                    try:
+                        await member.remove_roles(role, reason=f"Shop item expired: {item_name}")
+                        print(f"✅ Removed expired role '{item_name}' from {member} (ID: {user_id})")
+                        # Success – delete the purchase record
+                        await conn.execute("DELETE FROM user_purchases WHERE purchase_id = $1", purchase_id)
+                    except discord.Forbidden:
+                        print(f"❌ No permission to remove role {role_id} from user {user_id} in guild {guild_id} – will retry next hour.")
+                        # Do NOT delete the record, so it will be retried
+                    except Exception as e:
+                        print(f"⚠️ Error removing role: {e} – will retry next hour.")
+                        # Do NOT delete the record
+
         except Exception as e:
             print(f"❌ Error in check_expired_purchases: {e}")
 
