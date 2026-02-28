@@ -3432,7 +3432,7 @@ class Shop(commands.Cog):
     
         # Accessory Boxes Section
         if accessory_boxes:
-        accessory_info = (
+            accessory_info = (
                 f"{CUSTOM_EMOJIS['champ_ring']} **Random Accessory Box**\n"
                 f"├─ **Champion Set:** 55-150 ATK per piece\n"
                 f"├─ **Defender Set:** 55-150 DEF per piece\n"
