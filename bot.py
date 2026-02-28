@@ -3604,7 +3604,7 @@ class Shop(commands.Cog):
                 f"🩸 **Bleed Chance:** {bleed_chance}%\n"
                 f"⚡ **Crit Chance:** {crit_chance}%\n"
                 f"💥 **Crit Damage:** {crit_damage}%"
-                       
+            )         
             await interaction.followup.send(embed=weapon_embed, ephemeral=True)
 
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
