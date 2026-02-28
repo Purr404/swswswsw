@@ -3925,7 +3925,7 @@ class Shop(commands.Cog):
             await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
             return
 
-        expires_at = now + timedelta(days=7)
+        expires_at = now + timedelta(minutes=2)
         async with self.bot.db_pool.acquire() as conn:
             purchase_id = await conn.fetchval("""
                 INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
