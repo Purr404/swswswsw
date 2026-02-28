@@ -356,7 +356,7 @@ async def check_emojis(ctx):
     
     await ctx.send(embed=embed)
 
-@@bot.command()
+@bot.command()
 async def testpartial(ctx):
     view = discord.ui.View()
     emoji = discord.PartialEmoji(name="def_ring", id=1477133279802036225)
