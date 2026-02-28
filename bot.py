@@ -2944,33 +2944,25 @@ class Shop(commands.Cog):
 
         if custom_id == "shop_open_main":
             await self.show_main_categories(interaction)
+    
         elif custom_id.startswith("shop_maincat_"):
             main_cat = custom_id.replace("shop_maincat_", "")
+        
             if main_cat == "customization":
-                await self.show_subcategories(interaction, main_cat)
-            elif main_cat == "weapons":
-                embed = discord.Embed(title="🗡️ Weapons", color=discord.Color.red())
-                view = discord.ui.View(timeout=300)
-                await self.show_weapon_items(interaction, embed, view)
-            elif main_cat == "accessories":
-                await self.show_accessories_items(interaction)
-            else:
-                # fallback for any other main category
-                await self.show_subcategories(interaction, main_cat)
-        elif custom_id.startswith("shop_subcat_"):
-            subcat = custom_id.replace("shop_subcat_", "")
-            await self.show_items(interaction, subcat)
+                await self.show_customization(interaction)
+            
+            elif main_cat == "equipment":
+                await self.show_equipment(interaction)
+            
+            elif main_cat == "tools":
+                await self.show_tools(interaction)
+    
         elif custom_id == "shop_back_to_main":
             await self.show_main_categories(interaction)
-        elif custom_id == "shop_back_to_sub":
-            await self.show_main_categories(interaction)  # Simplified
+    
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
-        elif custom_id.startswith("secret_shop_"):
-            purchase_id = int(custom_id.split("_")[2])
-            await self.secret_shop_button(interaction, purchase_id)
-
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES
     # -------------------------------------------------------------------------
@@ -2981,13 +2973,13 @@ class Shop(commands.Cog):
             color=discord.Color.blue()
         )
         view = discord.ui.View(timeout=300)
-        # Main categories (you can add more later)
+    
         main_cats = [
-            ("🎨 Customization", "customization"),
-            ("🗡️ Weapons", "weapons"),
-            ("🎒 Accessories", "accessories")
-
+            (f"{CUSTOM_EMOJIS['ring_1']} Customization", "customization"),
+            (f"{CUSTOM_EMOJIS['zenith_sword']} Equipment", "equipment"),
+            (f"{CUSTOM_EMOJIS['pickaxe']} Tools", "tools")
         ]
+    
         for label, cat_id in main_cats:
             button = discord.ui.Button(
                 label=label,
@@ -2995,6 +2987,7 @@ class Shop(commands.Cog):
                 custom_id=f"shop_maincat_{cat_id}"
             )
             view.add_item(button)
+    
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # -------------------------------------------------------------------------
