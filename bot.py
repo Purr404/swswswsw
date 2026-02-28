@@ -3286,137 +3286,225 @@ class Shop(commands.Cog):
     # -------------------------------------------------------------------------
     # SHOW ITEMS FOR A SUBCATEGORY
     # -------------------------------------------------------------------------
-    async def show_items(self, interaction: discord.Interaction, subcat: str):
-        # subcat = "roles" or "colors"
-        item_type = "role" if subcat == "roles" else "color"
-        async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT item_id, name, description, price, type
-                FROM shop_items
-                WHERE type = $1
-                ORDER BY price ASC
-            """, item_type)
-
-        if not rows:
-            embed = discord.Embed(
-                title=f"🛍️ {subcat.title()}",
-                description="No items available in this category yet.",
-                color=discord.Color.red()
-            )
-            view = discord.ui.View(timeout=300)
-            back = discord.ui.Button(
-                label="◀ Back",
-                style=discord.ButtonStyle.secondary,
-                custom_id="shop_back_to_main"  # Goes to main cats for simplicity
-            )
-            view.add_item(back)
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-
+    async def show_customization(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title=f"🛍️ {subcat.title()}",
-            description="Click an item to purchase it with gems.",
-            color=discord.Color.gold()
+            title=f"{CUSTOM_EMOJIS['ring_1']} Customization",
+            description="Choose what you'd like to customize.",
+            color=discord.Color.purple()
         )
         view = discord.ui.View(timeout=300)
-
-        for row in rows:
-            label = f"{row['name']} – {row['price']} gems"
-            button = discord.ui.Button(
-                label=label[:80],
-                style=discord.ButtonStyle.primary,
-                custom_id=f"shop_buy_{row['item_id']}"
-            )
-            view.add_item(button)
-
-        back = discord.ui.Button(
-            label="◀ Back",
-            style=discord.ButtonStyle.secondary,
-            custom_id="shop_back_to_main"
-        )
-        view.add_item(back)
-
-        await interaction.response.edit_message(embed=embed, view=view)
-
-
-    async def show_weapon_items(self, interaction: discord.Interaction, embed, view):
-        """Display all weapon items including random boxes."""
+    
+        # Get role items from database
         async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT item_id, name, description, price, image_url, type
+            role_items = await conn.fetch("""
+                SELECT item_id, name, description, price
                 FROM shop_items
-                WHERE type IN ('weapon', 'random_weapon_box')
+                WHERE type = 'role'
                 ORDER BY price ASC
             """)
-
-        if not rows:
-            embed.description = "No weapons available yet."
-            back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
-            view.add_item(back)
-            await interaction.response.edit_message(embed=embed, view=view)
-            return
-
-        for row in rows:
-            label = f"{row['name']} – {row['price']} gems"
-            button = discord.ui.Button(
-                label=label[:80],
-                style=discord.ButtonStyle.primary,
-                custom_id=f"shop_buy_{row['item_id']}"
+        
+            color_items = await conn.fetch("""
+                SELECT item_id, name, description, price
+                FROM shop_items
+                WHERE type = 'color'
+                ORDER BY price ASC
+            """)
+    
+        # Role items section
+        if role_items:
+            role_descriptions = []
+            for item in role_items:
+                role_descriptions.append(f"{CUSTOM_EMOJIS['ring_1']} **{item['name']}** – {item['price']} {CUSTOM_EMOJIS['gem']}")
+        
+            embed.add_field(
+                name="🎭 Roles",
+                value="\n".join(role_descriptions),
+                inline=False
             )
-            view.add_item(button)
-
-        back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+        
+            for item in role_items:
+                button = discord.ui.Button(
+                    label=f"🎭 {item['name'][:15]} – {item['price']}g",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"shop_buy_{item['item_id']}"
+                )
+                view.add_item(button)
+    
+        # Color items section
+        if color_items:
+            color_descriptions = []
+            for item in color_items:
+                color_descriptions.append(f"{CUSTOM_EMOJIS['ring_1']} **{item['name']}** – {item['price']} {CUSTOM_EMOJIS['gem']}")
+        
+            embed.add_field(
+                name="🎨 Name Colors",
+                value="\n".join(color_descriptions),
+                inline=False
+            )
+        
+            for item in color_items:
+                button = discord.ui.Button(
+                    label=f"🎨 {item['name'][:15]} – {item['price']}g",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"shop_buy_{item['item_id']}"
+                )
+                view.add_item(button)
+    
+        if not role_items and not color_items:
+            embed.description = "No customization items available yet."
+    
+        back = discord.ui.Button(label=f"{CUSTOM_EMOJIS['ring_1']} Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
         view.add_item(back)
-
+    
         await interaction.response.edit_message(embed=embed, view=view)
 
 
-#  SHOW ACCESSORIES 
-
-    async def show_accessories_items(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+    async def show_equipment(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title=f"{CUSTOM_EMOJIS['zenith_sword']} Equipment",
+            description="Purchase random boxes to get weapons, armor, and accessories with random stats!",
+            color=discord.Color.orange()
+        )
+        view = discord.ui.View(timeout=300)
+    
         async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT item_id, name, description, price, image_url
+            # Get all random boxes
+            weapon_boxes = await conn.fetch("""
+                SELECT item_id, name, description, price
+                FROM shop_items
+                WHERE type = 'random_weapon_box'
+                ORDER BY price ASC
+            """)
+        
+            armor_boxes = await conn.fetch("""
+                SELECT item_id, name, description, price
+                FROM shop_items
+                WHERE type = 'random_gear_box'
+                ORDER BY price ASC
+            """)
+        
+            accessory_boxes = await conn.fetch("""
+                SELECT item_id, name, description, price
+                FROM shop_items
+                WHERE type = 'random_accessories_box'
+                ORDER BY price ASC
+            """)
+    
+        # Weapon Boxes Section
+        if weapon_boxes:
+            weapon_info = (
+                f"{CUSTOM_EMOJIS['zenith_sword']} **Random Weapon Box**\n"
+                f"├─ **ATK Range:** 405-750\n"
+                f"├─ **Effects:** Bleed (5-9%), Crit Chance (9-25%), Crit DMG (23-35%)\n"
+                f"└─ **Weapons:** Zenith, Abyssal, Dawn Breaker, Bloodmoon, Shadowbane\n\n"
+                f"**Buy to get a random weapon with random stats!**"
+            )
+            embed.add_field(name="🗡️ Weapons", value=weapon_info, inline=False)
+        
+            for box in weapon_boxes:
+                button = discord.ui.Button(
+                    label=f"🗡️ {box['name'][:15]} – {box['price']}g",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"shop_buy_{box['item_id']}"
+                )
+                view.add_item(button)
+    
+        # Armor Boxes Section
+        if armor_boxes:
+            armor_info = (
+                f"{CUSTOM_EMOJIS['bilari_armor']} **Random Armor Box**\n"
+                f"├─ **Helm:** 441-946 DEF | 1000-2000 HP\n"
+                f"├─ **Suit:** 959-1549 DEF | 1500-3000 HP | 5-15% Reflect\n"
+                f"├─ **Gauntlets:** 441-946 DEF | 1000-2000 HP\n"
+                f"└─ **Boots:** 210-705 DEF | 700-1400 HP\n\n"
+                f"**Sets:** Bilari, Cryo, Bane (4-piece set bonus)\n"
+                f"**Buy to get a random armor piece from a random set!**"
+            )
+            embed.add_field(name="🛡️ Armor", value=armor_info, inline=False)
+        
+            for box in armor_boxes:
+                button = discord.ui.Button(
+                    label=f"🛡️ {box['name'][:15]} – {box['price']}g",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"shop_buy_{box['item_id']}"
+                )
+                view.add_item(button)
+    
+        # Accessory Boxes Section
+        if accessory_boxes:
+        accessory_info = (
+                f"{CUSTOM_EMOJIS['champ_ring']} **Random Accessory Box**\n"
+                f"├─ **Champion Set:** 55-150 ATK per piece\n"
+                f"├─ **Defender Set:** 55-150 DEF per piece\n"
+                f"└─ **Angel Set:** 55-300 ATK per piece\n\n"
+                f"**Requirements:** 2 Rings + 2 Earrings + 1 Pendant (5-piece set bonus)\n"
+                f"**Buy to get a random accessory piece from a random set!**"
+            )
+            embed.add_field(name="💍 Accessories", value=accessory_info, inline=False)
+        
+            for box in accessory_boxes:
+                button = discord.ui.Button(
+                    label=f"💍 {box['name'][:15]} – {box['price']}g",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"shop_buy_{box['item_id']}"
+                )
+                view.add_item(button)
+    
+        if not weapon_boxes and not armor_boxes and not accessory_boxes:
+            embed.description = "No equipment boxes available yet."
+    
+        back = discord.ui.Button(label=f"{CUSTOM_EMOJIS['zenith_sword']} Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+        view.add_item(back)
+    
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+
+
+    async def show_tools(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title=f"{CUSTOM_EMOJIS['pickaxe']} Tools",
+            description="Purchase tools to enhance your gameplay!",
+            color=discord.Color.brown()
+        )
+        view = discord.ui.View(timeout=300)
+    
+        async with self.bot.db_pool.acquire() as conn:
+            # Get pickaxes only
+            pickaxes = await conn.fetch("""
+                SELECT item_id, name, description, price
                 FROM shop_items
                 WHERE type = 'pickaxe'
                 ORDER BY price ASC
             """)
-
-        if not rows:
-            embed = discord.Embed(
-                title="🎒 Accessories",
-                description="No accessories available yet.",
-                color=discord.Color.red()
+    
+        if pickaxes:
+            tools_info = (
+                f"{CUSTOM_EMOJIS['pickaxe']} **Pickaxes**\n\n"
+                f"**Mining System:**\n"
+                f"• Required to start mining\n"
+                f"• Earn gems while mining (50 gems per 2 hours)\n"
+                f"• Maximum 12 hours mining time\n"
+                f"• Can be plundered by other players (30% of mined gems)\n"
+                f"• Energy required: 1 per plunder attempt\n\n"
+                f"**Purchase a pickaxe to begin your mining journey!**"
             )
-            view = discord.ui.View(timeout=300)
-            back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
-            view.add_item(back)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            return
-
-        embed = discord.Embed(
-            title="🎒 Accessories",
-            description="Choose an accessory to purchase.",
-            color=discord.Color.purple()
-        )
-        view = discord.ui.View(timeout=300)
-
-        for row in rows:
-            label = f"{row['name']} – {row['price']} gems"
-            button = discord.ui.Button(
-                label=label[:80],
-                style=discord.ButtonStyle.primary,
-                custom_id=f"shop_buy_{row['item_id']}"
-            )
-            view.add_item(button)
-
-        back = discord.ui.Button(label="◀ Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+            embed.description = tools_info
+        
+            for pick in pickaxes:
+                button = discord.ui.Button(
+                    label=f"⛏️ {pick['name'][:15]} – {pick['price']}g",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"shop_buy_{pick['item_id']}"
+                )
+                view.add_item(button)
+        else:
+            embed.description = "No tools available yet."
+    
+        back = discord.ui.Button(label=f"{CUSTOM_EMOJIS['pickaxe']} Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
         view.add_item(back)
-
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-# END
+    
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 
