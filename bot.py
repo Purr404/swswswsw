@@ -3290,6 +3290,16 @@ class Shop(commands.Cog):
         await ctx.send(f"✅ Shop permanently summoned to {channel.mention}!", delete_after=5)
         await ctx.message.delete(delay=5)
 
+
+    @bot.command()
+    @commands.has_permissions(administrator=True)
+    async def testremove(ctx, member: discord.Member, role: discord.Role):
+        try:
+            await member.remove_roles(role)
+            await ctx.send(f"Removed {role.name} from {member.mention}")
+        except Exception as e:
+            await ctx.send(f"Failed: {e}")
+
     # -------------------------------------------------------------------------
     # INTERACTION HANDLER
     # -------------------------------------------------------------------------
