@@ -3210,12 +3210,14 @@ class Shop(commands.Cog):
                         print(f"✅ Removed expired role '{item_name}' from {member} (ID: {user_id})")
                         # Success – delete the purchase record
                         await conn.execute("DELETE FROM user_purchases WHERE purchase_id = $1", purchase_id)
-                    except discord.Forbidden:
-                        print(f"❌ No permission to remove role {role_id} from user {user_id} in guild {guild_id} – will retry next hour.")
-                        # Do NOT delete the record, so it will be retried
+                    except discord.Forbidden as e:
+                        print(f"❌ Forbidden: Cannot remove role {role_id} from {user_id} – {e}")
+                    # Optionally send to a log channel
+                    # Do NOT delete the record, will retry
+                        
                     except Exception as e:
-                        print(f"⚠️ Error removing role: {e} – will retry next hour.")
-                        # Do NOT delete the record
+                        print(f"⚠️ Unexpected error removing role: {e}")
+                        traceback.print_exc()
 
         except Exception as e:
             print(f"❌ Error in check_expired_purchases: {e}")
