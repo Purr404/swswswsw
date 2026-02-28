@@ -373,6 +373,19 @@ async def testremove(ctx, member: discord.Member, role: discord.Role):
         await ctx.send(f"Removed {role.name} from {member.mention}")
     except Exception as e:
         await ctx.send(f"Failed: {e}")
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def checkcolors(ctx):
+    """List all color items and their role IDs."""
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT item_id, name, role_id FROM shop_items WHERE type = 'color'")
+    if not rows:
+        await ctx.send("No color items found.")
+        return
+    msg = "**Color Items & Role IDs:**\n"
+    for r in rows:
+        msg += f"ID {r['item_id']}: {r['name']} – Role ID: {r['role_id']}\n"
+    await ctx.send(msg[:1900])  # avoid message length limit
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
