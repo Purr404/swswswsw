@@ -100,6 +100,162 @@ for key, value in os.environ.items():
         else:
             print(f"  {key}: {value[:80]}...")
 
+# ========== 🔥 CUSTOM DISCORD EMOJIS MAPPING 🔥 ==========
+# Copy these exact emoji codes from Discord
+CUSTOM_EMOJIS = {
+    # 5 Swords
+    'zenith_sword': '<:zenith_sword:1477018808068866150>',
+    'abyssal_blade': '<:abyssal_blade:1477020694272544928>',
+    'dawn_breaker': '<:dawn_breaker:1477020740913201172>',
+    'bloodmoon_edge': '<:bloodmoon_egde:1477020810219749519>',
+    'shadowbane': '<:shadowbane:1477020849096622220>',
+    
+    # Bilari Set
+    'bilari_helm': '<:bilari_helm:1475222013650931923>',
+    'bilari_armor': '<:bilari_armor:1475222678351908914>',
+    'bilari_gloves': '<:bilari_gloves:1475222924515344444>',
+    'bilari_boots': '<:bilari_boots:1475223007843713207>',
+    
+    # Cryo Set
+    'cryo_helm': '<:cryo_helm:1475940413390065724>',
+    'cryo_armor': '<:cryo_armor:1475940347099222169>',
+    'cryo_gloves': '<:cryo_gloves:1475940251959689486>',
+    'cryo_boots': '<:cryo_boots:1475940150063403162>',
+    
+    # Bane Set
+    'bane_helm': '<:bane_helm:1477017964791206101>',
+    'bane_armor': '<:bane_armor:1477017926434426941>',
+    'bane_gloves': '<:bane_gloves:1477017850597343594>',
+    'bane_boots': '<:bane_boots:1477017746159046799>',
+    
+    # Champion Set
+    'champ_ring': '<:champ_ring:1477132404165578836>',
+    'champ_earring': '<:champ_earring:1477131963981889546>',
+    'champ_pen': '<:champ_pen:1477132494519271425>',
+    
+    # Defender Set
+    'def_ring': '<:def_ring:1477133279802036225>',
+    'def_earring': '<:def_earring:1477133318917980260>',
+    'def_pen': '<:def_pen:1477133384387133704>',
+    
+    # Angel Set
+    'wing_ring': '<:wing_ring:1477134740862800065>',
+    'harp_earring': '<:harp_earring:1477134791253164186>',
+    'angel_pen': '<:angel_pen:1477134827017994280>',
+    
+    # Pets (you can add these later when you have the emoji IDs)
+    'pet_dragon': '<:pet_dragon:000000000000000000>',  # Replace with actual ID
+    'pet_griffin': '<:pet_griffin:000000000000000000>',  # Replace with actual ID
+    'pet_lion': '<:pet_lion:000000000000000000>',  # Replace with actual ID
+    
+    # Tools/Misc
+    'pickaxe': '<:pickaxe:000000000000000000>',  # Replace with actual ID
+    'treasure': '<:treasure:000000000000000000>',  # Replace with actual ID
+    'gem': '<:gem:000000000000000000>',  # Replace with actual ID
+    'ring_1': '<:ring_1:000000000000000000>',  # Default ring for customization - Replace with actual ID
+}
+# ============================================================
+# EMOJIS HELPER FUNCTIONS 
+def get_item_emoji(item_name: str, item_type: str) -> str:
+    """Return the appropriate custom emoji based on item name and type."""
+    item_lower = item_name.lower()
+    
+    # Weapons (5 specific swords)
+    if item_type == 'weapon':
+        if 'zenith' in item_lower:
+            return CUSTOM_EMOJIS['zenith_sword']
+        elif 'abyssal' in item_lower:
+            return CUSTOM_EMOJIS['abyssal_blade']
+        elif 'dawn' in item_lower or 'breaker' in item_lower:
+            return CUSTOM_EMOJIS['dawn_breaker']
+        elif 'bloodmoon' in item_lower or 'edge' in item_lower:
+            return CUSTOM_EMOJIS['bloodmoon_edge']
+        elif 'shadowbane' in item_lower:
+            return CUSTOM_EMOJIS['shadowbane']
+        return CUSTOM_EMOJIS['zenith_sword']
+    
+    # Armor Sets
+    elif item_type == 'armor':
+        # Bilari Set
+        if 'bilari' in item_lower:
+            if 'helm' in item_lower:
+                return CUSTOM_EMOJIS['bilari_helm']
+            elif 'suit' in item_lower or 'armor' in item_lower:
+                return CUSTOM_EMOJIS['bilari_armor']
+            elif 'gauntlet' in item_lower or 'glove' in item_lower:
+                return CUSTOM_EMOJIS['bilari_gloves']
+            elif 'boot' in item_lower:
+                return CUSTOM_EMOJIS['bilari_boots']
+        
+        # Cryo Set
+        elif 'cryo' in item_lower:
+            if 'helm' in item_lower:
+                return CUSTOM_EMOJIS['cryo_helm']
+            elif 'suit' in item_lower or 'armor' in item_lower:
+                return CUSTOM_EMOJIS['cryo_armor']
+            elif 'gauntlet' in item_lower or 'glove' in item_lower:
+                return CUSTOM_EMOJIS['cryo_gloves']
+            elif 'boot' in item_lower:
+                return CUSTOM_EMOJIS['cryo_boots']
+        
+        # Bane Set
+        elif 'bane' in item_lower:
+            if 'helm' in item_lower:
+                return CUSTOM_EMOJIS['bane_helm']
+            elif 'suit' in item_lower or 'armor' in item_lower:
+                return CUSTOM_EMOJIS['bane_armor']
+            elif 'gauntlet' in item_lower or 'glove' in item_lower:
+                return CUSTOM_EMOJIS['bane_gloves']
+            elif 'boot' in item_lower:
+                return CUSTOM_EMOJIS['bane_boots']
+        
+        return CUSTOM_EMOJIS['bilari_armor']
+    
+    # Accessories
+    elif item_type == 'accessory':
+        # Champion Set
+        if 'champion' in item_lower or 'champ' in item_lower:
+            if 'ring' in item_lower:
+                return CUSTOM_EMOJIS['champ_ring']
+            elif 'earring' in item_lower:
+                return CUSTOM_EMOJIS['champ_earring']
+            elif 'pendant' in item_lower or 'pen' in item_lower:
+                return CUSTOM_EMOJIS['champ_pen']
+        
+        # Defender Set
+        elif 'defender' in item_lower or 'def' in item_lower:
+            if 'ring' in item_lower:
+                return CUSTOM_EMOJIS['def_ring']
+            elif 'earring' in item_lower:
+                return CUSTOM_EMOJIS['def_earring']
+            elif 'pendant' in item_lower or 'pen' in item_lower:
+                return CUSTOM_EMOJIS['def_pen']
+        
+        # Angel Set
+        elif 'angel' in item_lower:
+            if 'ring' in item_lower:
+                return CUSTOM_EMOJIS['wing_ring']
+            elif 'earring' in item_lower:
+                return CUSTOM_EMOJIS['harp_earring']
+            elif 'pendant' in item_lower or 'pen' in item_lower:
+                return CUSTOM_EMOJIS['angel_pen']
+        
+        return CUSTOM_EMOJIS['champ_ring']
+    
+    # Pets
+    elif item_type == 'pet':
+        if 'dragon' in item_lower:
+            return CUSTOM_EMOJIS['pet_dragon']
+        elif 'griffin' in item_lower:
+            return CUSTOM_EMOJIS['pet_griffin']
+        elif 'lion' in item_lower:
+            return CUSTOM_EMOJIS['pet_lion']
+        return CUSTOM_EMOJIS['pet_dragon']
+    
+    # Default fallback
+    return '📦'
+# ============================================================
+
 # --- Create the bot instance ---
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
