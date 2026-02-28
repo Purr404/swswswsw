@@ -409,6 +409,17 @@ async def recentpurchases(ctx):
         """)
     msg = "\n".join([f"{r['name']} – expires {r['expires_at']}" for r in rows])
     await ctx.send(msg or "No purchases.")
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def fixguild(ctx):
+    """Set guild_id for role/color items to current guild."""
+    guild_id = ctx.guild.id
+    async with bot.db_pool.acquire() as conn:
+        result = await conn.execute("""
+            UPDATE shop_items SET guild_id = $1 
+            WHERE type IN ('role', 'color') AND guild_id IS NULL
+        """, guild_id)
+        await ctx.send(f"✅ Updated {result.split()[1]} items with guild_id {guild_id}.")
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
