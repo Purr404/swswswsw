@@ -1,4 +1,4 @@
-import os
+,import os
 import sys
 import json
 import asyncio
@@ -3229,9 +3229,6 @@ class Shop(commands.Cog):
     GEM_UNICODE = "💎"
     TREASURE_UNICODE = "🎁"
 
-
-
-   
     def build_main_categories(self):
         embed = discord.Embed(
             title="🛍️ Shop Categories",
@@ -3270,7 +3267,7 @@ class Shop(commands.Cog):
         return embed, view
 
     # -------------------------------------------------------------------------
-    # BACKGROUND TASK: Remove expired roles every hour
+    # BACKGROUND TASK: Remove expired roles every minute
     # -------------------------------------------------------------------------
     @tasks.loop(minutes=1)
     async def check_expired_purchases(self):
@@ -3289,7 +3286,7 @@ class Shop(commands.Cog):
                     WHERE up.expires_at < NOW() AND up.used = FALSE AND si.role_id IS NOT NULL
                 """)
 
-                await log_to_discord(self.bot, f"🔍 Expiration check: found {len(rows)} expired purchases with roles.", "INFO")
+                print(f"🔍 Expiration check: found {len(rows)} expired purchases with roles.")
 
                 for row in rows:
                     purchase_id = row['purchase_id']
@@ -3300,50 +3297,36 @@ class Shop(commands.Cog):
 
                     guild = self.bot.get_guild(guild_id)
                     if not guild:
-                        msg = f"⚠️ Guild {guild_id} not found for expired item {item_name} (purchase {purchase_id}) – skipping, will retry."
-                        print(msg)
-                        await log_to_discord(self.bot, msg, "WARN")
+                        print(f"⚠️ Guild {guild_id} not found for expired item {item_name} (purchase {purchase_id}) – skipping, will retry.")
                         continue
 
                     member = guild.get_member(int(user_id))
                     if not member:
-                        msg = f"⚠️ Member {user_id} not found in guild {guild_id} for expired item {item_name} – deleting purchase record (member left)."
-                        print(msg)
-                        await log_to_discord(self.bot, msg, "WARN")
+                        print(f"⚠️ Member {user_id} not found in guild {guild_id} for expired item {item_name} – deleting purchase record (member left).")
                         await conn.execute("DELETE FROM user_purchases WHERE purchase_id = $1", purchase_id)
                         continue
 
                     role = guild.get_role(role_id)
                     if not role:
-                        msg = f"⚠️ Role {role_id} not found in guild {guild_id} for expired item {item_name} – deleting purchase record."
-                        print(msg)
-                        await log_to_discord(self.bot, msg, "WARN")
+                        print(f"⚠️ Role {role_id} not found in guild {guild_id} for expired item {item_name} – deleting purchase record.")
                         await conn.execute("DELETE FROM user_purchases WHERE purchase_id = $1", purchase_id)
                         continue
 
                     try:
                         await member.remove_roles(role, reason=f"Shop item expired: {item_name}")
-                        success_msg = f"✅ Removed expired role '{item_name}' from {member} (ID: {user_id})"
-                        print(success_msg)
-                        await log_to_discord(self.bot, success_msg, "INFO")
+                        print(f"✅ Removed expired role '{item_name}' from {member} (ID: {user_id})")
                         await conn.execute("DELETE FROM user_purchases WHERE purchase_id = $1", purchase_id)
                     except discord.Forbidden as e:
-                        error_msg = f"❌ Forbidden: Cannot remove role {role_id} from {user_id} – {e}"
-                        print(error_msg)
-                        await log_to_discord(self.bot, error_msg, "ERROR")
+                        print(f"❌ Forbidden: Cannot remove role {role_id} from {user_id} – {e}")
                         # Do NOT delete record – will retry
                     except Exception as e:
-                        error_msg = f"⚠️ Unexpected error removing role: {e}"
-                        print(error_msg)
-                        await log_to_discord(self.bot, error_msg, "ERROR")
+                        print(f"⚠️ Unexpected error removing role: {e}")
                         import traceback
                         traceback.print_exc()
                         # Do NOT delete record
 
         except Exception as e:
-            error_msg = f"❌ Error in check_expired_purchases: {e}"
-            print(error_msg)
-            await log_to_discord(self.bot, error_msg, "ERROR")
+            print(f"❌ Error in check_expired_purchases: {e}")
 
     # -------------------------------------------------------------------------
     # LOAD PERSISTENT SHOP MESSAGES
@@ -4052,7 +4035,7 @@ class Shop(commands.Cog):
             await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
             return
 
-        expires_at = now + timedelta(minutes=2)
+        expires_at = now + timedelta(days=7)
         async with self.bot.db_pool.acquire() as conn:
             purchase_id = await conn.fetchval("""
                 INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
