@@ -358,14 +358,14 @@ async def check_emojis(ctx):
 
 @bot.command()
 async def testbutton(ctx):
+    label_custom = f"{CUSTOM_EMOJIS['def_ring']} Test"
+    label_unicode = "💍 Test"
+    print(f"DEBUG custom label: {repr(label_custom)}")
+    print(f"DEBUG unicode label: {repr(label_unicode)}")
     view = discord.ui.View()
-    button = discord.ui.Button(
-        label=f"{CUSTOM_EMOJIS['def_ring']} Test",
-        style=discord.ButtonStyle.primary
-    )
-    view.add_item(button)
-    await ctx.send("Test button:", view=view)
-
+    view.add_item(discord.ui.Button(label=label_custom, style=discord.ButtonStyle.primary))
+    view.add_item(discord.ui.Button(label=label_unicode, style=discord.ButtonStyle.secondary))
+    await ctx.send("Test buttons:", view=view)
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
