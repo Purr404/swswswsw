@@ -350,7 +350,7 @@ def get_item_emoji(item_name: str, item_type: str) -> str:
         if missing_emojis:
             embed.add_field(name="Missing Emojis", value="\n".join(missing_emojis), inline=False)
     
-         await ctx.send(embed=embed)
+        await ctx.send(embed=embed)
 
 
 # --- Create the bot instance ---
