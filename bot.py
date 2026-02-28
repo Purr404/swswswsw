@@ -3274,21 +3274,45 @@ class Shop(commands.Cog):
             color=discord.Color.blue()
         )
         view = discord.ui.View(timeout=300)
-    
-        main_cats = [
-            (f"{CUSTOM_EMOJIS['def_ring']} Customization", "customization"),
-            (f"{CUSTOM_EMOJIS['zenith_sword']} Equipment", "equipment"),
-            (f"{CUSTOM_EMOJIS['pickaxe']} Tools", "tools")
-        ]
-    
-        for label, cat_id in main_cats:
-            button = discord.ui.Button(
-                label=label,
-                style=discord.ButtonStyle.secondary,
-                custom_id=f"shop_maincat_{cat_id}"
-            )
-            view.add_item(button)
-    
+
+        # Create PartialEmoji objects for each custom emoji
+        customization_emoji = discord.PartialEmoji(
+            name="shadow", 
+            id=1477258013256454339   
+        )
+        equipment_emoji = discord.PartialEmoji(
+            name="zenith_sword", 
+            id=1477018808068866150
+        )
+        tools_emoji = discord.PartialEmoji(
+            name="pickaxe", 
+            id=1477024057382666383
+        )
+
+        # Buttons with emoji parameter and plain text label
+            button_custom = discord.ui.Button(
+            label="Customization",
+            emoji=customization_emoji,
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_maincat_customization"
+        )
+        button_equip = discord.ui.Button(
+            label="Equipment",
+            emoji=equipment_emoji,
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_maincat_equipment"
+        )
+        button_tools = discord.ui.Button(
+            label="Tools",
+            emoji=tools_emoji,
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_maincat_tools"
+        )
+
+        view.add_item(button_custom)
+        view.add_item(button_equip)
+        view.add_item(button_tools)
+
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # -------------------------------------------------------------------------
