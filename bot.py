@@ -151,6 +151,7 @@ CUSTOM_EMOJIS = {
     # Tools/Misc
     'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
     'shadow': '<:shadow:1477258013256454339>',
+    'treasure_carriage': '<:treasure_carriage:1477354550502625601>',
 
 }
 # ============================================================
@@ -3342,8 +3343,14 @@ class Shop(commands.Cog):
 
         if role_items:
             for item in role_items:
+                if 'treasure carriage' in item['name'].lower():
+                    button_emoji = discord.PartialEmoji(name="treasure_carriage", id=1477354550502625601)
+                else:                
+                    button_emoji = None
+
                 button = discord.ui.Button(
-                    label=f"🎭 {item['name'][:15]} – {item['price']}g",
+                    label=f"{item['name'][:15]} – {item['price']}g",
+                    emoji=button_emoji,
                     style=discord.ButtonStyle.primary,
                     custom_id=f"shop_buy_{item['item_id']}"
                 )
