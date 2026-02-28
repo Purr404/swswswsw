@@ -421,6 +421,26 @@ async def fixguild(ctx):
         """, guild_id)
         await ctx.send(f"✅ Updated {result.split()[1]} items with guild_id {guild_id}.")
 
+@bot.command()
+async def checkmember(ctx, member: discord.Member):
+    user_id = str(member.id)
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT si.name, up.expires_at
+            FROM user_purchases up
+            JOIN shop_items si ON up.item_id = si.item_id
+            WHERE up.user_id = $1 AND si.type IN ('role', 'color') AND up.used = FALSE
+        """, user_id)
+    if not rows:
+        await ctx.send(f"{member.mention} has no active color/role purchases.")
+        return
+    msg = f"**{member.display_name}'s purchases:**\n"
+    for r in rows:
+        expires = r['expires_at']
+        status = "EXPIRED" if expires < datetime.now(timezone.utc) else "active"
+        msg += f"{r['name']} – expires {expires} ({status})\n"
+    await ctx.send(msg)
+
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
     """ALWAYS prints to Railway logs. Best‑effort send to #bot-logs."""
