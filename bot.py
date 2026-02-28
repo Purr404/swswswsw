@@ -3363,7 +3363,7 @@ class Shop(commands.Cog):
     # -------------------------------------------------------------------------
     async def show_customization(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title=f"{CUSTOM_EMOJIS['ring_1']} Customization",
+            title=f"{CUSTOM_EMOJIS['shadow']} Customization",
             description="Choose what you'd like to customize.",
             color=discord.Color.purple()
         )
@@ -3389,7 +3389,7 @@ class Shop(commands.Cog):
         if role_items:
             role_descriptions = []
             for item in role_items:
-                role_descriptions.append(f"{CUSTOM_EMOJIS['ring_1']} **{item['name']}** – {item['price']} {CUSTOM_EMOJIS['gem']}")
+                role_descriptions.append(f"{CUSTOM_EMOJIS['shadow']} **{item['name']}** – {item['price']} {CUSTOM_EMOJIS['gem']}")
         
             embed.add_field(
                 name="🎭 Roles",
@@ -3428,7 +3428,7 @@ class Shop(commands.Cog):
         if not role_items and not color_items:
             embed.description = "No customization items available yet."
     
-        back = discord.ui.Button(label=f"{CUSTOM_EMOJIS['ring_1']} Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
+        back = discord.ui.Button(label=f"{CUSTOM_EMOJIS['shadow']} Back", style=discord.ButtonStyle.secondary, custom_id="shop_back_to_main")
         view.add_item(back)
     
         await interaction.response.edit_message(embed=embed, view=view)
@@ -3540,7 +3540,7 @@ class Shop(commands.Cog):
         embed = discord.Embed(
             title=f"{CUSTOM_EMOJIS['pickaxe']} Tools",
             description="Purchase tools to enhance your gameplay!",
-            color=discord.Color.brown()
+            color=discord.Color.orange()
         )
         view = discord.ui.View(timeout=300)
     
@@ -3555,13 +3555,9 @@ class Shop(commands.Cog):
     
         if pickaxes:
             tools_info = (
-                f"{CUSTOM_EMOJIS['pickaxe']} **Pickaxes**\n\n"
-                f"**Mining System:**\n"
+                f"{CUSTOM_EMOJIS['pickaxe']} **Pickaxes**\n\n"               
                 f"• Required to start mining\n"
-                f"• Earn gems while mining (50 gems per 2 hours)\n"
-                f"• Maximum 12 hours mining time\n"
-                f"• Can be plundered by other players (30% of mined gems)\n"
-                f"• Energy required: 1 per plunder attempt\n\n"
+                f"• Earn gems while mining\n"                                          
                 f"**Purchase a pickaxe to begin your mining journey!**"
             )
             embed.description = tools_info
