@@ -357,15 +357,22 @@ async def check_emojis(ctx):
     await ctx.send(embed=embed)
 
 @bot.command()
-async def testbutton(ctx):
-    label_custom = f"{CUSTOM_EMOJIS['def_ring']} Test"
-    label_unicode = "💍 Test"
-    print(f"DEBUG custom label: {repr(label_custom)}")
-    print(f"DEBUG unicode label: {repr(label_unicode)}")
+async def testall(ctx):
     view = discord.ui.View()
-    view.add_item(discord.ui.Button(label=label_custom, style=discord.ButtonStyle.primary))
-    view.add_item(discord.ui.Button(label=label_unicode, style=discord.ButtonStyle.secondary))
-    await ctx.send("Test buttons:", view=view)
+    # Test all custom emojis used in the shop
+    emojis_to_test = [
+        ('def_ring', CUSTOM_EMOJIS['def_ring']),
+        ('champ_ring', CUSTOM_EMOJIS['champ_ring']),
+        ('zenith_sword', CUSTOM_EMOJIS['zenith_sword']),
+        ('pickaxe', CUSTOM_EMOJIS['pickaxe']),
+        ('bilari_armor', CUSTOM_EMOJIS['bilari_armor']),
+    ]
+    for name, emoji in emojis_to_test:
+        button = discord.ui.Button(label=f"{emoji} {name}", style=discord.ButtonStyle.primary)
+        view.add_item(button)
+    # Add a Unicode control
+    view.add_item(discord.ui.Button(label="💍 Unicode Ring", style=discord.ButtonStyle.secondary))
+    await ctx.send("Test all emojis in buttons:", view=view)
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
