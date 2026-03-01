@@ -3802,6 +3802,10 @@ class Shop(commands.Cog):
     async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle when a user clicks on an item - shows all stats"""
         try:
+            # Check if interaction can be responded to
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
+
             user_id = str(interaction.user.id)
         
             # Fetch the specific item with all stats
@@ -3997,7 +4001,12 @@ class Shop(commands.Cog):
         except Exception as e:
             print(f"Error in handle_item_selection: {e}")
             traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
+            try:
+                # Try to send an error message if possible
+                await interaction.followup.send("An error occurred.", ephemeral=True)
+            except:
+                # If even that fails, just print to console
+                print("Could not send error message to user.")
 
     async def handle_equip_action(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle equipping an item"""
