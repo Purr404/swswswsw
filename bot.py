@@ -4073,14 +4073,69 @@ class Shop(commands.Cog):
             item_emoji = get_item_emoji(item, item_type)
         
             await interaction.followup.send(f"{item_emoji} ✅ Equipped **{item}**!", ephemeral=True)
+
+            async with self.bot.db_pool.acquire() as conn:
+                weapons = await conn.fetch("""
+                    SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                           uw.attack, uw.equipped, uw.description,
+                           uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
+                           COALESCE(si.image_url, uw.image_url) as image_url,
+                           r.color as rarity_color
+                    FROM user_weapons uw
+                    LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                    LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                    LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
+                    WHERE uw.user_id = $1
+                    ORDER BY uw.equipped DESC, uw.purchased_at DESC
+                """, user_id)
+
+                armor = await conn.fetch("""
+                    SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                           ua.hp_bonus, ua.reflect_damage, at.set_name,
+                           at.image_url, at.description, r.color as rarity_color
+                    FROM user_armor ua
+                    JOIN armor_types at ON ua.armor_id = at.armor_id
+                    LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                    WHERE ua.user_id = $1
+                    ORDER BY ua.equipped DESC, ua.purchased_at DESC
+                """, user_id)
+
+                accessories = await conn.fetch("""
+                    SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                           ua.equipped, ua.slot, at.set_name,
+                           at.image_url, at.description, r.color as rarity_color
+                    FROM user_accessories ua
+                    JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                    LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                    WHERE ua.user_id = $1
+                    ORDER BY ua.equipped DESC, ua.purchased_at DESC
+                """, user_id)
+
+            balance = await currency_system.get_balance(user_id)
+
+            inventory_data = {
+                'weapons': [dict(w) for w in weapons],
+                'armor': [dict(a) for a in armor],
+                'accessories': [dict(a) for a in accessories],
+                'gems': balance['gems']
+            }
+
+            # Create a new inventory view
+            temp_view = InventoryView(user_id, inventory_data, self)
         
-            # Return to inventory
-            await self.handle_inventory_action(interaction, "back")
-        
+            # CHANGED: Edit the original message directly instead of calling handle_inventory_action
+            await interaction.edit_original_response(embed=temp_view.create_main_embed(), view=temp_view)
+
         except Exception as e:
             print(f"Error in handle_equip_action: {e}")
             traceback.print_exc()
-            await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
+            # CHANGED: Better error handling
+            try:
+                await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
+            except:
+                pass
+
+                  
 
     async def handle_unequip_action(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle unequipping an item"""
