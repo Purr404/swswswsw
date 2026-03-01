@@ -1,4 +1,4 @@
-import os
+,import os
 import sys
 import json
 import asyncio
@@ -3813,35 +3813,18 @@ class Shop(commands.Cog):
             await self.purchase_item(interaction, item_id)
 
         # ===== INVENTORY BUTTON HANDLERS =====
-        # Add these after your shop handlers
+        # Use helper methods instead of accessing view
         elif custom_id == "inventory_weapons":
-            # Get the view from the message
-            view = interaction.message.view
-            if view and isinstance(view, InventoryView):
-                await view.show_weapons(interaction)
-            else:
-                await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
-
+            await self.handle_inventory_action(interaction, "weapons")
+        
         elif custom_id == "inventory_armor":
-            view = interaction.message.view
-            if view and isinstance(view, InventoryView):
-                await view.show_armor(interaction)
-            else:
-                await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
-
+            await self.handle_inventory_action(interaction, "armor")
+        
         elif custom_id == "inventory_accessories":
-            view = interaction.message.view
-            if view and isinstance(view, InventoryView):
-                await view.show_accessories(interaction)
-            else:
-                await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
-
+            await self.handle_inventory_action(interaction, "accessories")
+        
         elif custom_id == "inventory_back":
-            view = interaction.message.view
-            if view and isinstance(view, InventoryView):
-                await view.back_to_main(interaction)
-            else:
-                await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
+            await self.handle_inventory_action(interaction, "back")
 
         # ===== INVENTORY ITEM BUTTONS =====
         elif custom_id.startswith("inv_"):
@@ -3850,68 +3833,309 @@ class Shop(commands.Cog):
             if len(parts) >= 3:
                 item_type = parts[1]
                 item_id = int(parts[2])
-            
-                # Get the view from the message
-                view = interaction.message.view
-                if view and isinstance(view, (CategoryView, ItemActionView)):
-                    # Find the item data
-                    if isinstance(view, CategoryView):
-                        # Find item in the category view's items
-                        item_data = None
-                        for item in view.items:
-                            if item['id'] == item_id:
-                                item_data = item
-                                break
-                        if item_data:
-                            await view.parent.show_item_details(interaction, item_data, item_type)
-                        else:
-                            await interaction.response.send_message("Item not found.", ephemeral=True)
-                    elif isinstance(view, ItemActionView):
-                        # ItemActionView already has the item data
-                        await view.parent.show_item_details(interaction, view.item_data, view.item_type)
-                else:
-                     await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
+                await self.handle_item_selection(interaction, item_type, item_id)
 
         # ===== EQUIP/UNEQUIP BUTTONS =====
         elif custom_id.startswith("equip_"):
-            # Handle equip actions
             parts = custom_id.split('_')
             if len(parts) >= 3:
                 item_type = parts[1]
                 item_id = int(parts[2])
-            
-                view = interaction.message.view
-                if view and isinstance(view, ItemActionView):
-                    await view.equip_item(interaction)
-                else:
-                    await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+                await self.handle_equip_action(interaction, item_type, item_id)
 
         elif custom_id.startswith("unequip_"):
             parts = custom_id.split('_')
             if len(parts) >= 3:
                 item_type = parts[1]
                 item_id = int(parts[2])
-            
-                view = interaction.message.view
-                if view and isinstance(view, ItemActionView):
-                    await view.unequip_item(interaction)
-                else:
-                    await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+                await self.handle_unequip_action(interaction, item_type, item_id)
 
-        # ===== BACK BUTTONS IN CATEGORY/ITEM VIEWS =====
+        # ===== BACK BUTTONS =====
         elif custom_id == "category_back":
-            view = interaction.message.view
-            if view and isinstance(view, CategoryView):
-                await view.go_back(interaction)
-            else:
-                await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+            await self.handle_inventory_action(interaction, "back")
 
         elif custom_id == "item_back":
-            view = interaction.message.view
-            if view and isinstance(view, ItemActionView):
-                await view.go_back(interaction)
+            await self.handle_inventory_action(interaction, "back")
+
+
+    # HELPER METHODS
+    async def handle_inventory_action(self, interaction: discord.Interaction, action: str):
+        """Handle inventory main menu actions"""
+        try:
+            user_id = str(interaction.user.id)
+        
+            # Fetch fresh inventory data
+            async with self.bot.db_pool.acquire() as conn:
+                weapons = await conn.fetch("""
+                    SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                           uw.attack, uw.equipped, uw.description,
+                           COALESCE(si.image_url, uw.image_url) as image_url,
+                           r.color as rarity_color
+                    FROM user_weapons uw
+                    LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                    LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                    LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
+                    WHERE uw.user_id = $1
+                    ORDER BY uw.equipped DESC, uw.purchased_at DESC
+                """, user_id)
+
+                armor = await conn.fetch("""
+                    SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                           at.image_url, at.description, r.color as rarity_color
+                    FROM user_armor ua
+                    JOIN armor_types at ON ua.armor_id = at.armor_id
+                    LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                    WHERE ua.user_id = $1
+                    ORDER BY ua.equipped DESC, ua.purchased_at DESC
+                """, user_id)
+
+                accessories = await conn.fetch("""
+                    SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                           ua.equipped, ua.slot, at.image_url, at.description,
+                           r.color as rarity_color
+                    FROM user_accessories ua
+                    JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                    LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                    WHERE ua.user_id = $1
+                    ORDER BY ua.equipped DESC, ua.purchased_at DESC
+                """, user_id)
+
+            balance = await currency_system.get_balance(user_id)
+        
+            inventory_data = {
+                'weapons': [dict(w) for w in weapons],
+                'armor': [dict(a) for a in armor],
+                'accessories': [dict(a) for a in accessories],
+                'gems': balance['gems']
+            }
+
+            # Create a temporary inventory view
+            temp_view = InventoryView(user_id, inventory_data, self)
+
+            if action == "weapons":
+                await temp_view.show_weapons(interaction)
+            elif action == "armor":
+                await temp_view.show_armor(interaction)
+            elif action == "accessories":
+                await temp_view.show_accessories(interaction)
+            elif action == "back":
+                await interaction.response.edit_message(embed=temp_view.create_main_embed(), view=temp_view)
+            
+        except Exception as e:
+            print(f"Error in handle_inventory_action: {e}")
+            traceback.print_exc()
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+
+    async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
+        """Handle when a user clicks on an item"""
+        try:
+            user_id = str(interaction.user.id)
+        
+            # Fetch the specific item
+            async with self.bot.db_pool.acquire() as conn:
+                if item_type == 'weapon':
+                    item = await conn.fetchrow("""
+                        SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                               uw.attack, uw.equipped, uw.description,
+                               COALESCE(si.image_url, uw.image_url) as image_url,
+                               r.color as rarity_color
+                        FROM user_weapons uw
+                        LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                        LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                        LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
+                        WHERE uw.id = $1 AND uw.user_id = $2
+                    """, item_id, user_id)
+                elif item_type == 'armor':
+                    item = await conn.fetchrow("""
+                        SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                               at.image_url, at.description, r.color as rarity_color
+                        FROM user_armor ua
+                        JOIN armor_types at ON ua.armor_id = at.armor_id
+                        LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                        WHERE ua.id = $1 AND ua.user_id = $2
+                     """, item_id, user_id)
+                elif item_type == 'accessory':
+                    item = await conn.fetchrow("""
+                        SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                               ua.equipped, ua.slot, at.image_url, at.description,
+                               r.color as rarity_color
+                        FROM user_accessories ua
+                        JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                        LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                        WHERE ua.id = $1 AND ua.user_id = $2
+                    """, item_id, user_id)
+
+            if not item:
+                await interaction.response.send_message("Item not found.", ephemeral=True)
+                return
+
+            # Create detail embed
+            embed = discord.Embed(
+                title=f"**{item['name']}**",
+                color=discord.Color.gold()
+            )
+
+            if item.get('image_url'):
+                embed.set_image(url=item['image_url'])
+
+            stats = []
+            if item_type == 'weapon':
+                stats.append(f"⚔️ **ATK:** +{item['attack']}")
+            elif item_type == 'armor':
+                stats.append(f"🛡️ **DEF:** +{item['defense']}")
+            elif item_type == 'accessory':
+                stats.append(f"✨ **{item['bonus_stat'].upper()}:** +{item['bonus_value']}")
+                stats.append(f"📌 **Slot:** {item['slot']}")
+
+            stats.append(f"📝 **Description:** {item.get('description', 'No description')}")
+            embed.description = "\n".join(stats)
+
+            if item.get('rarity_color'):
+                embed.color = item['rarity_color']
+
+            status = "✅ **EQUIPPED**" if item.get('equipped') else "❌ **NOT EQUIPPED**"
+            embed.add_field(name="Status", value=status, inline=False)
+
+            # Create action view
+            view = discord.ui.View(timeout=60)
+            if not item.get('equipped'):
+                view.add_item(discord.ui.Button(
+                    label="⚔️ Equip", 
+                    style=discord.ButtonStyle.success, 
+                    custom_id=f"equip_{item_type}_{item_id}", 
+                    row=0
+                ))
             else:
-                await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+                view.add_item(discord.ui.Button(
+                    label="❌ Unequip", 
+                    style=discord.ButtonStyle.danger, 
+                    custom_id=f"unequip_{item_type}_{item_id}", 
+                    row=0
+                ))
+            view.add_item(discord.ui.Button(
+                label="🔙", 
+                style=discord.ButtonStyle.secondary, 
+                custom_id="item_back", 
+                row=1
+            ))
+
+            await interaction.response.edit_message(embed=embed, view=view)
+
+        except Exception as e:
+            print(f"Error in handle_item_selection: {e}")
+            traceback.print_exc()
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+
+    async def handle_equip_action(self, interaction: discord.Interaction, item_type: str, item_id: int):
+        """Handle equipping an item"""
+        try:
+            user_id = str(interaction.user.id)
+            await interaction.response.defer(ephemeral=True)
+
+            async with self.bot.db_pool.acquire() as conn:
+                if item_type == 'weapon':
+                    # Unequip all weapons first
+                    await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE user_id = $1", user_id)
+                    # Equip selected weapon
+                    await conn.execute("UPDATE user_weapons SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                
+                    # Get item name
+                    item = await conn.fetchval("""
+                        SELECT COALESCE(si.name, uw.generated_name) 
+                        FROM user_weapons uw 
+                        LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id 
+                        WHERE uw.id = $1
+                    """, item_id)
+                
+                elif item_type == 'armor':
+                    # Get slot
+                    slot = await conn.fetchval("""
+                        SELECT at.slot FROM user_armor ua
+                        JOIN armor_types at ON ua.armor_id = at.armor_id
+                        WHERE ua.id = $1
+                    """, item_id)
+                
+                    # Unequip other armor in same slot
+                    await conn.execute("""
+                        UPDATE user_armor SET equipped = FALSE 
+                        WHERE user_id = $1 AND armor_id IN 
+                        (SELECT armor_id FROM armor_types WHERE slot = $2)
+                    """, user_id, slot)
+                    # Equip new armor
+                    await conn.execute("UPDATE user_armor SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                
+                    # Get item name
+                    item = await conn.fetchval("""
+                        SELECT at.name FROM user_armor ua 
+                        JOIN armor_types at ON ua.armor_id = at.armor_id 
+                        WHERE ua.id = $1
+                    """, item_id)
+                
+                elif item_type == 'accessory':
+                    # Get slot
+                    slot = await conn.fetchval("SELECT slot FROM user_accessories WHERE id = $1", item_id)
+                
+                    # Unequip other accessory in same slot
+                    await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE user_id = $1 AND slot = $2", user_id, slot)
+                    # Equip new accessory
+                    await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                
+                    # Get item name
+                    item = await conn.fetchval("""
+                        SELECT at.name FROM user_accessories ua 
+                        JOIN accessory_types at ON ua.accessory_id = at.accessory_id 
+                        WHERE ua.id = $1
+                    """, item_id)
+
+            await interaction.followup.send(f"✅ Equipped **{item}**!", ephemeral=True)
+        
+            # Return to inventory
+            await self.handle_inventory_action(interaction, "back")
+        
+        except Exception as e:
+            print(f"Error in handle_equip_action: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
+
+    async def handle_unequip_action(self, interaction: discord.Interaction, item_type: str, item_id: int):
+        """Handle unequipping an item"""
+        try:
+            user_id = str(interaction.user.id)
+            await interaction.response.defer(ephemeral=True)
+
+            async with self.bot.db_pool.acquire() as conn:
+                if item_type == 'weapon':
+                    await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                    item = await conn.fetchval("""
+                        SELECT COALESCE(si.name, uw.generated_name) 
+                        FROM user_weapons uw 
+                        LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id 
+                        WHERE uw.id = $1
+                    """, item_id)
+                elif item_type == 'armor':
+                    await conn.execute("UPDATE user_armor SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                    item = await conn.fetchval("""
+                        SELECT at.name FROM user_armor ua 
+                        JOIN armor_types at ON ua.armor_id = at.armor_id 
+                        WHERE ua.id = $1
+                    """, item_id)
+                elif item_type == 'accessory':
+                    await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                    item = await conn.fetchval("""
+                        SELECT at.name FROM user_accessories ua 
+                        JOIN accessory_types at ON ua.accessory_id = at.accessory_id 
+                        WHERE ua.id = $1
+                    """, item_id)
+
+            await interaction.followup.send(f"❌ Unequipped **{item}**!", ephemeral=True)
+        
+            # Return to inventory
+            await self.handle_inventory_action(interaction, "back")
+        
+        except Exception as e:
+            print(f"Error in handle_unequip_action: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("An error occurred while unequipping.", ephemeral=True)
 
 
 
