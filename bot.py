@@ -3802,10 +3802,7 @@ class Shop(commands.Cog):
     async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle when a user clicks on an item - shows all stats"""
         try:
-            # Check if interaction can be responded to
-            if not interaction.response.is_done():
-                await interaction.response.defer(ephemeral=True)
-
+            
             user_id = str(interaction.user.id)
         
             # Fetch the specific item with all stats
