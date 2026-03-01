@@ -4801,8 +4801,7 @@ class Shop(commands.Cog):
     # INVENTORY COMMAND
     @commands.command(name='myinventory')
     async def my_inventory(self, ctx):
-        """Display your interactive MMORPG inventory"""
-        view = self.InventoryView(user_id, inventory_data, self) 
+        """Display your interactive MMORPG inventory"""         
         user_id = str(ctx.author.id)
 
         async with self.bot.db_pool.acquire() as conn:
@@ -4849,7 +4848,7 @@ class Shop(commands.Cog):
             'gems': balance['gems']
         }
 
-        view = InventoryView(user_id, inventory_data, self)
+        view = self.InventoryView(user_id, inventory_data, self)
         await ctx.send(embed=view.create_main_embed(), view=view)
 
 
