@@ -259,7 +259,7 @@ def get_item_emoji(item_name: str, item_type: str) -> str:
 
 # --- Create the bot instance ---
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
+bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None),
 bot.active_bags = {}
 bot.db_pool = None
 
