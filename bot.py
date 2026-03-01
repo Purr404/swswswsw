@@ -3207,6 +3207,305 @@ async def on_command_error(ctx, error):
     await ctx.send("❌ An unexpected error occurred. The developers have been notified.")
 
 
+# INVENTORY CLASS 
+
+
+class InventoryItemButton(discord.ui.Button):
+    def __init__(self, item_data, item_type):
+        self.item_data = item_data
+        self.item_type = item_type
+        label = f"{item_data['name']}"
+        if item_type == 'weapon':
+            label += f" (+{item_data['attack']} ATK)"
+        elif item_type == 'armor':
+            label += f" ({item_data['defense']} DEF)"
+        elif item_type == 'accessory':
+            label += f" (+{item_data['bonus_value']} {item_data['bonus_stat']})"
+
+        style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
+        super().__init__(label=label[:50], style=style, custom_id=f"inv_{item_type}_{item_data['id']}")
+
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            view = self.view
+            await view.show_item_details(interaction, self.item_data, self.item_type)
+        except Exception as e:
+            print(f"Error in InventoryItemButton: {e}")
+            traceback.print_exc()
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+
+
+class CategoryView(discord.ui.View):
+    def __init__(self, user_id, items, item_type, parent_view):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.items = items
+        self.item_type = item_type
+        self.parent = parent_view
+
+    @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=4)
+    async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=self.parent.create_main_embed(), view=self.parent)
+
+
+class ItemActionView(discord.ui.View):
+    def __init__(self, user_id, item_data, item_type, parent_view):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.item_data = item_data
+        self.item_type = item_type
+        self.parent = parent_view  # This is InventoryView
+
+    @discord.ui.button(label="⚔️ Equip", style=discord.ButtonStyle.success, row=0)
+    async def equip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            if interaction.user.id != int(self.user_id):
+                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                return
+
+            if self.item_data.get('equipped'):
+                await interaction.response.send_message("This item is already equipped!", ephemeral=True)
+                return
+
+            await interaction.response.defer(ephemeral=True)
+
+            async with self.parent.cog.bot.db_pool.acquire() as conn:
+                if self.item_type == 'weapon':
+                    await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE user_id = $1", str(self.user_id))
+                    await conn.execute("UPDATE user_weapons SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+
+                elif self.item_type == 'armor':
+                    slot = self.item_data.get('slot', 'armor')
+                    await conn.execute("""
+                        UPDATE user_armor SET equipped = FALSE 
+                        WHERE user_id = $1 AND armor_id IN 
+                        (SELECT armor_id FROM armor_types WHERE slot = $2)
+                    """, str(self.user_id), slot)
+                    await conn.execute("UPDATE user_armor SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+
+                elif self.item_type == 'accessory':
+                    slot = self.item_data['slot']
+                    await conn.execute("""
+                        UPDATE user_accessories SET equipped = FALSE 
+                        WHERE user_id = $1 AND slot = $2
+                    """, str(self.user_id), slot)
+                    await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1", self.item_data['id'])
+
+            await interaction.followup.send(f"Equipped **{self.item_data['name']}**!", ephemeral=True)
+            await self.parent.refresh_inventory(interaction)  # FIXED: removed .parent
+        except Exception as e:
+            print(f"Error in equip_item: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
+
+    @discord.ui.button(label="Unequip", style=discord.ButtonStyle.danger, row=0)
+    async def unequip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+
+        if not self.item_data.get('equipped'):
+            await interaction.response.send_message("This item is not equipped!", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        async with self.parent.cog.bot.db_pool.acquire() as conn:
+            if self.item_type == 'weapon':
+                await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE id = $1", self.item_data['id'])
+            elif self.item_type == 'armor':
+                await conn.execute("UPDATE user_armor SET equipped = FALSE WHERE id = $1", self.item_data['id'])
+            elif self.item_type == 'accessory':
+                await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE id = $1", self.item_data['id'])
+
+        await interaction.response.send_message(f"Unequipped **{self.item_data['name']}**!", ephemeral=True)
+        await self.parent.refresh_inventory(interaction)
+
+    @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=1)
+    async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        embed = discord.Embed(title=f"**{self.item_type.capitalize()}s**", color=discord.Color.blue())
+        view = CategoryView(self.user_id, self.parent.items, self.item_type, self.parent)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class InventoryView(discord.ui.View):
+    def __init__(self, user_id, inventory_data, cog):
+        super().__init__(timeout=120)
+        self.user_id = user_id
+        self.inventory = inventory_data
+        self.cog = cog
+
+    def create_main_embed(self):
+        """Create the main inventory overview (only items and gems)"""
+        user = self.cog.bot.get_user(int(self.user_id))
+        embed = discord.Embed(
+            title=f"📦 **{user.display_name if user else 'Unknown'}'s Inventory**",
+            description=f"💰 **Gems:** {self.inventory['gems']}",
+            color=discord.Color.purple()
+        )
+        if user:
+            embed.set_thumbnail(url=user.display_avatar.url)
+
+        embed.add_field(name="⚔️ Weapons", value=str(len(self.inventory['weapons'])), inline=True)
+        embed.add_field(name="🛡️ Armor", value=str(len(self.inventory['armor'])), inline=True)
+        embed.add_field(name="📿 Accessories", value=str(len(self.inventory['accessories'])), inline=True)
+
+        return embed
+
+    async def refresh_inventory(self, interaction):
+        """Refresh inventory data after equip/unequip"""
+        user_id = str(self.user_id)
+        async with self.cog.bot.db_pool.acquire() as conn:
+            weapons = await conn.fetch("""
+                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                       uw.attack, uw.equipped, uw.description,
+                       COALESCE(si.image_url, uw.image_url) as image_url,
+                       r.color as rarity_color
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.equipped DESC, uw.purchased_at DESC
+            """, user_id)
+
+            armor = await conn.fetch("""
+                SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                       at.image_url, at.description, r.color as rarity_color
+                FROM user_armor ua
+                JOIN armor_types at ON ua.armor_id = at.armor_id
+                LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                WHERE ua.user_id = $1
+                ORDER BY ua.equipped DESC, ua.purchased_at DESC
+            """, user_id)
+
+            accessories = await conn.fetch("""
+                SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                       ua.equipped, ua.slot, at.image_url, at.description,
+                       r.color as rarity_color
+                FROM user_accessories ua
+                JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                WHERE ua.user_id = $1
+                ORDER BY ua.equipped DESC, ua.purchased_at DESC
+            """, user_id)
+
+        balance = await currency_system.get_balance(user_id)
+
+        self.inventory = {
+            'weapons': [dict(w) for w in weapons],
+            'armor': [dict(a) for a in armor],
+            'accessories': [dict(a) for a in accessories],
+            'gems': balance['gems']
+        }
+
+        await interaction.edit_original_response(embed=self.create_main_embed(), view=self)
+
+    async def show_item_details(self, interaction: discord.Interaction, item_data, item_type):
+        embed = discord.Embed(
+            title=f"**{item_data['name']}**",
+            color=discord.Color.gold()
+        )
+
+        if item_data.get('image_url'):
+            embed.set_image(url=item_data['image_url'])
+
+        stats = []
+        if item_type == 'weapon':
+            stats.append(f"⚔️ **ATK:** +{item_data['attack']}")
+        elif item_type == 'armor':
+            stats.append(f"🛡️ **DEF:** +{item_data['defense']}")
+        elif item_type == 'accessory':
+            stats.append(f"✨ **{item_data['bonus_stat'].upper()}:** +{item_data['bonus_value']}")
+            stats.append(f"📌 **Slot:** {item_data['slot']}")
+
+        stats.append(f"📝 **Description:** {item_data.get('description', 'No description')}")
+        embed.description = "\n".join(stats)
+
+        if item_data.get('rarity_color'):
+            embed.color = item_data['rarity_color']
+
+        status = "**EQUIPPED**" if item_data.get('equipped') else "**NOT EQUIPPED**"
+        embed.add_field(name="Status", value=status, inline=False)
+
+        view = ItemActionView(self.user_id, item_data, item_type, self)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="🗡️ Weapons", style=discord.ButtonStyle.primary, row=0)
+    async def show_weapons(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            if interaction.user.id != int(self.user_id):
+                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                return
+
+            if not self.inventory['weapons']:
+                await interaction.response.send_message("You have no weapons!", ephemeral=True)
+                return
+
+            embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
+            view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
+
+            for weapon in self.inventory['weapons'][:6]:
+                view.add_item(InventoryItemButton(weapon, 'weapon'))
+
+            await interaction.response.edit_message(embed=embed, view=view)
+        except Exception as e:
+            print(f"Error in show_weapons: {e}")
+            traceback.print_exc()
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+
+    @discord.ui.button(label="🛡️ Armor", style=discord.ButtonStyle.primary, row=0)
+    async def show_armor(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+
+        if not self.inventory['armor']:
+            await interaction.response.send_message("You have no armor!", ephemeral=True)
+            return
+
+        embed = discord.Embed(title="🛡️ **Armor**", color=discord.Color.blue())
+        view = CategoryView(self.user_id, self.inventory['armor'], 'armor', self)
+
+        for armor in self.inventory['armor'][:6]:
+            view.add_item(InventoryItemButton(armor, 'armor'))
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="📿 Accessories", style=discord.ButtonStyle.primary, row=0)
+    async def show_accessories(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+
+        if not self.inventory['accessories']:
+            await interaction.response.send_message("You have no accessories!", ephemeral=True)
+            return
+
+        embed = discord.Embed(title="📿 **Accessories**", color=discord.Color.green())
+        view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)
+
+        for accessory in self.inventory['accessories'][:6]:
+            view.add_item(InventoryItemButton(accessory, 'accessory'))
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=1)
+    async def back_to_main(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != int(self.user_id):
+            await interaction.response.send_message("Not your inventory!", ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=self.create_main_embed(), view=self)
+
+
+
+# END
 
 
 
@@ -4497,298 +4796,6 @@ class Shop(commands.Cog):
 # Make sure to add the cog to the bot after this definition
 
 
-    class InventoryItemButton(discord.ui.Button):
-        def __init__(self, item_data, item_type):
-            self.item_data = item_data
-            self.item_type = item_type
-            label = f"{item_data['name']}"
-            if item_type == 'weapon':
-                label += f" (+{item_data['attack']} ATK)"
-            elif item_type == 'armor':
-                label += f" ({item_data['defense']} DEF)"
-            elif item_type == 'accessory':
-                label += f" (+{item_data['bonus_value']} {item_data['bonus_stat']})"
-
-            style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
-            super().__init__(label=label[:50], style=style, custom_id=f"inv_{item_type}_{item_data['id']}")
-
-        async def callback(self, interaction: discord.Interaction):
-            try:
-                view = self.view
-                await view.show_item_details(interaction, self.item_data, self.item_type)
-            except Exception as e:
-                print(f"Error in InventoryItemButton: {e}")
-                traceback.print_exc()
-                await interaction.response.send_message("An error occurred.", ephemeral=True)
-
-
-    class CategoryView(discord.ui.View):
-        def __init__(self, user_id, items, item_type, parent_view):
-            super().__init__(timeout=60)
-            self.user_id = user_id
-            self.items = items
-            self.item_type = item_type
-            self.parent = parent_view
-
-        @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=4)
-        async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-            await interaction.response.edit_message(embed=self.parent.create_main_embed(), view=self.parent)
-
-
-    class ItemActionView(discord.ui.View):
-        def __init__(self, user_id, item_data, item_type, parent_view):
-            super().__init__(timeout=60)
-            self.user_id = user_id
-            self.item_data = item_data
-            self.item_type = item_type
-            self.parent = parent_view  # This is InventoryView
-
-        @discord.ui.button(label="⚔️ Equip", style=discord.ButtonStyle.success, row=0)
-        async def equip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-            try:
-                if interaction.user.id != int(self.user_id):
-                    await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                    return
-
-                if self.item_data.get('equipped'):
-                    await interaction.response.send_message("This item is already equipped!", ephemeral=True)
-                    return
-
-                await interaction.response.defer(ephemeral=True)
-
-                async with self.parent.cog.bot.db_pool.acquire() as conn:
-                    if self.item_type == 'weapon':
-                        await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE user_id = $1", str(self.user_id))
-                        await conn.execute("UPDATE user_weapons SET equipped = TRUE WHERE id = $1", self.item_data['id'])
-
-                    elif self.item_type == 'armor':
-                        slot = self.item_data.get('slot', 'armor')
-                        await conn.execute("""
-                            UPDATE user_armor SET equipped = FALSE 
-                            WHERE user_id = $1 AND armor_id IN 
-                            (SELECT armor_id FROM armor_types WHERE slot = $2)
-                        """, str(self.user_id), slot)
-                        await conn.execute("UPDATE user_armor SET equipped = TRUE WHERE id = $1", self.item_data['id'])
-
-                    elif self.item_type == 'accessory':
-                        slot = self.item_data['slot']
-                        await conn.execute("""
-                            UPDATE user_accessories SET equipped = FALSE 
-                            WHERE user_id = $1 AND slot = $2
-                        """, str(self.user_id), slot)
-                        await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1", self.item_data['id'])
-
-                await interaction.followup.send(f"Equipped **{self.item_data['name']}**!", ephemeral=True)
-                await self.parent.refresh_inventory(interaction)  # FIXED: removed .parent
-            except Exception as e:
-                print(f"Error in equip_item: {e}")
-                traceback.print_exc()
-                await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
-
-        @discord.ui.button(label="Unequip", style=discord.ButtonStyle.danger, row=0)
-        async def unequip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-
-            if not self.item_data.get('equipped'):
-                await interaction.response.send_message("This item is not equipped!", ephemeral=True)
-                return
-
-            await interaction.response.defer(ephemeral=True)
-
-            async with self.parent.cog.bot.db_pool.acquire() as conn:
-                if self.item_type == 'weapon':
-                    await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE id = $1", self.item_data['id'])
-                elif self.item_type == 'armor':
-                    await conn.execute("UPDATE user_armor SET equipped = FALSE WHERE id = $1", self.item_data['id'])
-                elif self.item_type == 'accessory':
-                    await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE id = $1", self.item_data['id'])
-
-            await interaction.response.send_message(f"Unequipped **{self.item_data['name']}**!", ephemeral=True)
-            await self.parent.refresh_inventory(interaction)
-
-        @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=1)
-        async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-            embed = discord.Embed(title=f"**{self.item_type.capitalize()}s**", color=discord.Color.blue())
-            view = CategoryView(self.user_id, self.parent.items, self.item_type, self.parent)
-            await interaction.response.edit_message(embed=embed, view=view)
-
-
-    class InventoryView(discord.ui.View):
-        def __init__(self, user_id, inventory_data, cog):
-            super().__init__(timeout=120)
-            self.user_id = user_id
-            self.inventory = inventory_data
-            self.cog = cog
-
-        def create_main_embed(self):
-            """Create the main inventory overview (only items and gems)"""
-            user = self.cog.bot.get_user(int(self.user_id))
-            embed = discord.Embed(
-                title=f"📦 **{user.display_name if user else 'Unknown'}'s Inventory**",
-                description=f"💎 **Gems:** {self.inventory['gems']}",
-                color=discord.Color.purple()
-            )
-            if user:
-                embed.set_thumbnail(url=user.display_avatar.url)
-
-            embed.add_field(name="Weapons", value=str(len(self.inventory['weapons'])), inline=True)
-            embed.add_field(name="Armor", value=str(len(self.inventory['armor'])), inline=True)
-            embed.add_field(name="Accessories", value=str(len(self.inventory['accessories'])), inline=True)
-
-            return embed
-
-        async def refresh_inventory(self, interaction):
-            """Refresh inventory data after equip/unequip"""
-            user_id = str(self.user_id)
-            async with self.cog.bot.db_pool.acquire() as conn:
-                weapons = await conn.fetch("""
-                    SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
-                           uw.attack, uw.equipped, uw.description,
-                           COALESCE(si.image_url, uw.image_url) as image_url,
-                           r.color as rarity_color
-                    FROM user_weapons uw
-                    LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                    LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
-                    LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
-                    WHERE uw.user_id = $1
-                    ORDER BY uw.equipped DESC, uw.purchased_at DESC
-                """, user_id)
-
-                armor = await conn.fetch("""
-                    SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
-                           at.image_url, at.description, r.color as rarity_color
-                    FROM user_armor ua
-                    JOIN armor_types at ON ua.armor_id = at.armor_id
-                    LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
-                    WHERE ua.user_id = $1
-                    ORDER BY ua.equipped DESC, ua.purchased_at DESC
-                """, user_id)
-
-                accessories = await conn.fetch("""
-                    SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
-                           ua.equipped, ua.slot, at.image_url, at.description,
-                           r.color as rarity_color
-                    FROM user_accessories ua
-                    JOIN accessory_types at ON ua.accessory_id = at.accessory_id
-                    LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
-                    WHERE ua.user_id = $1
-                    ORDER BY ua.equipped DESC, ua.purchased_at DESC
-                """, user_id)
-
-            balance = await currency_system.get_balance(user_id)
-
-            self.inventory = {
-                'weapons': [dict(w) for w in weapons],
-                'armor': [dict(a) for a in armor],
-                'accessories': [dict(a) for a in accessories],
-                'gems': balance['gems']
-            }
-
-            await interaction.edit_original_response(embed=self.create_main_embed(), view=self)
-
-        async def show_item_details(self, interaction: discord.Interaction, item_data, item_type):
-            embed = discord.Embed(
-                title=f"**{item_data['name']}**",
-                color=discord.Color.gold()
-            )
-
-            if item_data.get('image_url'):
-                embed.set_image(url=item_data['image_url'])
-
-            stats = []
-            if item_type == 'weapon':
-                stats.append(f"⚔️ **ATK:** +{item_data['attack']}")
-            elif item_type == 'armor':
-                stats.append(f"🛡️ **DEF:** +{item_data['defense']}")
-            elif item_type == 'accessory':
-                stats.append(f"✨ **{item_data['bonus_stat'].upper()}:** +{item_data['bonus_value']}")
-                stats.append(f"📌 **Slot:** {item_data['slot']}")
-
-            stats.append(f"📝 **Description:** {item_data.get('description', 'No description')}")
-            embed.description = "\n".join(stats)
-
-            if item_data.get('rarity_color'):
-                embed.color = item_data['rarity_color']
-
-            status = "**EQUIPPED**" if item_data.get('equipped') else "**NOT EQUIPPED**"
-            embed.add_field(name="Status", value=status, inline=False)
-
-            view = ItemActionView(self.user_id, item_data, item_type, self)
-            await interaction.response.edit_message(embed=embed, view=view)
-
-        @discord.ui.button(label="🗡️ Weapons", style=discord.ButtonStyle.primary, row=0)
-        async def show_weapons(self, interaction: discord.Interaction, button: discord.ui.Button):
-            try:
-                if interaction.user.id != int(self.user_id):
-                    await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                    return
-
-                if not self.inventory['weapons']:
-                    await interaction.response.send_message("You have no weapons!", ephemeral=True)
-                    return
-
-                embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
-                view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
-
-                for weapon in self.inventory['weapons'][:6]:
-                    view.add_item(InventoryItemButton(weapon, 'weapon'))
-
-                await interaction.response.edit_message(embed=embed, view=view)
-            except Exception as e:
-                print(f"Error in show_weapons: {e}")
-                traceback.print_exc()
-                await interaction.response.send_message("An error occurred.", ephemeral=True)
-
-        @discord.ui.button(label="🛡️ Armor", style=discord.ButtonStyle.primary, row=0)
-        async def show_armor(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-
-            if not self.inventory['armor']:
-                await interaction.response.send_message("You have no armor!", ephemeral=True)
-                return
-
-            embed = discord.Embed(title="🛡️ **Armor**", color=discord.Color.blue())
-            view = CategoryView(self.user_id, self.inventory['armor'], 'armor', self)
-
-            for armor in self.inventory['armor'][:6]:
-                view.add_item(InventoryItemButton(armor, 'armor'))
-
-            await interaction.response.edit_message(embed=embed, view=view)
-
-        @discord.ui.button(label="📿 Accessories", style=discord.ButtonStyle.primary, row=0)
-        async def show_accessories(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-
-            if not self.inventory['accessories']:
-                await interaction.response.send_message("You have no accessories!", ephemeral=True)
-                return
-
-            embed = discord.Embed(title="📿 **Accessories**", color=discord.Color.green())
-            view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)
-
-            for accessory in self.inventory['accessories'][:6]:
-                view.add_item(InventoryItemButton(accessory, 'accessory'))
-
-            await interaction.response.edit_message(embed=embed, view=view)
-
-        @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=1)
-        async def back_to_main(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-            await interaction.response.edit_message(embed=self.create_main_embed(), view=self)
 
 
     # INVENTORY COMMAND
