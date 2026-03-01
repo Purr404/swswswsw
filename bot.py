@@ -4795,6 +4795,7 @@ class Shop(commands.Cog):
     @commands.command(name='myinventory')
     async def my_inventory(self, ctx):
         """Display your interactive MMORPG inventory"""
+        view = self.InventoryView(user_id, inventory_data, self) 
         user_id = str(ctx.author.id)
 
         async with self.bot.db_pool.acquire() as conn:
