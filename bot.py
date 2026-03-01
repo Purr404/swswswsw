@@ -3222,7 +3222,8 @@ class InventoryItemButton(discord.ui.Button):
             label += f" (+{item_data['bonus_value']} {item_data['bonus_stat']})"
 
         style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
-        super().__init__(label=label[:50], style=style, custom_id=f"inv_{item_type}_{item_data['id']}")
+        custom_id = f"inv_{item_type}_{item_data['id']}"
+        super().__init__(label=label[:50], style=style, custom_id=custom_id)
 
     async def callback(self, interaction: discord.Interaction):
         try:
@@ -3241,9 +3242,19 @@ class CategoryView(discord.ui.View):
         self.items = items
         self.item_type = item_type
         self.parent = parent_view
+        
+        # Add back button
+        self.add_item(discord.ui.Button(
+            label="🔙", 
+            style=discord.ButtonStyle.secondary, 
+            custom_id="category_back", 
+            row=4
+        ))
 
-    @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=4)
-    async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def show_item_details(self, interaction: discord.Interaction, item_data, item_type):
+        await self.parent.show_item_details(interaction, item_data, item_type)
+
+    async def go_back(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
@@ -3261,10 +3272,29 @@ class ItemActionView(discord.ui.View):
         self.user_id = user_id
         self.item_data = item_data
         self.item_type = item_type
-        self.parent = parent_view  # This is InventoryView
+        self.parent = parent_view
+        
+        # Add buttons
+        self.add_item(discord.ui.Button(
+            label="⚔️ Equip", 
+            style=discord.ButtonStyle.success, 
+            custom_id=f"equip_{item_type}_{item_data['id']}", 
+            row=0
+        ))
+        self.add_item(discord.ui.Button(
+            label="❌ Unequip", 
+            style=discord.ButtonStyle.danger, 
+            custom_id=f"unequip_{item_type}_{item_data['id']}", 
+            row=0
+        ))
+        self.add_item(discord.ui.Button(
+            label="🔙", 
+            style=discord.ButtonStyle.secondary, 
+            custom_id="item_back", 
+            row=1
+        ))
 
-    @discord.ui.button(label="⚔️ Equip", style=discord.ButtonStyle.success, row=0)
-    async def equip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def equip_item(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
@@ -3305,8 +3335,7 @@ class ItemActionView(discord.ui.View):
             traceback.print_exc()
             await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
 
-    @discord.ui.button(label="❌ Unequip", style=discord.ButtonStyle.danger, row=0)
-    async def unequip_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def unequip_item(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
@@ -3333,14 +3362,21 @@ class ItemActionView(discord.ui.View):
             traceback.print_exc()
             await interaction.followup.send("An error occurred while unequipping.", ephemeral=True)
 
-    @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=1)
-    async def go_back(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def go_back(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
                 return
+            
+            # Get items from parent
+            items = self.parent.inventory[self.item_type + 's']  # weapons, armor, accessories
             embed = discord.Embed(title=f"**{self.item_type.capitalize()}s**", color=discord.Color.blue())
-            view = CategoryView(self.user_id, self.parent.items, self.item_type, self.parent)
+            view = CategoryView(self.user_id, items, self.item_type, self.parent)
+            
+            # Add item buttons
+            for item in items[:6]:
+                view.add_item(InventoryItemButton(item, self.item_type))
+                
             await interaction.response.edit_message(embed=embed, view=view)
         except Exception as e:
             print(f"Error in ItemActionView.go_back: {e}")
@@ -3354,6 +3390,32 @@ class InventoryView(discord.ui.View):
         self.user_id = user_id
         self.inventory = inventory_data
         self.cog = cog
+
+        # Add buttons with custom_ids
+        self.add_item(discord.ui.Button(
+            label="🗡️ Weapons", 
+            style=discord.ButtonStyle.primary, 
+            custom_id="inventory_weapons", 
+            row=0
+        ))
+        self.add_item(discord.ui.Button(
+            label="🛡️ Armor", 
+            style=discord.ButtonStyle.primary, 
+            custom_id="inventory_armor", 
+            row=0
+        ))
+        self.add_item(discord.ui.Button(
+            label="📿 Accessories", 
+            style=discord.ButtonStyle.primary, 
+            custom_id="inventory_accessories", 
+            row=0
+        ))
+        self.add_item(discord.ui.Button(
+            label="🔙", 
+            style=discord.ButtonStyle.secondary, 
+            custom_id="inventory_back", 
+            row=1
+        ))
 
     def create_main_embed(self):
         """Create the main inventory overview (only items and gems)"""
@@ -3451,8 +3513,7 @@ class InventoryView(discord.ui.View):
         view = ItemActionView(self.user_id, item_data, item_type, self)
         await interaction.response.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="🗡️ Weapons", style=discord.ButtonStyle.primary, row=0)
-    async def show_weapons(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def show_weapons(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
@@ -3474,8 +3535,7 @@ class InventoryView(discord.ui.View):
             traceback.print_exc()
             await interaction.response.send_message("An error occurred.", ephemeral=True)
 
-    @discord.ui.button(label="🛡️ Armor", style=discord.ButtonStyle.primary, row=0)
-    async def show_armor(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def show_armor(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
@@ -3497,8 +3557,7 @@ class InventoryView(discord.ui.View):
             traceback.print_exc()
             await interaction.response.send_message("An error occurred.", ephemeral=True)
 
-    @discord.ui.button(label="📿 Accessories", style=discord.ButtonStyle.primary, row=0)
-    async def show_accessories(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def show_accessories(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
@@ -3520,8 +3579,7 @@ class InventoryView(discord.ui.View):
             traceback.print_exc()
             await interaction.response.send_message("An error occurred.", ephemeral=True)
 
-    @discord.ui.button(label="🔙", style=discord.ButtonStyle.secondary, row=1)
-    async def back_to_main(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def back_to_main(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
@@ -3753,6 +3811,109 @@ class Shop(commands.Cog):
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
+
+        # ===== INVENTORY BUTTON HANDLERS =====
+        # Add these after your shop handlers
+        elif custom_id == "inventory_weapons":
+            # Get the view from the message
+            view = interaction.message.view
+            if view and isinstance(view, InventoryView):
+                await view.show_weapons(interaction)
+            else:
+                await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
+
+        elif custom_id == "inventory_armor":
+            view = interaction.message.view
+            if view and isinstance(view, InventoryView):
+                await view.show_armor(interaction)
+            else:
+                await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
+
+        elif custom_id == "inventory_accessories":
+            view = interaction.message.view
+            if view and isinstance(view, InventoryView):
+                await view.show_accessories(interaction)
+            else:
+                await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
+
+        elif custom_id == "inventory_back":
+            view = interaction.message.view
+            if view and isinstance(view, InventoryView):
+                await view.back_to_main(interaction)
+            else:
+                await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
+
+        # ===== INVENTORY ITEM BUTTONS =====
+        elif custom_id.startswith("inv_"):
+            # Format: inv_{item_type}_{item_id}
+            parts = custom_id.split('_')
+            if len(parts) >= 3:
+                item_type = parts[1]
+                item_id = int(parts[2])
+            
+                # Get the view from the message
+                view = interaction.message.view
+                if view and isinstance(view, (CategoryView, ItemActionView)):
+                    # Find the item data
+                    if isinstance(view, CategoryView):
+                        # Find item in the category view's items
+                        item_data = None
+                        for item in view.items:
+                            if item['id'] == item_id:
+                                item_data = item
+                                break
+                        if item_data:
+                            await view.parent.show_item_details(interaction, item_data, item_type)
+                        else:
+                            await interaction.response.send_message("Item not found.", ephemeral=True)
+                    elif isinstance(view, ItemActionView):
+                        # ItemActionView already has the item data
+                        await view.parent.show_item_details(interaction, view.item_data, view.item_type)
+                else:
+                     await interaction.response.send_message("Inventory view expired. Please use !!myinventory again.", ephemeral=True)
+
+        # ===== EQUIP/UNEQUIP BUTTONS =====
+        elif custom_id.startswith("equip_"):
+            # Handle equip actions
+            parts = custom_id.split('_')
+            if len(parts) >= 3:
+                item_type = parts[1]
+                item_id = int(parts[2])
+            
+                view = interaction.message.view
+                if view and isinstance(view, ItemActionView):
+                    await view.equip_item(interaction)
+                else:
+                    await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+
+        elif custom_id.startswith("unequip_"):
+            parts = custom_id.split('_')
+            if len(parts) >= 3:
+                item_type = parts[1]
+                item_id = int(parts[2])
+            
+                view = interaction.message.view
+                if view and isinstance(view, ItemActionView):
+                    await view.unequip_item(interaction)
+                else:
+                    await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+
+        # ===== BACK BUTTONS IN CATEGORY/ITEM VIEWS =====
+        elif custom_id == "category_back":
+            view = interaction.message.view
+            if view and isinstance(view, CategoryView):
+                await view.go_back(interaction)
+            else:
+                await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+
+        elif custom_id == "item_back":
+            view = interaction.message.view
+            if view and isinstance(view, ItemActionView):
+                await view.go_back(interaction)
+            else:
+                await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+
+
 
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES (using PartialEmoji for custom emojis)
