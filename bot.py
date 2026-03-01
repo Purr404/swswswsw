@@ -3213,6 +3213,10 @@ class InventoryItemButton(discord.ui.Button):
     def __init__(self, item_data, item_type):
         self.item_data = item_data
         self.item_type = item_type
+        
+        # Get the custom emoji for this item
+        item_emoji = get_item_emoji(item_data['name'], item_type)
+        
         label = f"{item_data['name']}"
         if item_type == 'weapon':
             label += f" (+{item_data['attack']} ATK)"
@@ -3223,7 +3227,9 @@ class InventoryItemButton(discord.ui.Button):
 
         style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
         custom_id = f"inv_{item_type}_{item_data['id']}"
-        super().__init__(label=label[:50], style=style, custom_id=custom_id)
+        
+        # Use the emoji parameter
+        super().__init__(label=label[:50], emoji=item_emoji, style=style, custom_id=custom_id)
 
     async def callback(self, interaction: discord.Interaction):
         try:
@@ -3411,7 +3417,7 @@ class InventoryView(discord.ui.View):
             row=0
         ))
         self.add_item(discord.ui.Button(
-            label="🔙", 
+            label="🔄", 
             style=discord.ButtonStyle.secondary, 
             custom_id="inventory_back", 
             row=1
@@ -3927,16 +3933,17 @@ class Shop(commands.Cog):
             await interaction.response.send_message("An error occurred.", ephemeral=True)
 
     async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
-        """Handle when a user clicks on an item"""
+        """Handle when a user clicks on an item - shows all stats"""
         try:
             user_id = str(interaction.user.id)
         
-            # Fetch the specific item
+            # Fetch the specific item with all stats
             async with self.bot.db_pool.acquire() as conn:
                 if item_type == 'weapon':
                     item = await conn.fetchrow("""
                         SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
                                uw.attack, uw.equipped, uw.description,
+                               uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
                                COALESCE(si.image_url, uw.image_url) as image_url,
                                r.color as rarity_color
                         FROM user_weapons uw
@@ -3945,20 +3952,23 @@ class Shop(commands.Cog):
                         LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
                         WHERE uw.id = $1 AND uw.user_id = $2
                     """, item_id, user_id)
+                
                 elif item_type == 'armor':
                     item = await conn.fetchrow("""
                         SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                               ua.hp_bonus, ua.reflect_damage, at.set_name,
                                at.image_url, at.description, r.color as rarity_color
                         FROM user_armor ua
                         JOIN armor_types at ON ua.armor_id = at.armor_id
                         LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
                         WHERE ua.id = $1 AND ua.user_id = $2
-                     """, item_id, user_id)
+                    """, item_id, user_id)
+                
                 elif item_type == 'accessory':
                     item = await conn.fetchrow("""
                         SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
-                               ua.equipped, ua.slot, at.image_url, at.description,
-                               r.color as rarity_color
+                               ua.equipped, ua.slot, at.set_name,
+                               at.image_url, at.description, r.color as rarity_color
                         FROM user_accessories ua
                         JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                         LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -3969,9 +3979,12 @@ class Shop(commands.Cog):
                 await interaction.response.send_message("Item not found.", ephemeral=True)
                 return
 
-            # Create detail embed
+            # Get the custom emoji for this item
+            item_emoji = get_item_emoji(item['name'], item_type)
+        
+            # Create detail embed with emoji in title
             embed = discord.Embed(
-                title=f"**{item['name']}**",
+                title=f"{item_emoji} **{item['name']}**",
                 color=discord.Color.gold()
             )
 
@@ -3979,15 +3992,32 @@ class Shop(commands.Cog):
                 embed.set_image(url=item['image_url'])
 
             stats = []
+        
+            # ===== WEAPON STATS =====
             if item_type == 'weapon':
-                stats.append(f"⚔️ **ATK:** +{item['attack']}")
+                stats.append(f"⚔️ **ATK:** `{item['attack']}`")
+                stats.append(f"🩸 **Bleeding Chance:** `{item['bleeding_chance']}%`")
+                stats.append(f"⚡ **Critical Chance:** `{item['crit_chance']}%`")
+                stats.append(f"💥 **Critical Damage:** `{item['crit_damage']}%`")
+            
+            # ===== ARMOR STATS =====
             elif item_type == 'armor':
-                stats.append(f"🛡️ **DEF:** +{item['defense']}")
+                stats.append(f"🛡️ **DEF:** `{item['defense']}`")
+                stats.append(f"❤️ **HP Bonus:** `+{item['hp_bonus']}`")
+                if item['reflect_damage'] and item['reflect_damage'] > 0:
+                    stats.append(f"🔄 **Reflect DMG:** `{item['reflect_damage']}%`")
+            if item.get('set_name'):
+                stats.append(f"⚔️ **Set:** `{item['set_name']}`")
+                
+            # ===== ACCESSORY STATS =====
             elif item_type == 'accessory':
-                stats.append(f"✨ **{item['bonus_stat'].upper()}:** +{item['bonus_value']}")
-                stats.append(f"📌 **Slot:** {item['slot']}")
+                bonus_emoji = '⚔️' if item['bonus_stat'] == 'atk' else '🛡️' if item['bonus_stat'] == 'def' else '❤️'
+                stats.append(f"{bonus_emoji} **{item['bonus_stat'].upper()}:** `+{item['bonus_value']}`")
+                stats.append(f"📌 **Slot:** `{item['slot']}`")
+                if item.get('set_name'):
+                    stats.append(f"⚔️ **Set:** `{item['set_name']}`")
 
-            stats.append(f"📝 **Description:** {item.get('description', 'No description')}")
+            stats.append(f"**Description:** {item.get('description', 'No description')}")
             embed.description = "\n".join(stats)
 
             if item.get('rarity_color'):
@@ -3996,22 +4026,98 @@ class Shop(commands.Cog):
             status = "✅ **EQUIPPED**" if item.get('equipped') else "❌ **NOT EQUIPPED**"
             embed.add_field(name="Status", value=status, inline=False)
 
-            # Create action view
+            # ===== ADD SET BONUS INFORMATION IF APPLICABLE =====
+            if item_type in ['armor', 'accessory'] and item.get('set_name'):
+                set_name = item['set_name'].lower()
+            
+                # Check how many pieces of this set the user has equipped
+                async with self.bot.db_pool.acquire() as conn:
+                    if item_type == 'armor':
+                        equipped_count = await conn.fetchval("""
+                            SELECT COUNT(*) FROM user_armor 
+                            WHERE user_id = $1 AND set_name = $2 AND equipped = TRUE
+                        """, user_id, item['set_name'])
+                    
+                        # Define armor set bonuses
+                        set_bonuses = {
+                            'bilari': "⚡ +10% Crit Chance, 💥 +25% Crit DMG, 🛡️ +15% DEF, 🔄 +20% Reflect, ❤️ +20% HP",
+                            'cryo': "⚡ +10% Crit Chance, 💥 +25% Crit DMG, 🛡️ +15% DEF, 🔄 +20% Reflect, ❤️ +20% HP",
+                            'bane': "⚡ +10% Crit Chance, 💥 +25% Crit DMG, 🛡️ +15% DEF, 🔄 +20% Reflect, ❤️ +20% HP",
+                        }
+                    
+                    else:  # accessory
+                        # For accessories, count by type (rings, earrings, pendant)
+                        rings = await conn.fetchval("""
+                            SELECT COUNT(*) FROM user_accessories ua
+                            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                            WHERE ua.user_id = $1 AND at.set_name = $2 
+                            AND at.slot LIKE 'ring%' AND ua.equipped = TRUE
+                        """, user_id, item['set_name'])
+                    
+                        earrings = await conn.fetchval("""
+                            SELECT COUNT(*) FROM user_accessories ua
+                            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                            WHERE ua.user_id = $1 AND at.set_name = $2 
+                            AND at.slot LIKE 'earring%' AND ua.equipped = TRUE
+                        """, user_id, item['set_name'])
+                    
+                        pendant = await conn.fetchval("""
+                            SELECT 1 FROM user_accessories ua
+                            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                            WHERE ua.user_id = $1 AND at.set_name = $2 
+                            AND at.slot = 'pendant' AND ua.equipped = TRUE
+                        """, user_id, item['set_name'])
+                    
+                        equipped_count = rings + earrings + (1 if pendant else 0)
+                    
+                        # Define accessory set bonuses
+                        set_bonuses = {
+                            'champion': "❤️ +15% HP, 🛡️ +15% DEF, ⚔️ +20% ATK",
+                            'defender': "❤️ +15% HP, 🛡️ +20% DEF, 🔄 +10% Reflect",
+                            'angel': "❤️ +15% HP, ⚡ +15% Crit Chance, 🩸 +20% Bleed DMG",
+                        }
+                
+                    # Show set progress
+                    if item_type == 'armor':
+                        progress_text = f"**Set Progress:** {equipped_count}/4 pieces equipped"
+                        required = 4
+                    else:
+                        progress_text = f"**Set Progress:** {equipped_count}/5 pieces equipped (2 Rings + 2 Earrings + 1 Pendant)"
+                        required = 5
+                
+                    embed.add_field(name="Set Collection", value=progress_text, inline=False)
+                
+                    # Show set bonus if complete
+                    if equipped_count >= required:
+                        bonus_text = set_bonuses.get(item['set_name'].lower(), "Complete set bonus activated!")
+                        embed.add_field(name="✨ SET BONUS ACTIVE", value=bonus_text, inline=False)
+                    else:
+                        missing = required - equipped_count
+                        bonus_text = set_bonuses.get(item['set_name'].lower(), "Complete set for bonus!")
+                        embed.add_field(name=f"⏳ Set Bonus ({missing} more to go)", value=bonus_text, inline=False)
+
+            # Create action view - ONLY show the relevant button
             view = discord.ui.View(timeout=60)
-            if not item.get('equipped'):
-                view.add_item(discord.ui.Button(
-                    label="⚔️ Equip", 
-                    style=discord.ButtonStyle.success, 
-                    custom_id=f"equip_{item_type}_{item_id}", 
-                    row=0
-                ))
-            else:
+        
+            # Add ONLY the button that matches current state
+            if item.get('equipped'):
+                # Item is equipped - show UNEQUIP button
                 view.add_item(discord.ui.Button(
                     label="❌ Unequip", 
                     style=discord.ButtonStyle.danger, 
                     custom_id=f"unequip_{item_type}_{item_id}", 
                     row=0
                 ))
+            else:
+                # Item is not equipped - show EQUIP button
+                view.add_item(discord.ui.Button(
+                    label="⚔️ Equip", 
+                    style=discord.ButtonStyle.success, 
+                    custom_id=f"equip_{item_type}_{item_id}", 
+                    row=0
+                ))
+        
+            # Always show back button
             view.add_item(discord.ui.Button(
                 label="🔙", 
                 style=discord.ButtonStyle.secondary, 
@@ -4039,13 +4145,14 @@ class Shop(commands.Cog):
                     # Equip selected weapon
                     await conn.execute("UPDATE user_weapons SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
                 
-                    # Get item name
-                    item = await conn.fetchval("""
-                        SELECT COALESCE(si.name, uw.generated_name) 
+                    # Get item name with emoji
+                    item_row = await conn.fetchrow("""
+                        SELECT COALESCE(si.name, uw.generated_name) as name 
                         FROM user_weapons uw 
                         LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id 
                         WHERE uw.id = $1
                     """, item_id)
+                    item = item_row['name'] if item_row else "Unknown"
                 
                 elif item_type == 'armor':
                     # Get slot
@@ -4065,11 +4172,12 @@ class Shop(commands.Cog):
                     await conn.execute("UPDATE user_armor SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
                 
                     # Get item name
-                    item = await conn.fetchval("""
+                    item_row = await conn.fetchval("""
                         SELECT at.name FROM user_armor ua 
                         JOIN armor_types at ON ua.armor_id = at.armor_id 
                         WHERE ua.id = $1
                     """, item_id)
+                    item = item_row if item_row else "Unknown"
                 
                 elif item_type == 'accessory':
                     # Get slot
@@ -4081,13 +4189,17 @@ class Shop(commands.Cog):
                     await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
                 
                     # Get item name
-                    item = await conn.fetchval("""
+                    item_row = await conn.fetchval("""
                         SELECT at.name FROM user_accessories ua 
                         JOIN accessory_types at ON ua.accessory_id = at.accessory_id 
                         WHERE ua.id = $1
                     """, item_id)
+                    item = item_row if item_row else "Unknown"
 
-            await interaction.followup.send(f"✅ Equipped **{item}**!", ephemeral=True)
+            # Get emoji for the item
+            item_emoji = get_item_emoji(item, item_type)
+        
+            await interaction.followup.send(f"{item_emoji} ✅ Equipped **{item}**!", ephemeral=True)
         
             # Return to inventory
             await self.handle_inventory_action(interaction, "back")
@@ -4106,28 +4218,36 @@ class Shop(commands.Cog):
             async with self.bot.db_pool.acquire() as conn:
                 if item_type == 'weapon':
                     await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
-                    item = await conn.fetchval("""
-                        SELECT COALESCE(si.name, uw.generated_name) 
+                    item_row = await conn.fetchrow("""
+                        SELECT COALESCE(si.name, uw.generated_name) as name 
                         FROM user_weapons uw 
                         LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id 
                         WHERE uw.id = $1
                     """, item_id)
+                    item = item_row['name'] if item_row else "Unknown"
+                
                 elif item_type == 'armor':
                     await conn.execute("UPDATE user_armor SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
-                    item = await conn.fetchval("""
+                    item_row = await conn.fetchval("""
                         SELECT at.name FROM user_armor ua 
                         JOIN armor_types at ON ua.armor_id = at.armor_id 
                         WHERE ua.id = $1
                     """, item_id)
+                    item = item_row if item_row else "Unknown"
+                
                 elif item_type == 'accessory':
                     await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
-                    item = await conn.fetchval("""
+                    item_row = await conn.fetchval("""
                         SELECT at.name FROM user_accessories ua 
                         JOIN accessory_types at ON ua.accessory_id = at.accessory_id 
                         WHERE ua.id = $1
                     """, item_id)
+                    item = item_row if item_row else "Unknown"
 
-            await interaction.followup.send(f"❌ Unequipped **{item}**!", ephemeral=True)
+            # Get emoji for the item
+            item_emoji = get_item_emoji(item, item_type)
+        
+            await interaction.followup.send(f"{item_emoji} ❌ Unequipped **{item}**!", ephemeral=True)
         
             # Return to inventory
             await self.handle_inventory_action(interaction, "back")
