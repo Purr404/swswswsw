@@ -3245,7 +3245,7 @@ class InventoryItemButton(discord.ui.Button):
         except Exception as e:
             print(f"Error in InventoryItemButton: {e}")
             traceback.print_exc()
-             await interaction.response.send_message("An error occurred.", ephemeral=True)
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
 
 
 class CategoryView(discord.ui.View):
