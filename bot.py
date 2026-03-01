@@ -4710,29 +4710,7 @@ class Shop(commands.Cog):
             await ctx.send(f"✅ Weapon **{weapon['name']}** deleted.")
 
 
-    @bot.command()
-    @commands.has_permissions(administrator=True)
-    async def wipeallweapons(ctx):
-        """⚠️ DANGER: Delete ALL weapons from ALL users."""
-        # Confirmation
-        confirm = await ctx.send("⚠️ **WARNING:** This will delete **ALL weapons** from **ALL users**. This cannot be undone. Type `CONFIRM` within 30 seconds to proceed.")
-
-        def check(m):
-            return m.author == ctx.author and m.channel == ctx.channel and m.content == "CONFIRM"
-
-        try:
-            await bot.wait_for('message', timeout=30.0, check=check)
-        except asyncio.TimeoutError:
-            await ctx.send("❌ Deletion cancelled (timeout).")
-            return
-
-        # Perform deletion
-        async with bot.db_pool.acquire() as conn:
-            result = await conn.execute("DELETE FROM user_weapons")
-            count = result.split()[1]  # Number of deleted rows
-            await ctx.send(f"✅ Deleted **{count}** weapons from all users.")
-
-
+   
     @commands.command(name='adminweapons')
     @commands.has_permissions(administrator=True)
     async def admin_list_weapons(self, ctx, user: discord.Member):
