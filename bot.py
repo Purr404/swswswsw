@@ -3210,10 +3210,14 @@ async def on_command_error(ctx, error):
 # ========== INVENTORY CLASSES ==========
 
 class InventoryItemButton(discord.ui.Button):
-    def __init__(self, item_data, item_type):
+    def __init__(self, item_data, item_type, row=None):
         self.item_data = item_data
         self.item_type = item_type
-        
+        item_emoji = get_item_emoji(item_data['name'], item_type)
+        style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
+        custom_id = f"inv_{item_type}_{item_data['id']}"
+        super().__init__(label="", emoji=item_emoji, style=style, custom_id=custom_id, row=row)
+
         # Get the custom emoji for this item
         item_emoji = get_item_emoji(item_data['name'], item_type)
         
@@ -3393,9 +3397,9 @@ class InventoryView(discord.ui.View):
             embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
             view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
 
-            for weapon in self.inventory['weapons'][:50]:
-                view.add_item(InventoryItemButton(weapon, 'weapon'))
-
+            for i, weapon in enumerate(self.inventory['weapons'][:20]):
+                row = i // 5
+                view.add_item(InventoryItemButton(weapon, 'weapon', row=row))
             await interaction.response.edit_message(embed=embed, view=view)
         except Exception as e:
             print(f"Error in show_weapons: {e}")
@@ -3415,8 +3419,9 @@ class InventoryView(discord.ui.View):
             embed = discord.Embed(title="🛡️ **Armor**", color=discord.Color.blue())
             view = CategoryView(self.user_id, self.inventory['armor'], 'armor', self)
 
-            for armor_item in self.inventory['armor'][:50]:
-                view.add_item(InventoryItemButton(armor_item, 'armor'))
+            for i, armor_item in enumerate(self.inventory['armor'][:20]):  # show first 20 armors
+                row = i // 5  # 5 buttons per row
+                view.add_item(InventoryItemButton(armor_item, 'armor', row=row))
 
             await interaction.response.edit_message(embed=embed, view=view)
         except Exception as e:
@@ -3437,8 +3442,9 @@ class InventoryView(discord.ui.View):
             embed = discord.Embed(title="📿 **Accessories**", color=discord.Color.green())
             view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)
 
-            for accessory in self.inventory['accessories'][:50]:
-                view.add_item(InventoryItemButton(accessory, 'accessory'))
+            for i, accessory in enumerate(self.inventory['accessories'][:20]):
+                row = i // 5
+                view.add_item(InventoryItemButton(accessory, 'accessory', row=row))
 
             await interaction.response.edit_message(embed=embed, view=view)
         except Exception as e:
