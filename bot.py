@@ -3895,6 +3895,7 @@ class Shop(commands.Cog):
     async def handle_inventory_action(self, interaction: discord.Interaction, action: str):
         """Handle inventory main menu actions"""
         try:
+            await interaction.response.defer(ephemeral=True)
             user_id = str(interaction.user.id)
         
             # Fetch fresh inventory data
@@ -3957,7 +3958,11 @@ class Shop(commands.Cog):
         except Exception as e:
             print(f"Error in handle_inventory_action: {e}")
             traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
+            try:
+                # After defer, we MUST use followup, NOT response
+                await interaction.followup.send("An error occurred.", ephemeral=True)
+            except:
+                pass
 
     async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle when a user clicks on an item - shows all stats"""
