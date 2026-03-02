@@ -887,6 +887,13 @@ class DatabaseSystem:
                     # User accessories
                     await conn.execute('ALTER TABLE user_accessories ADD COLUMN IF NOT EXISTS set_name TEXT')
                     await conn.execute('ALTER TABLE user_accessories ADD COLUMN IF NOT EXISTS purchase_id INTEGER REFERENCES user_purchases(purchase_id) ON DELETE SET NULL')
+                    # Modify user_accessories to allow NULL slot and enforce unique equipped slots
+                    await conn.execute('ALTER TABLE user_accessories ALTER COLUMN slot DROP NOT NULL;')
+                    await conn.execute('ALTER TABLE user_accessories DROP CONSTRAINT IF EXISTS user_accessories_user_id_slot_key;')
+                    await conn.execute('''
+                        CREATE UNIQUE INDEX IF NOT EXISTS idx_user_accessories_equipped_slot 
+                        ON user_accessories (user_id, slot) WHERE equipped = TRUE;
+                    ''')
 
                     # Player stats
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS defense INTEGER DEFAULT 0')
@@ -4981,6 +4988,8 @@ class Shop(commands.Cog):
             set_name = random.choice(list(accessory_sets.keys()))
             set_data = accessory_sets[set_name]
             piece = random.choice(piece_types)
+
+            slot = None
 
             # Check available slot
             async with self.bot.db_pool.acquire() as conn:
