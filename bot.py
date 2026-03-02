@@ -3248,7 +3248,7 @@ class InventoryItemButton(discord.ui.Button):
             try:
                 # Try to send an error message
                 await interaction.response.send_message("An error occurred.", ephemeral=True)
-        except:
+            except:
                 try:
                     # If response already used, try followup
                     await interaction.followup.send("An error occurred.", ephemeral=True)
