@@ -3814,7 +3814,7 @@ class Shop(commands.Cog):
             return
         self._processing_item = True
     
-            await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
         try:
         
             user_id = str(interaction.user.id)
