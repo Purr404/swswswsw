@@ -4314,15 +4314,13 @@ class Shop(commands.Cog):
             # Create category view with updated items
             category_view = CategoryView(user_id, item_list, item_type, temp_inventory_view)
 
-            # Add item buttons
-            for it in item_list[:6]:
-                category_view.add_item(InventoryItemButton(it, item_type))
-
-            # Create embed for category
-            embed = discord.Embed(title=embed_title, color=embed_color)
-
-            # Edit the original message with the category view
-            await interaction.edit_original_response(embed=embed, view=category_view)
+            # Show the appropriate category with updated data
+            if item_type == 'weapon':
+                await temp_inventory_view.show_weapons(interaction)
+            elif item_type == 'armor':
+                await temp_inventory_view.show_armor(interaction)
+            else:  # accessory
+                await temp_inventory_view.show_accessories(interaction)
 
         except Exception as e:
             print(f"Error in handle_equip_action: {e}")
@@ -4440,14 +4438,12 @@ class Shop(commands.Cog):
             category_view = CategoryView(user_id, item_list, item_type, temp_inventory_view)
 
            
-            for it in item_list[:6]:
-                category_view.add_item(InventoryItemButton(it, item_type))
-
-        
-            embed = discord.Embed(title=embed_title, color=embed_color)
-
-        
-            await interaction.edit_original_response(embed=embed, view=category_view)
+            if item_type == 'weapon':
+                await temp_view.show_weapons(interaction)
+            elif item_type == 'armor':
+                await temp_view.show_armor(interaction)
+            else:
+                await temp_view.show_accessories(interaction)
 
         except Exception as e:
             print(f"Error in handle_unequip_action: {e}")
