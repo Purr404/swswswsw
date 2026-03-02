@@ -474,6 +474,35 @@ async def fixoldguild(ctx, purchase_id: int, guild_id: int):
         item_id = row['item_id']
         await conn.execute("UPDATE shop_items SET guild_id = $1 WHERE item_id = $2", guild_id, item_id)
         await ctx.send(f"✅ Updated item {item_id} with guild_id {guild_id}.")
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def wipe_old_weapons(ctx):
+    """Delete all weapons whose names contain Common, Uncommon, Rare, Epic, or Legendary."""
+    # Confirm
+    confirm = await ctx.send("⚠️ This will delete **all weapons** whose names contain any rarity word (Common, Uncommon, Rare, Epic, Legendary). Type `CONFIRM` within 30 seconds.")
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content == "CONFIRM"
+
+    try:
+        await bot.wait_for('message', timeout=30.0, check=check)
+    except asyncio.TimeoutError:
+        await ctx.send("❌ Deletion cancelled.")
+        return
+
+    async with bot.db_pool.acquire() as conn:
+        # Delete weapons where the name contains any of the rarity words
+        # Using ILIKE for case‑insensitive match
+        result = await conn.execute("""
+            DELETE FROM user_weapons
+            WHERE generated_name ILIKE '%common%'
+               OR generated_name ILIKE '%uncommon%'
+               OR generated_name ILIKE '%rare%'
+               OR generated_name ILIKE '%epic%'
+               OR generated_name ILIKE '%legendary%'
+        """)
+        count = result.split()[1]
+        await ctx.send(f"✅ Deleted **{count}** old rarity weapons.")
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
