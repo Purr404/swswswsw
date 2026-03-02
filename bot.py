@@ -4444,11 +4444,11 @@ class Shop(commands.Cog):
 
            
             if item_type == 'weapon':
-                await temp_view.show_weapons(interaction)
+                await temp_inventory_view.show_weapons(interaction)
             elif item_type == 'armor':
-                await temp_view.show_armor(interaction)
+                await temp_inventory_view.show_armor(interaction)
             else:
-                await temp_view.show_accessories(interaction)
+                await temp_inventory_view.show_accessories(interaction)
 
         except Exception as e:
             print(f"Error in handle_unequip_action: {e}")
