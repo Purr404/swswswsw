@@ -3247,19 +3247,48 @@ class InventoryItemButton(discord.ui.Button):
                     pass
 
 class CategoryView(discord.ui.View):
-    def __init__(self, user_id, items, item_type, parent_view):
+    def __init__(self, user_id, items, item_type, parent_view, page=0):
         super().__init__(timeout=60)
         self.user_id = user_id
         self.items = items
         self.item_type = item_type
         self.parent = parent_view
         self.cog = parent_view.cog
-        
-        # Add back button
+        self.page = page
+        self.items_per_page = 20
+        self.max_page = (len(items) - 1) // self.items_per_page
+
+        # Add item buttons for current page
+        start = self.page * self.items_per_page
+        end = start + self.items_per_page
+        for i, item in enumerate(items[start:end]):
+            row = i // 5  # 5 per row, rows 0-3
+            self.add_item(InventoryItemButton(item, item_type, row=row))
+
+        # Add pagination buttons if needed
+        if self.max_page > 0:
+            # Previous button (if not first page)
+            if self.page > 0:
+                self.add_item(discord.ui.Button(
+                    label="◀",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id=f"category_prev_{item_type}",
+                    row=4
+                ))
+            # Next button (if not last page)
+            if self.page < self.max_page:
+                self.add_item(discord.ui.Button(
+                    label="▶",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id=f"category_next_{item_type}",
+                    row=4
+                ))
+
+        # Always add back button
         self.add_item(discord.ui.Button(
-            label="🔙", 
-            style=discord.ButtonStyle.secondary, 
-            custom_id="category_back", 
+            label="🔙 Back",
+            style=discord.ButtonStyle.secondary,
+            custom_id="category_back",
             row=4
         ))
 
@@ -3274,6 +3303,32 @@ class CategoryView(discord.ui.View):
             await interaction.response.edit_message(embed=self.parent.create_main_embed(), view=self.parent)
         except Exception as e:
             print(f"Error in CategoryView.go_back: {e}")
+            traceback.print_exc()
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+
+    async def next_page(self, interaction: discord.Interaction):
+        try:
+            if interaction.user.id != int(self.user_id):
+                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                return
+            new_view = CategoryView(self.user_id, self.items, self.item_type, self.parent, page=self.page+1)
+            embed = discord.Embed(title=f"**{self.item_type.capitalize()}s** (Page {self.page+2}/{self.max_page+1})", color=discord.Color.blue())
+            await interaction.response.edit_message(embed=embed, view=new_view)
+        except Exception as e:
+            print(f"Error in CategoryView.next_page: {e}")
+            traceback.print_exc()
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+
+    async def prev_page(self, interaction: discord.Interaction):
+        try:
+            if interaction.user.id != int(self.user_id):
+                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                return
+            new_view = CategoryView(self.user_id, self.items, self.item_type, self.parent, page=self.page-1)
+            embed = discord.Embed(title=f"**{self.item_type.capitalize()}s** (Page {self.page}/{self.max_page+1})", color=discord.Color.blue())
+            await interaction.response.edit_message(embed=embed, view=new_view)
+        except Exception as e:
+            print(f"Error in CategoryView.prev_page: {e}")
             traceback.print_exc()
             await interaction.response.send_message("An error occurred.", ephemeral=True)
 
@@ -3389,17 +3444,11 @@ class InventoryView(discord.ui.View):
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
                 return
-
             if not self.inventory['weapons']:
                 await interaction.response.send_message("You have no weapons!", ephemeral=True)
                 return
-
             embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
             view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
-
-            for i, weapon in enumerate(self.inventory['weapons'][:20]):
-                row = i // 5
-                view.add_item(InventoryItemButton(weapon, 'weapon', row=row))
             await interaction.response.edit_message(embed=embed, view=view)
         except Exception as e:
             print(f"Error in show_weapons: {e}")
@@ -3418,11 +3467,6 @@ class InventoryView(discord.ui.View):
 
             embed = discord.Embed(title="🛡️ **Armor**", color=discord.Color.blue())
             view = CategoryView(self.user_id, self.inventory['armor'], 'armor', self)
-
-            for i, armor_item in enumerate(self.inventory['armor'][:20]):  # show first 20 armors
-                row = i // 5  # 5 buttons per row
-                view.add_item(InventoryItemButton(armor_item, 'armor', row=row))
-
             await interaction.response.edit_message(embed=embed, view=view)
         except Exception as e:
             print(f"Error in show_armor: {e}")
@@ -3440,11 +3484,7 @@ class InventoryView(discord.ui.View):
                 return
 
             embed = discord.Embed(title="📿 **Accessories**", color=discord.Color.green())
-            view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)
-
-            for i, accessory in enumerate(self.inventory['accessories'][:20]):
-                row = i // 5
-                view.add_item(InventoryItemButton(accessory, 'accessory', row=row))
+            view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)            
 
             await interaction.response.edit_message(embed=embed, view=view)
         except Exception as e:
@@ -3726,6 +3766,24 @@ class Shop(commands.Cog):
         # ===== BACK BUTTONS =====
         elif custom_id == "category_back":
             await self.handle_inventory_action(interaction, "back")
+
+        # ===== PAGINATION BUTTONS =====   <-- INSERT HERE
+        elif custom_id.startswith("category_prev_"):
+            item_type = custom_id.replace("category_prev_", "")
+            view = interaction.message.view
+            if view and isinstance(view, CategoryView):
+                await view.prev_page(interaction)
+            else:
+                await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+
+        elif custom_id.startswith("category_next_"):
+            item_type = custom_id.replace("category_next_", "")
+            view = interaction.message.view
+            if view and isinstance(view, CategoryView):
+                await view.next_page(interaction)
+            else:
+                await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+
 
         elif custom_id == "item_back":
             await self.handle_inventory_action(interaction, "back")
