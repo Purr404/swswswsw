@@ -3997,8 +3997,11 @@ class Shop(commands.Cog):
                 row=1
             ))
 
-            await interaction.response.edit_message(embed=embed, view=view)
-
+            await interaction.followup.edit_message(
+                interaction.message.id,
+                embed=embed, 
+                view=view
+            )
         except Exception as e:
             print(f"Error in handle_item_selection: {e}")
             traceback.print_exc()
