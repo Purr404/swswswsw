@@ -3436,7 +3436,7 @@ class InventoryView(discord.ui.View):
                 return
             embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
             view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
-            await interaction.response.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view) 
         except Exception as e:
             print(f"Error in show_weapons: {e}")
             traceback.print_exc()
@@ -3454,7 +3454,7 @@ class InventoryView(discord.ui.View):
 
             embed = discord.Embed(title="🛡️ **Armor**", color=discord.Color.blue())
             view = CategoryView(self.user_id, self.inventory['armor'], 'armor', self)
-            await interaction.response.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view) 
         except Exception as e:
             print(f"Error in show_armor: {e}")
             traceback.print_exc()
@@ -3473,7 +3473,7 @@ class InventoryView(discord.ui.View):
             embed = discord.Embed(title="📿 **Accessories**", color=discord.Color.green())
             view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)            
 
-            await interaction.response.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view) 
         except Exception as e:
             print(f"Error in show_accessories: {e}")
             traceback.print_exc()
