@@ -3804,16 +3804,7 @@ class Shop(commands.Cog):
 
     async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle when a user clicks on an item - shows all stats"""
-    
-        # CRITICAL FIX: Check if already responded
-        if interaction.response.is_done():
-            print(f"WARNING: Interaction already done for {item_type} {item_id}")
-            # Instead of crashing, use followup
-            try:
-                await interaction.followup.send("Processing...", ephemeral=True)
-            except:
-                pass
-    
+       
         try:
             user_id = str(interaction.user.id)
 
@@ -3855,8 +3846,8 @@ class Shop(commands.Cog):
                         WHERE ua.id = $1 AND ua.user_id = $2
                     """, item_id, user_id)
 
-            if not item:
-                await interaction.response.send_message("Item not found.", ephemeral=True)
+            if not item:           
+                await interaction.followup.send("Item not found.", ephemeral=True)
                 return
 
             # Get the custom emoji for this item
