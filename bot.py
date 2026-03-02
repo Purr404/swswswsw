@@ -553,9 +553,9 @@ class DatabaseSystem:
 
         # Try different connection strategies
         connection_strategies = [
-            ("Standard with SSL", {'ssl': 'require'}),
-            ("Standard without SSL", {'ssl': None}),
-            ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
+            ("Standard with SSL (enabled)", {'ssl': True}),
+            ("Standard without SSL", {'ssl': False}),
+            ("With longer timeout", {'ssl': True, 'command_timeout': 30}),
         ]
 
         for strategy_name, strategy_args in connection_strategies:
