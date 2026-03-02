@@ -3953,7 +3953,7 @@ class Shop(commands.Cog):
             elif action == "accessories":
                 await temp_view.show_accessories(interaction)
             elif action == "back":
-                await interaction.response.edit_message(embed=temp_view.create_main_embed(), view=temp_view)
+                await interaction.edit_original_response(embed=temp_view.create_main_embed(), view=temp_view)
             
         except Exception as e:
             print(f"Error in handle_inventory_action: {e}")
