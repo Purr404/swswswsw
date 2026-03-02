@@ -3217,19 +3217,10 @@ class InventoryItemButton(discord.ui.Button):
         # Get the custom emoji for this item
         item_emoji = get_item_emoji(item_data['name'], item_type)
         
-        label = f"{item_data['name']}"
-        if item_type == 'weapon':
-            label += f" (+{item_data['attack']} ATK)"
-        elif item_type == 'armor':
-            label += f" ({item_data['defense']} DEF)"
-        elif item_type == 'accessory':
-            label += f" (+{item_data['bonus_value']} {item_data['bonus_stat']})"
-
         style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
         custom_id = f"inv_{item_type}_{item_data['id']}"
         
-        # Use the emoji parameter
-        super().__init__(label=label[:50], emoji=item_emoji, style=style, custom_id=custom_id)
+        super().__init__(label="", emoji=item_emoji, style=style, custom_id=custom_id)
 
     async def callback(self, interaction: discord.Interaction):
         try:
@@ -3402,7 +3393,7 @@ class InventoryView(discord.ui.View):
             embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
             view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
 
-            for weapon in self.inventory['weapons'][:6]:
+            for weapon in self.inventory['weapons'][:50]:
                 view.add_item(InventoryItemButton(weapon, 'weapon'))
 
             await interaction.response.edit_message(embed=embed, view=view)
@@ -3424,7 +3415,7 @@ class InventoryView(discord.ui.View):
             embed = discord.Embed(title="🛡️ **Armor**", color=discord.Color.blue())
             view = CategoryView(self.user_id, self.inventory['armor'], 'armor', self)
 
-            for armor_item in self.inventory['armor'][:6]:
+            for armor_item in self.inventory['armor'][:50]:
                 view.add_item(InventoryItemButton(armor_item, 'armor'))
 
             await interaction.response.edit_message(embed=embed, view=view)
@@ -3446,7 +3437,7 @@ class InventoryView(discord.ui.View):
             embed = discord.Embed(title="📿 **Accessories**", color=discord.Color.green())
             view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)
 
-            for accessory in self.inventory['accessories'][:6]:
+            for accessory in self.inventory['accessories'][:50]:
                 view.add_item(InventoryItemButton(accessory, 'accessory'))
 
             await interaction.response.edit_message(embed=embed, view=view)
