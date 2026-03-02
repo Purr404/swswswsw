@@ -3245,7 +3245,16 @@ class InventoryItemButton(discord.ui.Button):
         except Exception as e:
             print(f"Error in InventoryItemButton: {e}")
             traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
+            try:
+                # Try to send an error message
+                await interaction.response.send_message("An error occurred.", ephemeral=True)
+        except:
+                try:
+                    # If response already used, try followup
+                    await interaction.followup.send("An error occurred.", ephemeral=True)
+                except:
+                    # If all else fails, just log it
+                    print("Could not send error message to user.")
 
 
 class CategoryView(discord.ui.View):
