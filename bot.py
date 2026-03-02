@@ -4090,7 +4090,7 @@ class Shop(commands.Cog):
             # Get emoji for the item
             item_emoji = get_item_emoji(item, item_type)
         
-            await interaction.followup.send(f"{item_emoji} ✅ Equipped **{item}**!", ephemeral=True)
+            await interaction.followup.send(f"**Equipped**{item_emoji}", ephemeral=True)
 
             async with self.bot.db_pool.acquire() as conn:
                 weapons = await conn.fetch("""
@@ -4139,18 +4139,40 @@ class Shop(commands.Cog):
             }
 
             # Create a new inventory view
-            temp_view = InventoryView(user_id, inventory_data, self)
+            temp_inventory_view = InventoryView(user_id, inventory_data, self)
         
-            # CHANGED: Edit the original message directly instead of calling handle_inventory_action
-            await interaction.edit_original_response(embed=temp_view.create_main_embed(), view=temp_view)
+            if item_type == 'weapon':
+                item_list = inventory_data['weapons']
+                embed_title = "🗡️ **Weapons**"
+                embed_color = discord.Color.red()
+            elif item_type == 'armor':
+                item_list = inventory_data['armor']
+                embed_title = "🛡️ **Armor**"
+                embed_color = discord.Color.blue()
+            else:  # accessory
+                item_list = inventory_data['accessories']
+                embed_title = "📿 **Accessories**"
+                embed_color = discord.Color.green()
+
+            # Create category view with updated items
+            category_view = CategoryView(user_id, item_list, item_type, temp_inventory_view)
+
+            # Add item buttons
+            for it in item_list[:6]:
+                category_view.add_item(InventoryItemButton(it, item_type))
+
+            # Create embed for category
+            embed = discord.Embed(title=embed_title, color=embed_color)
+
+            # Edit the original message with the category view
+            await interaction.edit_original_response(embed=embed, view=category_view)
 
         except Exception as e:
             print(f"Error in handle_equip_action: {e}")
             traceback.print_exc()
-            # CHANGED: Better error handling
             try:
                 await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
-            except:
+        except:
                 pass
 
                   
@@ -4193,7 +4215,7 @@ class Shop(commands.Cog):
             # Get emoji for the item
             item_emoji = get_item_emoji(item, item_type)
         
-            await interaction.followup.send(f"{item_emoji} ❌ Unequipped **{item}**!", ephemeral=True)
+            await interaction.followup.send(f"**Unequipped** {item_emoji}", ephemeral=True)
         
             async with self.bot.db_pool.acquire() as conn:
                 weapons = await conn.fetch("""
@@ -4242,20 +4264,41 @@ class Shop(commands.Cog):
             }
 
             # Create a new inventory view
-            temp_view = InventoryView(user_id, inventory_data, self)
+            temp_inventory_view = InventoryView(user_id, inventory_data, self)
         
-            # CHANGED: Edit the original message directly
-            await interaction.edit_original_response(embed=temp_view.create_main_embed(), view=temp_view)
+            if item_type == 'weapon':
+                item_list = inventory_data['weapons']
+                embed_title = "🗡️ **Weapons**"
+                embed_color = discord.Color.red()
+            elif item_type == 'armor':
+                item_list = inventory_data['armor']
+                embed_title = "🛡️ **Armor**"
+                embed_color = discord.Color.blue()
+            else:
+                item_list = inventory_data['accessories']
+                embed_title = "📿 **Accessories**"
+                embed_color = discord.Color.green()
+
+
+            category_view = CategoryView(user_id, item_list, item_type, temp_inventory_view)
+
+           
+            for it in item_list[:6]:
+                category_view.add_item(InventoryItemButton(it, item_type))
+
+        
+            embed = discord.Embed(title=embed_title, color=embed_color)
+
+        
+            await interaction.edit_original_response(embed=embed, view=category_view)
 
         except Exception as e:
             print(f"Error in handle_unequip_action: {e}")
             traceback.print_exc()
-            # CHANGED: Better error handling
             try:
                 await interaction.followup.send("An error occurred while unequipping.", ephemeral=True)
             except:
                 pass
-
 
 
     # -------------------------------------------------------------------------
