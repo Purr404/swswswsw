@@ -3233,29 +3233,23 @@ class InventoryItemButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         try:
-            # Get the shop cog from the view
             shop_cog = self.view.cog
-        
-            # Call the shop's handle_item_selection method
             await shop_cog.handle_item_selection(
                 interaction, 
                 self.item_type, 
                 self.item_data['id']
             )
+            # NO RESPONSE HERE!
         except Exception as e:
             print(f"Error in InventoryItemButton: {e}")
             traceback.print_exc()
             try:
-                # Try to send an error message
                 await interaction.response.send_message("An error occurred.", ephemeral=True)
             except:
                 try:
-                    # If response already used, try followup
                     await interaction.followup.send("An error occurred.", ephemeral=True)
                 except:
-                    # If all else fails, just log it
-                    print("Could not send error message to user.")
-
+                    pass
 
 class CategoryView(discord.ui.View):
     def __init__(self, user_id, items, item_type, parent_view):
