@@ -1795,10 +1795,19 @@ class QuizSystem:
 
             start_msg = await channel.send(embed=embed)
             for i in range(60, 0, -1):
-                await start_msg.edit(content=f"⏰ **{i}...**")
+                embed.description = (
+                    "```\n"
+                    "• Type your answer in chat\n"
+                    "• Correct Spelling only!\n"
+                    "• Faster answers = more points\n"
+                    "• Multiple attempts allowed\n"
+                    "```\n"
+                    f"**First question starts in** ⏰ **{i} seconds**"
+                )
+                await start_msg.edit(embed=embed)
                 await asyncio.sleep(1)
-            await start_msg.delete()
 
+            await start_msg.delete()
             await self.send_question()
             await log_to_discord(self.bot, "✅ Quiz started", "INFO")
         except Exception as e:
