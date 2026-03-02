@@ -3262,75 +3262,33 @@ class CategoryView(discord.ui.View):
         start = self.page * self.items_per_page
         end = start + self.items_per_page
         for i, item in enumerate(items[start:end]):
-            row = i // 5  # 5 per row, rows 0-3
+            row = i // 5
             self.add_item(InventoryItemButton(item, item_type, row=row))
 
-        # Add pagination buttons if needed
+        # Add pagination buttons with page number in custom_id
         if self.max_page > 0:
-            # Previous button (if not first page)
             if self.page > 0:
                 self.add_item(discord.ui.Button(
                     label="◀",
                     style=discord.ButtonStyle.secondary,
-                    custom_id=f"category_prev_{item_type}",
+                    custom_id=f"category_prev_{self.item_type}_{self.page}",
                     row=4
                 ))
-            # Next button (if not last page)
             if self.page < self.max_page:
                 self.add_item(discord.ui.Button(
                     label="▶",
                     style=discord.ButtonStyle.secondary,
-                    custom_id=f"category_next_{item_type}",
+                    custom_id=f"category_next_{self.item_type}_{self.page}",
                     row=4
                 ))
 
         # Always add back button
         self.add_item(discord.ui.Button(
-            label="🔙 Back",
+            label="🔙",
             style=discord.ButtonStyle.secondary,
             custom_id="category_back",
             row=4
         ))
-
-    async def show_item_details(self, interaction: discord.Interaction, item_data, item_type):
-        await self.parent.show_item_details(interaction, item_data, item_type)
-
-    async def go_back(self, interaction: discord.Interaction):
-        try:
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-            await interaction.response.edit_message(embed=self.parent.create_main_embed(), view=self.parent)
-        except Exception as e:
-            print(f"Error in CategoryView.go_back: {e}")
-            traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
-
-    async def next_page(self, interaction: discord.Interaction):
-        try:
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-            new_view = CategoryView(self.user_id, self.items, self.item_type, self.parent, page=self.page+1)
-            embed = discord.Embed(title=f"**{self.item_type.capitalize()}s** (Page {self.page+2}/{self.max_page+1})", color=discord.Color.blue())
-            await interaction.response.edit_message(embed=embed, view=new_view)
-        except Exception as e:
-            print(f"Error in CategoryView.next_page: {e}")
-            traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
-
-    async def prev_page(self, interaction: discord.Interaction):
-        try:
-            if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
-                return
-            new_view = CategoryView(self.user_id, self.items, self.item_type, self.parent, page=self.page-1)
-            embed = discord.Embed(title=f"**{self.item_type.capitalize()}s** (Page {self.page}/{self.max_page+1})", color=discord.Color.blue())
-            await interaction.response.edit_message(embed=embed, view=new_view)
-        except Exception as e:
-            print(f"Error in CategoryView.prev_page: {e}")
-            traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
 
 
 
@@ -3769,20 +3727,21 @@ class Shop(commands.Cog):
 
         # ===== PAGINATION BUTTONS =====   <-- INSERT HERE
         elif custom_id.startswith("category_prev_"):
-            item_type = custom_id.replace("category_prev_", "")
-            view = interaction.message.view
-            if view and isinstance(view, CategoryView):
-                await view.prev_page(interaction)
-            else:
-                await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+            # Format: category_prev_{item_type}_{current_page}
+            parts = custom_id.split('_')
+            if len(parts) >= 4:
+                item_type = parts[2]
+                current_page = int(parts[3])
+                new_page = current_page - 1
+                await self.handle_category_page(interaction, item_type, new_page)
 
         elif custom_id.startswith("category_next_"):
-            item_type = custom_id.replace("category_next_", "")
-            view = interaction.message.view
-            if view and isinstance(view, CategoryView):
-                await view.next_page(interaction)
-            else:
-                await interaction.response.send_message("View expired. Please try again.", ephemeral=True)
+            parts = custom_id.split('_')
+            if len(parts) >= 4:
+                item_type = parts[2]
+                current_page = int(parts[3])
+                new_page = current_page + 1
+                await self.handle_category_page(interaction, item_type, new_page)
 
 
         elif custom_id == "item_back":
@@ -3790,6 +3749,120 @@ class Shop(commands.Cog):
 
 
     # HELPER METHODS
+    async def handle_category_page(self, interaction: discord.Interaction, item_type: str, page: int):
+        """Fetch items and show the category page."""
+        try:
+            user_id = str(interaction.user.id)
+
+            # Fetch items of the requested type
+            async with self.bot.db_pool.acquire() as conn:
+                if item_type == 'weapon':
+                    items = await conn.fetch("""
+                        SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                               uw.attack, uw.equipped, uw.description,
+                               uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
+                               COALESCE(si.image_url, uw.image_url) as image_url,
+                               r.color as rarity_color
+                        FROM user_weapons uw
+                        LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                        LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                        LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
+                        WHERE uw.user_id = $1
+                        ORDER BY uw.equipped DESC, uw.purchased_at DESC
+                    """, user_id)
+                    embed_title = "🗡️ **Weapons**"
+                    embed_color = discord.Color.red()
+                elif item_type == 'armor':
+                    items = await conn.fetch("""
+                        SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                               ua.hp_bonus, ua.reflect_damage, at.set_name,
+                               at.image_url, at.description, r.color as rarity_color
+                        FROM user_armor ua
+                        JOIN armor_types at ON ua.armor_id = at.armor_id
+                        LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                        WHERE ua.user_id = $1
+                        ORDER BY ua.equipped DESC, ua.purchased_at DESC
+                    """, user_id)
+                    embed_title = "🛡️ **Armor**"
+                    embed_color = discord.Color.blue()
+                else:  # accessory
+                    items = await conn.fetch("""
+                        SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                               ua.equipped, ua.slot, at.set_name,
+                               at.image_url, at.description, r.color as rarity_color
+                        FROM user_accessories ua
+                        JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                        LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                        WHERE ua.user_id = $1
+                        ORDER BY ua.equipped DESC, ua.purchased_at DESC
+                    """, user_id)
+                    embed_title = "📿 **Accessories**"
+                    embed_color = discord.Color.green()
+
+            items_list = [dict(item) for item in items]
+
+            # Need a parent InventoryView – fetch full inventory data
+            async with self.bot.db_pool.acquire() as conn:
+                weapons_full = await conn.fetch("""
+                    SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                           uw.attack, uw.equipped, uw.description,
+                           uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
+                           COALESCE(si.image_url, uw.image_url) as image_url,
+                           r.color as rarity_color
+                    FROM user_weapons uw
+                    LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                    LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                    LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
+                    WHERE uw.user_id = $1
+                    ORDER BY uw.equipped DESC, uw.purchased_at DESC
+                """, user_id)
+                armor_full = await conn.fetch("""
+                    SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                           ua.hp_bonus, ua.reflect_damage, at.set_name,
+                           at.image_url, at.description, r.color as rarity_color
+                    FROM user_armor ua
+                    JOIN armor_types at ON ua.armor_id = at.armor_id
+                    LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                    WHERE ua.user_id = $1
+                    ORDER BY ua.equipped DESC, ua.purchased_at DESC
+                """, user_id)
+                accessories_full = await conn.fetch("""
+                    SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                           ua.equipped, ua.slot, at.set_name,
+                           at.image_url, at.description, r.color as rarity_color
+                    FROM user_accessories ua
+                    JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                    LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                    WHERE ua.user_id = $1
+                    ORDER BY ua.equipped DESC, ua.purchased_at DESC
+                """, user_id)
+
+            balance = await currency_system.get_balance(user_id)
+            inventory_data = {
+                'weapons': [dict(w) for w in weapons_full],
+                'armor': [dict(a) for a in armor_full],
+                'accessories': [dict(a) for a in accessories_full],
+                'gems': balance['gems']
+            }
+            parent_view = InventoryView(user_id, inventory_data, self)
+
+            # Create the category view for the requested page
+            category_view = CategoryView(user_id, items_list, item_type, parent_view, page=page)
+
+            # Create embed with page info
+            embed = discord.Embed(title=embed_title, color=embed_color)
+            total_pages = (len(items_list) - 1) // 20 + 1
+            embed.set_footer(text=f"Page {page+1}/{total_pages}")
+
+            await interaction.response.edit_message(embed=embed, view=category_view)
+
+        except Exception as e:
+            print(f"Error in handle_category_page: {e}")
+            traceback.print_exc()
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+   
+
+
     async def handle_inventory_action(self, interaction: discord.Interaction, action: str):
         """Handle inventory main menu actions"""
         try:
