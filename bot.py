@@ -4990,17 +4990,7 @@ class Shop(commands.Cog):
             piece = random.choice(piece_types)
 
             slot = None
-
-            # Check available slot
-            async with self.bot.db_pool.acquire() as conn:
-                taken = await conn.fetch("SELECT slot FROM user_accessories WHERE user_id = $1", user_id)
-                taken_slots = [row['slot'] for row in taken]
-                available_slots = [s for s in slots[piece] if s not in taken_slots]
-                if not available_slots:
-                    await interaction.followup.send(f"❌ You already have all {piece} slots filled. Unequip one first.", ephemeral=True)
-                    return
-                slot = random.choice(available_slots)
-
+           
             bonus_value = random.randint(set_data['range'][0], set_data['range'][1])
             emoji_key = emoji_map.get((set_name, piece), 'ring_1')
             emoji = CUSTOM_EMOJIS.get(emoji_key, self.RING_UNICODE)
@@ -5010,11 +5000,12 @@ class Shop(commands.Cog):
             description += f"\n\n*Complete the {set_data['name']} set (2 rings, 2 earrings, 1 pendant) to activate bonus stats!*"
 
             async with self.bot.db_pool.acquire() as conn:
+            # Insert into accessory_types using the CATEGORY (piece), not a specific slot
                 acc_type = await conn.fetchrow("""
-                    INSERT INTO accessory_types (name, slot, bonus_stat, bonus_value, set_name)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO accessory_types (name, slot, bonus_stat, bonus_value, set_name, description)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     RETURNING accessory_id
-                """, accessory_name, slot, set_data['stat'], bonus_value, set_name)
+                """, accessory_name, piece, set_data['stat'], bonus_value, set_name, description)   # <-- piece, not slot
 
                 purchase_id = await conn.fetchval("""
                     INSERT INTO user_purchases (user_id, item_id, price_paid, expires_at)
@@ -5022,9 +5013,10 @@ class Shop(commands.Cog):
                     RETURNING purchase_id
                 """, user_id, item['item_id'], item['price'], now + timedelta(days=7))
 
+                # Insert into user_accessories with slot = NULL and equipped = FALSE explicitly
                 await conn.execute("""
-                    INSERT INTO user_accessories (user_id, accessory_id, bonus_value, slot, set_name, purchase_id)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    INSERT INTO user_accessories (user_id, accessory_id, bonus_value, slot, set_name, purchase_id, equipped)
+                    VALUES ($1, $2, $3, $4, $5, $6, FALSE)
                 """, user_id, acc_type['accessory_id'], bonus_value, slot, set_name, purchase_id)
 
             box_embed = discord.Embed(
@@ -5035,7 +5027,7 @@ class Shop(commands.Cog):
             await interaction.followup.send(embed=box_embed, ephemeral=True)
             
             stat_emoji = '⚔️' if set_data['stat'] == 'atk' else '🛡️'
-            stats = f"{stat_emoji} **{set_data['stat'].upper()}:** +{bonus_value}\n📌 **Slot:** {slot}"
+            stats = f"{stat_emoji} **{set_data['stat'].upper()}:** +{bonus_value}\n📌 **Slot:** {piece.capitalize()} (unequipped)"
 
             combined_description = f"{stats}\n\n*{description}*"
             acc_embed = discord.Embed(
