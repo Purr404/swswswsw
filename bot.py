@@ -3883,8 +3883,8 @@ class Shop(commands.Cog):
                 stats.append(f"❤️ **HP Bonus:** `+{item['hp_bonus']}`")
                 if item['reflect_damage'] and item['reflect_damage'] > 0:
                     stats.append(f"🔄 **Reflect DMG:** `{item['reflect_damage']}%`")
-            if item.get('set_name'):
-                stats.append(f"⚔️ **Set:** `{item['set_name']}`")
+                if item.get('set_name'):
+                    stats.append(f"⚔️ **Set:** `{item['set_name']}`")
                 
             # ===== ACCESSORY STATS =====
             elif item_type == 'accessory':
