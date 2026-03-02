@@ -4814,17 +4814,19 @@ class Shop(commands.Cog):
             )
             await interaction.followup.send(embed=box_embed, ephemeral=True)
 
-            weapon_embed = discord.Embed(
-                title=f"{get_item_emoji(weapon_name, 'weapon')} **{weapon_name}** (+{attack} ATK)",
-                description=description,
-                color=discord.Color.red()
-            )
             stats = (
                 f"⚔️ **ATK:** {attack}\n"
                 f"🩸 **Bleed Chance:** {bleed_chance}%\n"
                 f"⚡ **Crit Chance:** {crit_chance}%\n"
                 f"💥 **Crit Damage:** {crit_damage}%"
-            )         
+            ) 
+
+            weapon_embed = discord.Embed(
+                title=f"{get_item_emoji(weapon_name, 'weapon')} **{weapon_name}** (+{attack} ATK)",
+                description=stats,
+                color=discord.Color.red()
+            )
+                    
             await interaction.followup.send(embed=weapon_embed, ephemeral=True)
 
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
