@@ -151,6 +151,7 @@ CUSTOM_EMOJIS = {
     # Tools/Misc
     'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
     'shadow': '<:shadow:1477258013256454339>',
+    'reflect': '<:reflect_dmg:1477608402564808765>',
     'treasure_carriage': '<:treasure_carriage:1477354550502625601>',
 
 }
@@ -4821,9 +4822,10 @@ class Shop(commands.Cog):
                 f"💥 **Crit Damage:** {crit_damage}%"
             ) 
 
+            combined_description = f"{stats}\n\n*{description}*"
             weapon_embed = discord.Embed(
-                title=f"{get_item_emoji(weapon_name, 'weapon')} **{weapon_name}** (+{attack} ATK)",
-                description=stats,
+                title=f"{get_item_emoji(weapon_name, 'weapon')} **{weapon_name}**",
+                description=combined_description,
                 color=discord.Color.red()
             )
                     
@@ -4914,13 +4916,16 @@ class Shop(commands.Cog):
             )
             await interaction.followup.send(embed=box_embed, ephemeral=True)
 
-            armor_embed = discord.Embed(
-                title=f"{emoji} **{armor_name}**",
-                color=set_data['color']
-            )
             stats = f"🛡️ **DEF:** {defense}\n❤️ **HP:** +{hp_bonus}"
             if reflect:
-                stats += f"\n🔄 **Reflect:** {reflect}%"
+                stats += f"\n{CUSTOM_EMOJIS['reflect']} **Reflect:** {reflect}%"
+
+            combined_description = f"{stats}\n\n*{description}*"
+            armor_embed = discord.Embed(
+                title=f"{emoji} **{armor_name}**",
+                description=combined_description,
+                color=set_data['color']
+            )
             
             await interaction.followup.send(embed=armor_embed, ephemeral=True)
 
@@ -5011,13 +5016,17 @@ class Shop(commands.Cog):
                 color=set_data['color']
             )
             await interaction.followup.send(embed=box_embed, ephemeral=True)
-
-            acc_embed = discord.Embed(
-                title=f"{emoji} **{accessory_name}**",
-                color=set_data['color']
-            )
+            
             stat_emoji = '⚔️' if set_data['stat'] == 'atk' else '🛡️'
             stats = f"{stat_emoji} **{set_data['stat'].upper()}:** +{bonus_value}\n📌 **Slot:** {slot}"
+
+            combined_description = f"{stats}\n\n*{description}*"
+            acc_embed = discord.Embed(
+                title=f"{emoji} **{accessory_name}**",
+                description=combined_description,
+                color=set_data['color']
+            )
+            
             
             await interaction.followup.send(embed=acc_embed, ephemeral=True)
 
