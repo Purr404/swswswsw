@@ -4172,8 +4172,8 @@ class Shop(commands.Cog):
             traceback.print_exc()
             try:
                 await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
-        except:
-            pass
+            except:
+                pass
 
                   
 
