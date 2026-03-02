@@ -3810,10 +3810,19 @@ class Shop(commands.Cog):
 
     async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle when a user clicks on an item - shows all stats"""
+    
+        # CRITICAL FIX: Check if already responded
+        if interaction.response.is_done():
+            print(f"WARNING: Interaction already done for {item_type} {item_id}")
+            # Instead of crashing, use followup
+            try:
+                await interaction.followup.send("Processing...", ephemeral=True)
+            except:
+                pass
+    
         try:
-            
             user_id = str(interaction.user.id)
-        
+
             # Fetch the specific item with all stats
             async with self.bot.db_pool.acquire() as conn:
                 if item_type == 'weapon':
