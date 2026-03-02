@@ -3804,8 +3804,18 @@ class Shop(commands.Cog):
 
     async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle when a user clicks on an item - shows all stats"""
-        try:        
+        if interaction.response.is_done():
+            print(f"WARNING: Interaction already done for {item_type} {item_id} – ignoring.")
+            return
+
+        # Simple flag to prevent double execution (in case of double-click)
+        if hasattr(self, '_processing_item') and self._processing_item:
+            print("Already processing an item, ignoring duplicate click.")
+            return
+        self._processing_item = True
+    
             await interaction.response.defer(ephemeral=True)
+        try:
         
             user_id = str(interaction.user.id)
 
@@ -4006,11 +4016,12 @@ class Shop(commands.Cog):
             print(f"Error in handle_item_selection: {e}")
             traceback.print_exc()
             try:
-                # Try to send an error message if possible
                 await interaction.followup.send("An error occurred.", ephemeral=True)
             except:
-                # If even that fails, just print to console
-                print("Could not send error message to user.")
+                pass
+        finally:
+            # Reset the flag
+            self._processing_item = False
 
     async def handle_equip_action(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle equipping an item"""
