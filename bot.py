@@ -1704,6 +1704,26 @@ class QuizSystem:
             {"cat": "📘 English", "q": "Provide the antonym of 'transient'.", "a": ["permanent", "lasting"], "pts": 200, "time": 30},
             {"cat": "📘 English", "q": "What rhetorical device is used in: 'Time is a thief'?", "a": ["metaphor"], "pts": 200, "time": 30},
             {"cat": "📘 English", "q": "Give the correct form: Neither the officers nor the chief ___ present.", "a": ["was"], "pts": 200, "time": 30},
+            {"cat": "📘 English", "q": "Complete the idiom: 'Bite the ___' (meaning to endure something unpleasant).", "a": ["bullet"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "What is the correct past participle of the verb 'to ring' (as in a bell)?", "a": ["rung"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "In the sentence 'She would have gone if she had known', which tense is 'would have gone'?", "a": ["conditional perfect", "past conditional"], "pts": 500, "time": 60},
+            {"cat": "📘 English", "q": "What is the term for a verb that functions as a noun (e.g., 'swimming' in 'Swimming is fun')?", "a": ["gerund"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "Complete the idiom: 'Spill the ___' (to reveal secret information).", "a": ["beans"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "Which type of conditional is used in: 'If I had seen him, I would have told him'?", "a": ["third conditional", "type 3 conditional"], "pts": 500, "time": 60},
+            {"cat": "📘 English", "q": "What is the meaning of the phrasal verb 'to put up with'?", "a": ["tolerate", "endure"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "What is the term for two or more words that share the same spelling but have different meanings and origins (e.g., 'bank' – financial institution / river bank)?", "a": ["homograph"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "Complete the idiom: '___ the bullet' (to face a difficult situation bravely).", "a": ["bite"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "Which tense is used to describe an action that will be completed before a specific time in the future (e.g., 'By next week, I will have finished the project')?", "a": ["future perfect"], "pts": 500, "time": 60},
+            {"cat": "📘 English", "q": "What is the correct form: 'Neither the students nor the teacher ___ aware of the change.'", "a": ["is"], "pts": 500, "time": 60},
+            {"cat": "📘 English", "q": "What is the meaning of the idiom 'to let the cat out of the bag'?", "a": ["reveal a secret"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "In grammar, what is a 'dangling modifier'?", "a": ["a word or phrase that modifies a word not clearly stated in the sentence"], "pts": 500, "time": 60},
+            {"cat": "📘 English", "q": "Complete the idiom: '___ the icing on the cake' (something extra that makes a good thing even better).", "a": ["it's", "that's", "that is"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "What is the correct plural of 'phenomenon'?", "a": ["phenomena"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "Which tense is used in: 'She has been working here for five years'?", "a": ["present perfect continuous", "present perfect progressive"], "pts": 500, "time": 60},
+            {"cat": "📘 English", "q": "What is the meaning of the idiom 'to burn the midnight oil'?", "a": ["work late into the night"], "pts": 400, "time": 60},
+            {"cat": "📘 English", "q": "Correct the sentence: 'Each of the students have submitted their assignment.' What should replace 'have'?", "a": ["has"], "pts": 500, "time": 60},
+            {"cat": "📘 English", "q": "What is the term for a word that is formed by combining two or more words, like 'brunch' (breakfast + lunch)?", "a": ["portmanteau", "blend"], "pts": 500, "time": 60},
+            {"cat": "📘 English", "q": "Complete the idiom: '___ the benefit of the doubt' (to believe someone despite lack of proof).", "a": ["give"], "pts": 400, "time": 60},
 
             # 🔤 WORD ANALOGY
             {"cat": "🔤 Word Analogy", "q": "Complete the analogy: Ephemeral is to Permanent as Mutable is to ___.", "a": ["immutable"], "pts": 200, "time": 30},
@@ -1717,6 +1737,26 @@ class QuizSystem:
             {"cat": "🧠 Logical Reasoning", "q": "If every efficient worker is punctual and some punctual workers are managers, what is a possible conclusion about efficient workers?", "a": ["some efficient workers may be managers", "efficient workers may be managers"], "pts": 200, "time": 60},
             {"cat": "🧠 Logical Reasoning", "q": "If some metals are conductive and all conductive materials transmit electricity, what can be concluded about some metals?", "a": ["some metals transmit electricity"], "pts": 200, "time": 60},
             {"cat": "🧠 Logical Reasoning", "q": "A is older than B. B is older than C. D is younger than C. Who is the youngest?", "a": ["d"], "pts": 200, "time": 30},
+            {"cat": "🧠 Logical Reasoning", "q": "In a certain code, 'APPLE' is written as 'ZKKOV'. How is 'BANANA' written in that code?", "a": ["yzmzmz"], "pts": 400, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "If the day after tomorrow is Sunday, what day was it yesterday?", "a": ["thursday"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "A man is looking at a portrait. He says, 'Brothers and sisters have I none, but that man's father is my father's son.' Who is in the portrait?", "a": ["his son", "son"], "pts": 400, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "A rooster lays an egg on top of a barn. Which way does it roll?", "a": ["roosters dont lay eggs", "roosters don't lay eggs", "it doesn't roll"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "I have two coins that add up to 30 cents, and one of them is not a nickel. What are the two coins?", "a": ["quarter and nickel", "a quarter and a nickel"], "pts": 400, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "A farmer has 17 cows. All but 9 die. How many are left?", "a": ["9"], "pts": 200, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "What number comes next in the sequence: 2, 3, 5, 9, 17, ?", "a": ["33"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "If you write all numbers from 1 to 100, how many times do you write the digit 9?", "a": ["20"], "pts": 400, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "A bat and a ball cost $1.10. The bat costs $1 more than the ball. How much does the ball cost (in cents)?", "a": ["5", "5 cents", ".05"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "In a race, you pass the person in second place. What place are you in now?", "a": ["second", "2nd"], "pts": 200, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "If it takes 5 machines 5 minutes to make 5 widgets, how long would it take 100 machines to make 100 widgets (in minutes)?", "a": ["5"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "What is the smallest positive integer that is divisible by all numbers from 1 to 10?", "a": ["2520"], "pts": 400, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "A doctor gives you three pills and tells you to take one every half hour. How long (in hours) will they last?", "a": ["1", "one", "1 hour"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "A snail falls into a 30‑foot well. Each day it climbs 3 feet, but each night it slips back 2 feet. How many days to get out?", "a": ["28"], "pts": 400, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "What is the next letter in the sequence: J, F, M, A, M, J, ?", "a": ["j"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "If a brick weighs 3 pounds plus half a brick, how much does a brick weigh (in pounds)?", "a": ["6"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "What is the missing number in the sequence: 1, 11, 21, 1211, 111221, ?", "a": ["312211"], "pts": 400, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "A plane crashes on the border of the US and Canada. Where are the survivors buried?", "a": ["survivors are not buried", "they are not buried", "nowhere"], "pts": 300, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "How many months have 28 days?", "a": ["12", "all", "all 12"], "pts": 200, "time": 60},
+            {"cat": "🧠 Logical Reasoning", "q": "Tom is taller than Jerry. Jerry is taller than Spike. Spike is taller than Butch. Who is the shortest?", "a": ["butch"], "pts": 200, "time": 60},
 
             # 🔢 NUMERICAL REASONING
             {"cat": "🔢 Numerical Reasoning", "q": "Solve: 5x + 3 = 2x + 24.", "a": ["7"], "pts": 200, "time": 60},
@@ -1724,6 +1764,26 @@ class QuizSystem:
             {"cat": "🔢 Numerical Reasoning", "q": "If the ratio of men to women is 3:5 and there are 40 people, how many are men?", "a": ["15"], "pts": 200, "time": 60},
             {"cat": "🔢 Numerical Reasoning", "q": "Find the next number: 2, 5, 11, 23, 47, ___.", "a": ["95"], "pts": 200, "time": 60},
             {"cat": "🔢 Numerical Reasoning", "q": "If a train travels 180 km in 3 hours, how far will it travel in 5 hours at the same speed?", "a": ["300"], "pts": 200, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If a car travels at 60 km/h, how many kilometers will it travel in 2 hours 15 minutes?", "a": ["135"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A train covers a distance of 300 km in 4 hours. What is its speed in km/h?", "a": ["75"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If a worker earns $15 per hour, how much will he earn in 6 hours 30 minutes?", "a": ["97.5", "$97.50", "97.50"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A recipe requires 2 cups of flour for 12 cookies. How many cups are needed for 30 cookies?", "a": ["5"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If a shirt originally costs $40 and is on sale for 25% off, what is the sale price?", "a": ["30", "$30"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A tank can be filled by a pipe in 3 hours. How much of the tank is filled in 1 hour 15 minutes? (Express as a fraction)", "a": ["5/12", "5/12 of the tank"], "pts": 500, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "The sum of two numbers is 30 and their difference is 10. Find the larger number.", "a": ["20"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If 5 apples cost $2.50, how much do 8 apples cost?", "a": ["4", "$4", "4.00"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A rectangle has length 12 cm and width 8 cm. What is its area? (Include units, e.g., 96 cm²)", "a": ["96", "96 cm²", "96 cm2"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A pizza is cut into 8 slices. If 3 slices are eaten, what fraction remains?", "a": ["5/8"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If a car uses 8 liters of fuel for 100 km, how many liters are needed for 350 km?", "a": ["28"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A student scored 85, 90, and 78 on three tests. What is the average score? (Round to one decimal)", "a": ["84.3", "84.33"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "How many minutes are there in 2.5 hours?", "a": ["150"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If a number is increased by 20% and becomes 60, what was the original number?", "a": ["50"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A bag contains 3 red, 4 blue, and 5 green marbles. What is the probability of picking a blue marble? (Express as a fraction)", "a": ["1/3", "4/12"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If it takes 4 workers 6 days to complete a job, how many days would 3 workers take? (Assume same work rate)", "a": ["8"], "pts": 500, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A store offers a 15% discount on a $200 item. How much is the discount in dollars?", "a": ["30", "$30"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If the ratio of boys to girls is 3:2 and there are 25 students, how many boys are there?", "a": ["15"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "A square has a perimeter of 36 cm. What is its area? (Include units)", "a": ["81", "81 cm²", "81 cm2"], "pts": 400, "time": 60},
+            {"cat": "🔢 Numerical Reasoning", "q": "If a phone costs $500 after a 20% discount, what was the original price?", "a": ["625", "$625"], "pts": 500, "time": 60},
 
             # 🧩 ABSTRACT & PATTERN ANALYSIS
             {"cat": "🧩 Abstract Reasoning", "q": "Find the next letter sequence: B, E, I, N, T, ___.", "a": ["a"], "pts": 200, "time": 60},
@@ -1731,6 +1791,27 @@ class QuizSystem:
             {"cat": "🧩 Abstract Reasoning", "q": "If TABLE = 40 (sum of letter positions), what is CHAIR?", "a": ["35"], "pts": 200, "time": 60},
             {"cat": "🧩 Abstract Reasoning", "q": "Find the next number: 4, 9, 19, 39, 79, ___.", "a": ["159"], "pts": 200, "time": 60},
             {"cat": "🧩 Abstract Reasoning", "q": "If RED = 27 and BLUE = 40 (sum of letters), what is GREEN?", "a": ["49"], "pts": 200, "time": 60},
+            # 🔬 Science – University Level & Trendy (20 questions, 60 seconds each)
+            {"cat": "🔬 Science", "q": "What is the name of the gene‑editing technology that uses a protein called Cas9?", "a": ["crispr", "crispr-cas9", "crispr/cas9"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "In quantum mechanics, what term describes the phenomenon where particles become correlated and instantaneously affect each other regardless of distance?", "a": ["entanglement", "quantum entanglement"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the name of the hypothetical particle that is its own antiparticle and is a candidate for dark matter?", "a": ["majorana fermion", "majorana particle"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "Which neurotransmitter is primarily involved in reward, motivation, and motor control, and is often discussed in addiction studies?", "a": ["dopamine"], "pts": 400, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the name of the process by which cells engulf and digest large particles or microorganisms?", "a": ["phagocytosis"], "pts": 400, "time": 60},
+            {"cat": "🔬 Science", "q": "In particle physics, what force is mediated by the Higgs boson?", "a": ["mass", "the higgs field gives mass", "it gives mass to particles"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the name of the largest known protein complex that performs oxidative phosphorylation in mitochondria?", "a": ["atp synthase", "complex v"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "Which technique, widely used in structural biology, involves firing X‑rays at crystallized proteins to determine their 3D structure?", "a": ["x-ray crystallography"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the name of the theory proposing that consciousness arises from integrated information in the brain, quantified by Φ (phi)?", "a": ["integrated information theory", "iit"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "Which element is used as the primary fuel in most nuclear fission reactors?", "a": ["uranium", "u-235", "uranium-235"], "pts": 400, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the term for the maximum distance at which a telescope can resolve two point sources as separate?", "a": ["angular resolution", "diffraction limit"], "pts": 400, "time": 60},
+            {"cat": "🔬 Science", "q": "Which 2023 Nobel Prize in Physics topic involved attosecond pulses of light to study electron dynamics?", "a": ["attosecond physics", "attosecond pulses"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "In chemistry, what is the name of the effect where a molecule's reactivity is influenced by the spatial arrangement of its atoms?", "a": ["steric effect", "steric hindrance"], "pts": 400, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the name of the protein that bacteria use as an adaptive immune system, leading to the CRISPR technology?", "a": ["cas9", "crispr-associated protein 9"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "Which space telescope, launched in 2021, observes in the infrared and is the successor to Hubble?", "a": ["james webb", "james webb space telescope", "jwst"], "pts": 400, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the name of the geological epoch defined by human impact on Earth's ecosystems, often proposed to have started in the mid‑20th century?", "a": ["anthropocene"], "pts": 400, "time": 60},
+            {"cat": "🔬 Science", "q": "In genetics, what does 'CRISPR' stand for?", "a": ["clustered regularly interspaced short palindromic repeats"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the name of the first quantum computer developed by Google that claimed quantum supremacy in 2019?", "a": ["sycamore"], "pts": 500, "time": 60},
+            {"cat": "🔬 Science", "q": "Which enzyme is responsible for unzipping DNA during replication?", "a": ["helicase"], "pts": 400, "time": 60},
+            {"cat": "🔬 Science", "q": "What is the term for the minimum energy required to remove an electron from an atom in its ground state?", "a": ["ionization energy", "ionisation energy"], "pts": 400, "time": 60},
     ]
 
     # ------------------------------------------------------------
@@ -1772,7 +1853,7 @@ class QuizSystem:
             self.quiz_questions = random.sample(pool, num_questions)
             random.shuffle(self.quiz_questions)   # extra shuffle for good measure
 
-            await log_to_discord(self.bot, f"📚 Selected {num_questions} randomquestions", "INFO")
+            await log_to_discord(self.bot, f"📚 Selected {num_questions} random questions", "INFO")
 
             # --- START EMBED (unchanged) ---
             embed = discord.Embed(
@@ -2142,6 +2223,9 @@ class QuizSystem:
     async def distribute_quiz_rewards(self, sorted_participants):
         """Give gems only to participants who scored > 0."""
         rewards = {}
+
+        total_possible = sum(q['pts'] for q in self.quiz_questions)
+
         for rank, (uid, data) in enumerate(sorted_participants, 1):
             # --- SKIP PARTICIPANTS WITH ZERO SCORE ---
             if data["score"] <= 0:
@@ -2272,6 +2356,8 @@ class QuizSystem:
                 p.setdefault("answers", [])
                 p.setdefault("score", 0)
 
+            rank_map = {uid: i+1 for i, (uid, _) in enumerate(sorted_p)}
+
             # --- 4. DISTRIBUTE REWARDS ---
             rewards = await self.distribute_quiz_rewards(sorted_p)
             await log_to_discord(self.bot, f"✅ distribute_quiz_rewards returned {len(rewards)} entries", "INFO")
@@ -2331,7 +2417,7 @@ class QuizSystem:
                             balance = await self.currency.get_balance(uid)
                             dm = discord.Embed(
                                 title="🎉 Quiz Rewards!",
-                                description=f"**Final Score:** {data['score']} pts\n**Rank:** #{list(self.participants.keys()).index(uid)+1}",
+                                description=f"**Final Score:** {data['score']} pts\n**Rank:** #{rank_map[uid]}",
                                 color=discord.Color.gold()
                             )
                             dm.add_field(name="*Rewards*", value=f"💎 +{reward['gems']} Gems", inline=False)
