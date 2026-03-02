@@ -4885,6 +4885,11 @@ class Shop(commands.Cog):
             emoji = CUSTOM_EMOJIS.get(emoji_key, '🛡️')
             armor_name = f"{set_data['name']} {piece.capitalize()}"
 
+            description = f"A sturdy {piece} from the **{set_data['name']}** set."
+            if reflect:
+                description += f" Reflects {reflect}% damage."
+            description += f"\n\n*Complete the {set_data['name']} set (all 4 pieces) to activate bonus stats!*"
+
             async with self.bot.db_pool.acquire() as conn:
                 # Check if armor_type exists
                 armor_type = await conn.fetchrow("SELECT armor_id FROM armor_types WHERE name = $1", armor_name)
@@ -4991,6 +4996,9 @@ class Shop(commands.Cog):
             emoji_key = emoji_map.get((set_name, piece), 'ring_1')
             emoji = CUSTOM_EMOJIS.get(emoji_key, self.RING_UNICODE)
             accessory_name = f"{set_data['name']} {piece.capitalize()}"
+
+            description = f"A {piece} from the **{set_data['name']}** set, granting {set_data['stat'].upper()} bonus."
+            description += f"\n\n*Complete the {set_data['name']} set (2 rings, 2 earrings, 1 pendant) to activate bonus stats!*"
 
             async with self.bot.db_pool.acquire() as conn:
                 acc_type = await conn.fetchrow("""
