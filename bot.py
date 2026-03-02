@@ -873,7 +873,22 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE accessory_types ADD COLUMN IF NOT EXISTS set_name TEXT')                   
                     await conn.execute('ALTER TABLE accessory_types ADD COLUMN IF NOT EXISTS slot_count INTEGER DEFAULT 1')
                     # Update slot constraint for accessory_types
-                    await conn.execute('ALTER TABLE accessory_types DROP CONSTRAINT IF EXISTS accessory_types_slot_check')
+                    await conn.execute("""
+                        UPDATE accessory_types 
+                        SET slot = 'ring' 
+                        WHERE slot IN ('ring1', 'ring2')
+                    """)
+                    await conn.execute("""
+                        UPDATE accessory_types 
+                        SET slot = 'earring' 
+                        WHERE slot IN ('earring1', 'earring2')
+                    """)
+                    await conn.execute("""
+                        UPDATE accessory_types 
+                        SET slot = 'pendant' 
+                    WHERE slot = 'pendant'
+                    """)  
+# 3. Add the new constraint
                     await conn.execute('''
                         ALTER TABLE accessory_types ADD CONSTRAINT accessory_types_slot_check 
                         CHECK (slot IN ('ring', 'earring', 'pendant'))
