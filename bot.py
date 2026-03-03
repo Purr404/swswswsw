@@ -4371,6 +4371,10 @@ class Shop(commands.Cog):
 
             # Get emoji for the item
             item_emoji = get_item_emoji(item, item_type)
+
+            # If the item can affect HP (armor or accessory), update player's HP
+            if item_type in ('armor', 'accessory'):
+                await self.update_player_hp_after_equip(user_id)
         
             await interaction.followup.send(f"**Equipped**{item_emoji}", ephemeral=True)
 
@@ -4577,6 +4581,66 @@ class Shop(commands.Cog):
                 await interaction.followup.send("An error occurred while unequipping.", ephemeral=True)
             except:
                 pass
+
+    async def update_player_hp_after_equip(self, user_id: str):
+        """Recalculate max HP based on equipped gear (flat bonuses + set bonuses) and set current HP to new max."""
+        BASE_HP = 1000
+        async with self.bot.db_pool.acquire() as conn:
+            # Fetch equipped armor with set_name and hp_bonus
+            armor_rows = await conn.fetch("""
+                SELECT ua.hp_bonus, at.set_name
+                FROM user_armor ua
+                JOIN armor_types at ON ua.armor_id = at.armor_id
+                WHERE ua.user_id = $1 AND ua.equipped = TRUE
+            """, user_id)
+
+            # Sum flat HP bonuses from armor
+            flat_hp = sum(row['hp_bonus'] or 0 for row in armor_rows)
+
+            # Count armor sets
+            armor_set_counts = {}
+            for row in armor_rows:
+                if row['set_name']:
+                    armor_set_counts[row['set_name']] = armor_set_counts.get(row['set_name'], 0) + 1
+
+            # Fetch equipped accessories with set_name
+            acc_rows = await conn.fetch("""
+                SELECT at.set_name
+                FROM user_accessories ua
+                JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                WHERE ua.user_id = $1 AND ua.equipped = TRUE
+            """, user_id)
+
+            # Count accessory sets
+            acc_set_counts = {}
+            for row in acc_rows:
+                if row['set_name']:
+                    acc_set_counts[row['set_name']] = acc_set_counts.get(row['set_name'], 0) + 1
+
+            # Start max HP with base + flat bonuses
+            max_hp = BASE_HP + flat_hp
+
+            # Apply armor set bonuses (if full set equipped)
+            for set_name, count in armor_set_counts.items():
+                if count >= 4:  # all 4 armor pieces
+                    sname = set_name.lower()
+                    if sname in ('bilari', 'cryo', 'bane'):
+                        max_hp += int(BASE_HP * 0.20)  # +20% of base HP
+
+            # Apply accessory set bonuses
+            for set_name, count in acc_set_counts.items():
+                sname = set_name.lower()
+                if sname == 'champion' and count >= 5:  # all 5 accessories
+                    max_hp += int(BASE_HP * 0.15)  # +15% of base HP
+
+            # Update player_stats: set current HP to new max and store max_hp
+            await conn.execute("""
+                UPDATE player_stats 
+                SET hp = $1, max_hp = $1 
+                WHERE user_id = $2
+            """, max_hp, user_id)      
+
+
 
 
     # -------------------------------------------------------------------------
