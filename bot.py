@@ -5919,14 +5919,14 @@ class Shop(commands.Cog):
 
         # --- Vitals (HP, Energy, DEF bars) ---
         hp_percent = (current_hp / total_max_hp) * 10
-        hp_bar = "❤️" + "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
+        hp_bar = "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
 
         energy_percent = (player['energy'] / player['max_energy']) * 10
-        energy_bar = "⚡" + "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
-        def_bar = "🛡️" + "🟦" * 10        
+        energy_bar = "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
+        def_bar = "🟦" * 10        
         vitals_text = (
             f"{hp_bar} `{current_hp}/{total_max_hp} HP`\n"            
-            f"{def_bar} `{total_def} DEF`"
+            f"{def_bar} `{total_def} DEF`\n"
             f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`\n"
         )
         embed.description = vitals_text
