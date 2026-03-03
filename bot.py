@@ -5717,17 +5717,32 @@ class Shop(commands.Cog):
 
     @commands.command(name='myprofile')
     async def my_profile(self, ctx):
-        """Display your character profile with all equipped gear"""
+        """Display your character profile with all equipped gear and total stats"""
         user_id = str(ctx.author.id)
 
+        # Base stats (fixed)
+        BASE_HP = 1000
+        BASE_DEF = 500
+        MAX_DEF = 10000  # for bar scaling (adjust as needed)
+
         async with self.bot.db_pool.acquire() as conn:
+            # Current player stats (HP, energy)
             player = await conn.fetchrow("""
-                SELECT hp, max_hp, energy, max_energy, defense 
+                SELECT hp, max_hp, energy, max_energy 
                 FROM player_stats WHERE user_id = $1
             """, user_id)
+            if not player:
+                await conn.execute("""
+                    INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy)
+                    VALUES ($1, $2, $2, 3, 3)
+                    ON CONFLICT DO NOTHING
+                """, user_id, BASE_HP)
+                player = {'hp': BASE_HP, 'max_hp': BASE_HP, 'energy': 3, 'max_energy': 3}
 
+            # Equipped weapon
             weapon = await conn.fetchrow("""
-                SELECT COALESCE(si.name, uw.generated_name) as name, uw.attack,
+                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                       uw.attack, uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
                        COALESCE(si.image_url, uw.image_url) as image_url
                 FROM user_weapons uw
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
@@ -5735,79 +5750,173 @@ class Shop(commands.Cog):
                 LIMIT 1
             """, user_id)
 
-            armor = await conn.fetch("""
-                SELECT at.name, ua.defense, at.slot, at.image_url
+            # Equipped armor
+            armor_pieces = await conn.fetch("""
+                SELECT at.name, ua.defense, at.slot, ua.reflect_damage,
+                       ua.hp_bonus, at.set_name, ua.equipped,
+                       at.image_url
                 FROM user_armor ua
                 JOIN armor_types at ON ua.armor_id = at.armor_id
                 WHERE ua.user_id = $1 AND ua.equipped = TRUE
             """, user_id)
+            armor_dict = {a['slot']: a for a in armor_pieces}
 
+            # Equipped accessories
             accessories = await conn.fetch("""
-                SELECT at.name, ua.bonus_value, at.bonus_stat, ua.slot, at.image_url
+                SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                       ua.slot, at.set_name, at.image_url
                 FROM user_accessories ua
                 JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                 WHERE ua.user_id = $1 AND ua.equipped = TRUE
             """, user_id)
+            acc_dict = {a['slot']: a for a in accessories}
 
-        total_atk = weapon['attack'] if weapon else 0
-        total_def = player['defense'] if player else 0
+        # ===== COMPUTE TOTAL STATS =====
+        total_atk = 0
+        total_def = BASE_DEF          # start with base defense
+        total_crit_chance = 0.0
+        total_crit_damage = 0.0
+        total_bleed_chance = 0.0
+        total_bleed_damage = 0.0
+        total_reflect = 0
+        total_hp_bonus = 0             # flat HP added from armor
 
+        # Weapon
+        if weapon:
+            total_atk += weapon['attack']
+            total_bleed_chance += weapon['bleeding_chance'] or 0
+            total_crit_chance += weapon['crit_chance'] or 0
+            total_crit_damage += weapon['crit_damage'] or 0
+
+        # Armor pieces
+        for armor in armor_pieces:
+            total_def += armor['defense']
+            total_reflect += armor['reflect_damage'] or 0
+            total_hp_bonus += armor['hp_bonus'] or 0
+
+        # Accessories
         for acc in accessories:
-            if acc['bonus_stat'] == 'atk':
-                total_atk += acc['bonus_value']
-            elif acc['bonus_stat'] == 'def':
-                total_def += acc['bonus_value']
+            stat = acc['bonus_stat']
+            val = acc['bonus_value']
+            if stat == 'atk':
+                total_atk += val
+            elif stat == 'def':
+                total_def += val
+            elif stat == 'crit':
+                total_crit_chance += val
+        elif stat == 'bleed':
+                total_bleed_damage += val
+            # hp/energy not added here (hp handled via total_hp_bonus)
 
+        # ===== SET BONUSES =====
+        # Armor sets
+        armor_sets = {}
+        for armor in armor_pieces:
+            if armor['set_name']:
+                armor_sets[armor['set_name']] = armor_sets.get(armor['set_name'], 0) + 1
+        for set_name, count in armor_sets.items():
+            if count >= 4:
+                sname = set_name.lower()
+                if sname in ('bilari', 'cryo', 'bane'):
+                    total_crit_chance += 10
+                    total_crit_damage += 25
+                    total_def = int(total_def * 1.15)          # +15% DEF (includes base)
+                    total_reflect += 20
+                    total_hp_bonus += int(BASE_HP * 0.20)      # +20% of base HP
+
+        # Accessory sets
+        accessory_sets = {}
+        for acc in accessories:
+            if acc['set_name']:
+                accessory_sets[acc['set_name']] = accessory_sets.get(acc['set_name'], 0) + 1
+        for set_name, count in accessory_sets.items():
+            sname = set_name.lower()
+            if sname == 'champion' and count >= 5:
+                total_atk = int(total_atk * 1.20)               # +20% ATK
+                total_def = int(total_def * 1.15)               # +15% DEF
+                total_hp_bonus += int(BASE_HP * 0.15)           # +15% of base HP
+            elif sname == 'defender' and count >= 5:
+                total_def = int(total_def * 1.20)               # +20% DEF
+                total_reflect += 10
+            elif sname == 'angel' and count >= 5:
+                total_crit_chance += 15
+                total_bleed_damage = int(total_bleed_damage * 1.20)  # +20% bleed dmg
+
+        # Total max HP = base + flat bonuses + percentage bonuses (already added)
+        total_max_hp = BASE_HP + total_hp_bonus
+        current_hp = player['hp'] if player['hp'] <= total_max_hp else total_max_hp
+
+        # ===== BUILD EMBED =====
         embed = discord.Embed(
-            title=f"📜 **{ctx.author.display_name}'s Profile**",
+            title=f"**{ctx.author.display_name}'s Profile**",
             color=discord.Color.gold()
         )
         embed.set_thumbnail(url=ctx.author.display_avatar.url)
 
-        if player:
-            hp_percent = (player['hp'] / player['max_hp']) * 10
-            hp_bar = "❤️" + "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
-            energy_percent = (player['energy'] / player['max_energy']) * 10
-            energy_bar = "⚡" + "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
+        # --- Vitals (HP, Energy, DEF bars) ---
+        hp_percent = (current_hp / total_max_hp) * 10
+        hp_bar = "❤️" + "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
 
-            stats = (
-                f"{hp_bar} `{player['hp']}/{player['max_hp']} HP`\n"
-                f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`\n"
-                f"⚔️ **ATK:** `{total_atk}` | 🛡️ **DEF:** `{total_def}`"
-            )
-            embed.description = stats
+        energy_percent = (player['energy'] / player['max_energy']) * 10
+        energy_bar = "⚡" + "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
 
-        equipment = []
+        def_percent = min(total_def / MAX_DEF, 1.0) * 10
+        def_bar = "🛡️" + "🟦" * int(def_percent) + "⬛" * (10 - int(def_percent))
 
-        if weapon:
-            equipment.append(f"⚔️ **Weapon:** {weapon['name']} (+{weapon['attack']} ATK)")
-            if weapon['image_url']:
-                embed.set_image(url=weapon['image_url'])
-        else:
-            equipment.append("⚔️ **Weapon:** `None`")
+        vitals_text = (
+            f"{hp_bar} `{current_hp}/{total_max_hp} HP`\n"
+            f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`\n"
+            f"{def_bar} `{total_def} DEF`"
+        )
+        embed.add_field(name="**VITALS**", value=vitals_text, inline=False)
 
-        armor_dict = {a['slot']: a for a in armor}
-        equipment.append(f"🪖 **Helm:** {armor_dict.get('helm', {}).get('name', '`None`')}")
-        equipment.append(f"👕 **Armor:** {armor_dict.get('armor', {}).get('name', '`None`')}")
-        equipment.append(f"🧤 **Gloves:** {armor_dict.get('gloves', {}).get('name', '`None`')}")
-        equipment.append(f"👢 **Boots:** {armor_dict.get('boots', {}).get('name', '`None`')}")
+        # --- Stats (no emojis) ---
+        stats_lines = [
+            f"**ATK:** {total_atk}",
+            f"**Crit Chance:** {total_crit_chance:.1f}%",
+            f"**Crit Damage:** {total_crit_damage:.1f}%",
+            f"**Bleed Chance:** {total_bleed_chance:.1f}%",
+            f"**Bleed Damage:** {total_bleed_damage:.1f}%",
+            f"**Reflect Damage:** {total_reflect}%"
+        ]
+        embed.add_field(name="**STATS**", value="\n".join(stats_lines), inline=False)
 
-        embed.add_field(name="🎽 **Armor**", value="\n".join(equipment[1:]), inline=False)
+        # --- Equipped Gear Grid ---
+        def slot_emoji(slot, item=None):
+            if item:
+                if slot == 'weapon':
+                    return get_item_emoji(item['name'], 'weapon')
+                elif slot in ('helm', 'suit', 'gauntlets', 'boots'):
+                    return get_item_emoji(item['name'], 'armor')
+                else:
+                    return get_item_emoji(item['name'], 'accessory')
+            else:
+                return "*none*"   # empty slot shown as italic "none"
 
-        acc_dict = {a['slot']: a for a in accessories}
-        acc_list = []
-        acc_list.append(f"💍 **Ring 1:** {acc_dict.get('ring1', {}).get('name', '`None`')}")
-        acc_list.append(f"💍 **Ring 2:** {acc_dict.get('ring2', {}).get('name', '`None`')}")
-        acc_list.append(f"📿 **Pendant:** {acc_dict.get('pendant', {}).get('name', '`None`')}")
-        acc_list.append(f"👂 **Earring 1:** {acc_dict.get('earring1', {}).get('name', '`None`')}")
-        acc_list.append(f"👂 **Earring 2:** {acc_dict.get('earring2', {}).get('name', '`None`')}")
-
-        embed.add_field(name="📿 **Accessories**", value="\n".join(acc_list), inline=False)
-        embed.add_field(name="🐾 **Pet**", value="`Coming Soon`", inline=False)
-        embed.insert_field_at(0, name="🗡️ **Weapon**", value=equipment[0], inline=False)
+        # Row 1: Helm, Armor, Weapon
+        row1 = (
+            f"{slot_emoji('helm', armor_dict.get('helm'))} "
+            f"{slot_emoji('suit', armor_dict.get('suit'))} "
+            f"{slot_emoji('weapon', weapon)}"
+        )
+        # Row 2: Gauntlets, Boots, Pet (placeholder)
+        row2 = (
+            f"{slot_emoji('gauntlets', armor_dict.get('gauntlets'))} "
+            f"{slot_emoji('boots', armor_dict.get('boots'))} "
+            f"🐾"  # pet placeholder (future)
+        )
+        # Row 3: Ring1, Earring1, Pendant, Earring2, Ring2
+        row3 = (
+            f"{slot_emoji('ring1', acc_dict.get('ring1'))} "
+            f"{slot_emoji('earring1', acc_dict.get('earring1'))} "
+            f"{slot_emoji('pendant', acc_dict.get('pendant'))} "
+            f"{slot_emoji('earring2', acc_dict.get('earring2'))} "
+            f"{slot_emoji('ring2', acc_dict.get('ring2'))}"
+        )
+        equipment_display = f"{row1}\n{row2}\n{row3}"
+        embed.add_field(name="**Equipped Gears**", value=equipment_display, inline=False)
 
         await ctx.send(embed=embed)
-
 
 
 
@@ -6252,18 +6361,6 @@ class CullingGame(commands.Cog):
     # ------------------------------------------------------------------
     # HP Check Command
     # ------------------------------------------------------------------
-    @commands.command(name='hp')
-    async def check_hp(self, ctx):
-        user_id = str(ctx.author.id)
-        if not await self.has_weapon(user_id):
-            await ctx.send("❌ You don't have any weapon! Buy one from the shop first to join the Culling Game.")
-            return
-        async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT hp, energy FROM player_stats WHERE user_id = $1", user_id)
-        if not row:
-            await ctx.send("You don't have any stats yet. Buy a weapon to join the Culling Game!")
-            return
-        await ctx.send(f"❤️ HP: {row['hp']}/1000 | ⚡ Energy: {row['energy']}/3")
 
 # END CULLING GAME CLASS
 
