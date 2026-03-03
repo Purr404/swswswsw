@@ -4353,15 +4353,53 @@ class Shop(commands.Cog):
                     item = item_row if item_row else "Unknown"
                 
                 elif item_type == 'accessory':
-                    # Get slot
-                    slot = await conn.fetchval("SELECT slot FROM user_accessories WHERE id = $1", item_id)
-                
-                    # Unequip other accessory in same slot
-                    await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE user_id = $1 AND slot = $2", user_id, slot)
-                    # Equip new accessory
-                    await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
-                
-                    # Get item name
+                    # Get accessory details: current slot and category
+                    acc_info = await conn.fetchrow("""
+                        SELECT ua.slot, at.slot as category
+                        FROM user_accessories ua
+                        JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                        WHERE ua.id = $1
+                    """, item_id)
+                    if not acc_info:
+                        await interaction.followup.send("Accessory not found.", ephemeral=True)
+                        return
+
+                    current_slot = acc_info['slot']
+                    category = acc_info['category']  # 'ring', 'earring', or 'pendant'
+
+                    # Determine possible slots for this category
+                    if category == 'ring':
+                        possible_slots = ['ring1', 'ring2']
+                    elif category == 'earring':
+                        possible_slots = ['earring1', 'earring2']
+                    else:  # pendant
+                        possible_slots = ['pendant']
+
+                    # If current_slot is NULL, assign an available slot
+                    if current_slot is None:
+                        # Find already occupied slots for this category
+                        occupied = await conn.fetch("""
+                            SELECT slot FROM user_accessories
+                            WHERE user_id = $1 AND equipped = TRUE AND slot IS NOT NULL
+                        """, user_id)
+                        occupied_slots = [row['slot'] for row in occupied]
+                        available = [s for s in possible_slots if s not in occupied_slots]
+                        if not available:
+                            await interaction.followup.send(f"No available {category} slots. Unequip one first.", ephemeral=True)
+                            return
+                        new_slot = available[0]
+                        # Assign the slot
+                        await conn.execute("UPDATE user_accessories SET slot = $1 WHERE id = $2", new_slot, item_id)
+                        slot = new_slot
+                    else:
+                        slot = current_slot
+                        # If already has a slot, unequip any other accessory in that slot (should be none, but safety)
+                        await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE user_id = $1 AND slot = $2 AND id != $3", user_id, slot, item_id)
+
+                    # Equip this accessory
+                    await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1", item_id)
+
+                    # Get item name for response
                     item_row = await conn.fetchval("""
                         SELECT at.name FROM user_accessories ua 
                         JOIN accessory_types at ON ua.accessory_id = at.accessory_id 
@@ -4488,7 +4526,11 @@ class Shop(commands.Cog):
                     item = item_row if item_row else "Unknown"
                 
                 elif item_type == 'accessory':
-                    await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                    await conn.execute("""
+                        UPDATE user_accessories 
+                        SET equipped = FALSE, slot = NULL 
+                        WHERE id = $1 AND user_id = $2
+                    """, item_id, user_id)
                     item_row = await conn.fetchval("""
                         SELECT at.name FROM user_accessories ua 
                         JOIN accessory_types at ON ua.accessory_id = at.accessory_id 
