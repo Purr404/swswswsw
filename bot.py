@@ -4671,9 +4671,14 @@ class Shop(commands.Cog):
 
             # Apply accessory set bonuses
             for set_name, count in acc_set_counts.items():
-                sname = set_name.lower()
-                if sname == 'champion' and count >= 5:  # all 5 accessories
-                    max_hp += int(BASE_HP * 0.15)  # +15% of base HP
+                if count >= 5:
+                    sname = set_name.lower()
+                    if sname == 'champion':
+                        max_hp += int(BASE_HP * 0.15)  # +15% HP
+                    elif sname == 'defender':
+                        max_hp += int(BASE_HP * 0.15)  # +15% HP
+                    elif sname == 'angel':
+                        max_hp += int(BASE_HP * 0.15)  # +15% HP
 
             # Update player_stats: set current HP to new max and store max_hp
             await conn.execute("""
@@ -5947,6 +5952,7 @@ class Shop(commands.Cog):
             elif sname == 'angel' and count >= 5:
                 total_crit_chance += 15
                 total_bleed_damage = int(total_bleed_damage * 1.20)  # +20% bleed dmg
+                total_hp_bonus += int(BASE_HP * 0.15)
 
         # Total max HP = base + flat bonuses + percentage bonuses (already added)
         total_max_hp = BASE_HP + total_hp_bonus
