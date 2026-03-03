@@ -553,7 +553,7 @@ class DatabaseSystem:
 
         # Try different connection strategies
         connection_strategies = [
-            ("SSL require (no verify)", {'ssl': 'require'}),
+            ("SSL require (no verify)", {'ssl': 'require'}), 
             ("SSL False", {'ssl': False}),            
             ("SSL True (verify)", {'ssl': True}),
             ("With timeout", {'ssl': 'require', 'command_timeout': 30}),
