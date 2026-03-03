@@ -4090,12 +4090,18 @@ class Shop(commands.Cog):
             print("Already processing an item, ignoring duplicate click.")
             return
         self._processing_item = True
-    
-        await interaction.response.defer(ephemeral=True)
-        try:
-        
-            user_id = str(interaction.user.id)
 
+        user_id = str(interaction.user.id)
+
+        deferred = False
+        try:
+            await interaction.response.defer(ephemeral=True)
+            deferred = True
+        except (ConnectionResetError, asyncio.TimeoutError, discord.HTTPException) as e:
+            print(f"Defer failed: {e}")
+    
+            deferred = False
+        try:
             # Fetch the specific item with all stats
             async with self.bot.db_pool.acquire() as conn:
                 if item_type == 'weapon':
@@ -4284,11 +4290,10 @@ class Shop(commands.Cog):
                 row=1
             ))
 
-            await interaction.followup.edit_message(
-                interaction.message.id,
-                embed=embed, 
-                view=view
-            )
+            if deferred:
+                await interaction.edit_original_response(embed=embed, view=view)
+            else:
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         except Exception as e:
             print(f"Error in handle_item_selection: {e}")
             traceback.print_exc()
