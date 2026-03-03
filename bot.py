@@ -234,12 +234,12 @@ def get_item_emoji(item_name: str, item_type: str) -> str:
         
         # Angel Set
         elif 'angel' in item_lower:
-            if 'ring' in item_lower:
-                return CUSTOM_EMOJIS['wing_ring']
-            elif 'earring' in item_lower:
+            if 'earring' in item_lower:
                 return CUSTOM_EMOJIS['harp_earring']
             elif 'pendant' in item_lower or 'pen' in item_lower:
                 return CUSTOM_EMOJIS['angel_pen']
+            elif 'ring' in item_lower:
+                return CUSTOM_EMOJIS['wing_ring']
         
         return CUSTOM_EMOJIS['champ_ring']
     
