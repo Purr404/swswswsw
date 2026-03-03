@@ -5923,8 +5923,10 @@ class Shop(commands.Cog):
 
         energy_percent = (player['energy'] / player['max_energy']) * 10
         energy_bar = "⚡" + "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
-
+        await log_to_discord(self.bot, f"DEBUG: total_def = {total_def}", level="DEBUG")
+        await log_to_discord(self.bot, f"DEBUG: MAX_DEF = {MAX_DEF}", level="DEBUG")
         def_percent = min(total_def / MAX_DEF, 1.0) * 10
+        await log_to_discord(self.bot, f"DEBUG: def_percent = {def_percent}, int(def_percent) = {int(def_percent)}", level="DEBUG")
         def_bar = "🛡️" + "🟦" * int(def_percent) + "⬛" * (10 - int(def_percent))
 
         vitals_text = (
@@ -5932,8 +5934,7 @@ class Shop(commands.Cog):
             f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`\n"
             f"{def_bar} `{total_def} DEF`"
         )
-        embed.add_field(name="**VITALS**", value=vitals_text, inline=False)
-
+        
         # --- Stats (no emojis) ---
         stats_lines = [
             f"**ATK:** {total_atk}",
