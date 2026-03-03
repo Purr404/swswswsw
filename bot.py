@@ -888,10 +888,7 @@ class DatabaseSystem:
                     WHERE slot = 'pendant'
                     """)  
 # 3. Add the new constraint
-                    await conn.execute('''
-                        ALTER TABLE accessory_types ADD CONSTRAINT accessory_types_slot_check 
-                        CHECK (slot IN ('ring', 'earring', 'pendant'))
-                    ''')
+                    
                     # Update bonus_stat constraint for accessory_types
                     await conn.execute('ALTER TABLE accessory_types DROP CONSTRAINT IF EXISTS accessory_types_bonus_stat_check')
                     await conn.execute('''
