@@ -5804,7 +5804,7 @@ class Shop(commands.Cog):
                 total_def += val
             elif stat == 'crit':
                 total_crit_chance += val
-        elif stat == 'bleed':
+            elif stat == 'bleed':
                 total_bleed_damage += val
             # hp/energy not added here (hp handled via total_hp_bonus)
 
