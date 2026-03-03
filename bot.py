@@ -216,21 +216,21 @@ def get_item_emoji(item_name: str, item_type: str) -> str:
     elif item_type == 'accessory':
         # Champion Set
         if 'champion' in item_lower or 'champ' in item_lower:
-            if 'ring' in item_lower:
-                return CUSTOM_EMOJIS['champ_ring']
-            elif 'earring' in item_lower:
+            if 'earring' in item_lower:                     # check earring first
                 return CUSTOM_EMOJIS['champ_earring']
             elif 'pendant' in item_lower or 'pen' in item_lower:
                 return CUSTOM_EMOJIS['champ_pen']
+            elif 'ring' in item_lower:
+                return CUSTOM_EMOJIS['champ_ring']
         
         # Defender Set
         elif 'defender' in item_lower or 'def' in item_lower:
-            if 'ring' in item_lower:
-                return CUSTOM_EMOJIS['def_ring']
-            elif 'earring' in item_lower:
+            if 'earring' in item_lower:                      
                 return CUSTOM_EMOJIS['def_earring']
             elif 'pendant' in item_lower or 'pen' in item_lower:
                 return CUSTOM_EMOJIS['def_pen']
+            elif 'ring' in item_lower:
+                return CUSTOM_EMOJIS['def_ring']
         
         # Angel Set
         elif 'angel' in item_lower:
