@@ -3944,6 +3944,7 @@ class TradeView(discord.ui.View):
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
                 WHERE uw.user_id = $1
             """, user_id)
+            print(f"DEBUG: weapons: {weapons}")
             # Armor (your existing query is fine – it joins armor_types)
             armor = await conn.fetch("""
                 SELECT ua.id, at.name
@@ -3951,6 +3952,7 @@ class TradeView(discord.ui.View):
                 JOIN armor_types at ON ua.armor_id = at.armor_id
                 WHERE ua.user_id = $1
             """, user_id)
+            print(f"DEBUG: armor: {armor}")
             # Accessories (your existing query is fine)
             accessories = await conn.fetch("""
                 SELECT ua.id, at.name
@@ -3958,6 +3960,7 @@ class TradeView(discord.ui.View):
                 JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                 WHERE ua.user_id = $1
             """, user_id)
+            print(f"DEBUG: accessories: {accessories}")
 
             # Materials (your existing query is fine)
             materials = await conn.fetch("""
@@ -3966,6 +3969,7 @@ class TradeView(discord.ui.View):
                 JOIN shop_items si ON um.material_id = si.item_id
                 WHERE um.user_id = $1 AND um.quantity > 0
             """, user_id)
+            print(f"DEBUG: materials: {materials}")
 
         options = []
         for w in weapons:
