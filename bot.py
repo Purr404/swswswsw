@@ -9,7 +9,15 @@ import aiohttp
 import io
 import textwrap
 import string
-from discord.ui.modal import TextInput
+try:
+    from discord.ui import TextInput
+except ImportError:
+    try:
+        from discord.ui.modal import TextInput
+    except ImportError:
+        # If both fail, print error and exit
+        print("ERROR: discord.py version too old. Please upgrade to 2.0+")
+        raise
 
 async def log_to_discord(bot, message, level="INFO", error=None):
     """ALWAYS prints to Railway logs. Best‑effort send to #bot-logs."""
