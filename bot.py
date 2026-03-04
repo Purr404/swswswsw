@@ -3606,6 +3606,206 @@ class InventoryView(discord.ui.View):
             await interaction.response.send_message("An error occurred.", ephemeral=True)
 
 
+#    MY PROFILE CLASS
+
+class ProfileView(discord.ui.View):
+    def __init__(self, user_id):
+        super().__init__(timeout=180)
+        self.user_id = user_id
+
+    @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary)
+    async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self.user_id:
+            await interaction.response.send_message("This is not your profile.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        embed = await build_profile_embed(self.user_id, interaction.user)
+        await interaction.edit_original_response(embed=embed, view=self)
+
+async def build_profile_embed(user_id: str, member: discord.Member):
+    """Build the profile embed (used by both myprofile and refresh button)."""
+    BASE_HP = 1000
+    BASE_DEF = 500
+
+    async with bot.db_pool.acquire() as conn:
+        player = await conn.fetchrow("SELECT hp, max_hp, energy, max_energy FROM player_stats WHERE user_id = $1", user_id)
+        if not player:
+            await conn.execute("INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy) VALUES ($1, $2, $2, 3, 3) ON CONFLICT DO NOTHING", user_id, BASE_HP)
+            player = {'hp': BASE_HP, 'max_hp': BASE_HP, 'energy': 3, 'max_energy': 3}
+
+        weapon = await conn.fetchrow("""
+            SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                   uw.attack, uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
+                   COALESCE(si.image_url, uw.image_url) as image_url
+            FROM user_weapons uw
+            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+            WHERE uw.user_id = $1 AND uw.equipped = TRUE
+            LIMIT 1
+        """, user_id)
+
+        armor_pieces = await conn.fetch("""
+            SELECT at.name, ua.defense, at.slot, ua.reflect_damage,
+                   ua.hp_bonus, at.set_name, ua.equipped, at.image_url
+            FROM user_armor ua
+            JOIN armor_types at ON ua.armor_id = at.armor_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+        armor_dict = {a['slot']: a for a in armor_pieces}
+
+        accessories = await conn.fetch("""
+            SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                   ua.slot, at.set_name, at.image_url
+            FROM user_accessories ua
+            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+        acc_dict = {a['slot']: a for a in accessories}
+
+    # ===== COMPUTE TOTAL STATS =====
+    total_atk = 0
+    total_def = BASE_DEF
+    total_crit_chance = 0.0
+    total_crit_damage = 0.0
+    total_bleed_chance = 0.0
+    total_bleed_damage = 0.0
+    total_reflect = 0
+    total_hp_bonus = 0
+
+    if weapon:
+        total_atk += weapon['attack']
+        total_bleed_chance += weapon['bleeding_chance'] or 0
+        total_crit_chance += weapon['crit_chance'] or 0
+        total_crit_damage += weapon['crit_damage'] or 0
+
+    for armor in armor_pieces:
+        total_def += armor['defense']
+        total_reflect += armor['reflect_damage'] or 0
+        total_hp_bonus += armor['hp_bonus'] or 0
+
+    for acc in accessories:
+        stat = acc['bonus_stat']
+        val = acc['bonus_value']
+        if stat == 'atk':
+            total_atk += val
+        elif stat == 'def':
+            total_def += val
+        elif stat == 'crit':
+            total_crit_chance += val
+        elif stat == 'bleed':
+            total_bleed_damage += val
+
+    # Armor set bonuses
+    armor_sets = {}
+    for armor in armor_pieces:
+        if armor['set_name']:
+            armor_sets[armor['set_name']] = armor_sets.get(armor['set_name'], 0) + 1
+    for set_name, count in armor_sets.items():
+        if count >= 4:
+            sname = set_name.lower()
+            if sname in ('bilari', 'cryo', 'bane'):
+                total_crit_chance += 10
+                total_crit_damage += 25
+                total_def = int(total_def * 1.15)
+                total_reflect += 20
+                total_hp_bonus += int(BASE_HP * 0.20)
+
+    # Accessory set bonuses
+    accessory_sets = {}
+    for acc in accessories:
+        if acc['set_name']:
+            accessory_sets[acc['set_name']] = accessory_sets.get(acc['set_name'], 0) + 1
+    for set_name, count in accessory_sets.items():
+        if count >= 5:
+            sname = set_name.lower()
+            if sname == 'champion':
+                total_atk = int(total_atk * 1.20)
+                total_def = int(total_def * 1.15)
+                total_hp_bonus += int(BASE_HP * 0.15)
+            elif sname == 'defender':
+                total_def = int(total_def * 1.20)
+                total_reflect += 10
+                total_hp_bonus += int(BASE_HP * 0.15)
+            elif sname == 'angel':
+                total_crit_chance += 15
+                total_bleed_damage = int(total_bleed_damage * 1.20)
+                total_hp_bonus += int(BASE_HP * 0.15)
+
+    total_max_hp = BASE_HP + total_hp_bonus
+    current_hp = player['hp'] if player['hp'] <= total_max_hp else total_max_hp
+
+    # ===== BUILD EMBED =====
+    embed = discord.Embed(title=f"**{member.display_name}'s Profile**", color=discord.Color.gold())
+    embed.set_thumbnail(url=member.display_avatar.url)
+
+    hp_percent = (current_hp / total_max_hp) * 10
+    hp_bar = "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
+
+    energy_percent = (player['energy'] / player['max_energy']) * 10
+    energy_bar = "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
+
+    def_bar = "🟦" * 10  # decorative full bar
+
+    vitals_text = (
+        f"{hp_bar} `{current_hp}/{total_max_hp} HP`\n"
+        f"{def_bar} `{total_def} DEF`\n"
+        f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`"
+    )
+    embed.description = vitals_text
+
+    stats_lines = [
+        f"**ATK:** {total_atk}",
+        f"**Crit Chance:** {total_crit_chance:.1f}%",
+        f"**Crit Damage:** {total_crit_damage:.1f}%",
+        f"**Bleed Chance:** {total_bleed_chance:.1f}%",
+        f"**Bleed Damage:** {total_bleed_damage:.1f}%",
+        f"**Reflect Damage:** {total_reflect}%"
+    ]
+    embed.add_field(name="**STATS**", value="\n".join(stats_lines), inline=False)
+
+    def slot_emoji(slot, item=None):
+        if item:
+            if slot == 'weapon':
+                return get_item_emoji(item['name'], 'weapon')
+            elif slot in ('helm', 'suit', 'gauntlets', 'boots'):
+                return get_item_emoji(item['name'], 'armor')
+            else:
+                return get_item_emoji(item['name'], 'accessory')
+        return "*none*"
+
+    row1 = (
+        f"{slot_emoji('helm', armor_dict.get('helm'))} "
+        f"{slot_emoji('suit', armor_dict.get('suit'))} "
+        f"{slot_emoji('weapon', weapon)}"
+    )
+    row2 = (
+        f"{slot_emoji('gauntlets', armor_dict.get('gauntlets'))} "
+        f"{slot_emoji('boots', armor_dict.get('boots'))} "
+        f"🐾"
+    )
+    row3 = (
+        f"{slot_emoji('ring1', acc_dict.get('ring1'))} "
+        f"{slot_emoji('earring1', acc_dict.get('earring1'))} "
+        f"{slot_emoji('pendant', acc_dict.get('pendant'))} "
+        f"{slot_emoji('earring2', acc_dict.get('earring2'))} "
+        f"{slot_emoji('ring2', acc_dict.get('ring2'))}"
+    )
+    embed.add_field(name="**Equipped Gears**", value=f"{row1}\n{row2}\n{row3}", inline=False)
+
+    return embed
+
+@bot.command(name='myprofile')
+async def my_profile(ctx):
+    """Display your character profile with a refresh button."""
+    user_id = str(ctx.author.id)
+    embed = await build_profile_embed(user_id, ctx.author)
+    view = ProfileView(user_id)
+    await ctx.send(embed=embed, view=view)
+
+
+
+#    END
+
+
 
 # =============================================================================
 # SHOP SYSTEM – Persistent Interactive Shop
