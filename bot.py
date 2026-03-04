@@ -311,6 +311,26 @@ bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
 bot.active_bags = {}
 bot.db_pool = None
 
+#    FOR TRADING
+@tasks.loop(minutes=5)
+async def clean_old_trades():
+    """Cancel pending trades older than 1 hour."""
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("""
+            DELETE FROM active_trades
+            WHERE status = 'pending' AND created_at < NOW() - INTERVAL '1 hour'
+        """)
+
+
+@bot.event
+async def on_raw_message_delete(payload):
+    """If a trade message is deleted, cancel the corresponding trade."""
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE active_trades
+            SET status = 'cancelled'
+            WHERE message_id = $1 AND status = 'pending'
+        """, payload.message_id)
 @bot.command(name='testemojis')
 async def test_emojis(ctx):
     """Test if custom emojis are working"""
@@ -1001,6 +1021,7 @@ class DatabaseSystem:
 
 
                     await conn.execute("ALTER TABLE active_trades ALTER COLUMN message_id DROP NOT NULL;")
+                    await conn.execute("ALTER TABLE active_trades ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW();")
 
 
                     await conn.execute('''
@@ -3361,6 +3382,7 @@ async def on_ready():
     else:
         print("⚠️ Database not connected – fortune bags and shop will not be available.")
         print("❌ Data may reset on redeploy")
+        clean_old_trades.start()
 
 
     
