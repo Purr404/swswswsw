@@ -5311,7 +5311,13 @@ class Shop(commands.Cog):
                 description=combined_description,
                 color=discord.Color.red()
             )
-                    
+
+            if weapon_name in SWORD_SKILLS:
+                skill = SWORD_SKILLS[weapon_name]
+                mult = skill['base']  # level 1 multiplier
+                weapon_embed.add_field(name="Skill", value=f"{skill['name']} (Lv.1, {mult}x ATK)", inline=False)
+                weapon_embed.add_field(name="Effect", value=skill['effect'], inline=False)
+          
             await interaction.followup.send(embed=weapon_embed, ephemeral=True)
 
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
