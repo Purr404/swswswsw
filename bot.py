@@ -258,6 +258,50 @@ def get_item_emoji(item_name: str, item_type: str) -> str:
 # ============================================================
 
 
+SWORD_SKILLS = {
+    "Zenith Sword": {
+        "name": "Zenith Slash",
+        "desc": "A radiant slash that channels celestial energy to empower your next strikes.",
+        "effect": "20% chance to increase your ATK by 50% for 2 turns after attacking.",
+        "base": 3.0,
+        "increment": 0.25,
+        "max_level": 20
+    },
+    "Abyssal Blade": {
+        "name": "Abyssal Strike",
+        "desc": "A shadowy thrust that weakens armor and leaves a lingering darkness.",
+        "effect": "30% chance to reduce target's DEF by 15% for 3 turns.",
+        "base": 3.0,
+        "increment": 0.28,
+        "max_level": 20
+    },
+    "Dawn Breaker": {
+        "name": "Dawn's Wrath",
+        "desc": "A fiery overhead smash that ignites the target, dealing burn damage over time.",
+        "effect": "25% chance to burn target for 20% of damage dealt over 3 turns.",
+        "base": 3.0,
+        "increment": 0.22,
+        "max_level": 20
+    },
+    "Bloodmoon Edge": {
+        "name": "Bloodmoon Rend",
+        "desc": "A ferocious rending slash that causes deep, bleeding wounds.",
+        "effect": "Increases bleed chance by 15% and bleed damage by 25% for this attack.",
+        "base": 3.0,
+        "increment": 0.30,
+        "max_level": 20
+    },
+    "Shadowbane": {
+        "name": "Shadowbane",
+        "desc": "A precision strike that targets vital points, greatly increasing critical potential.",
+        "effect": "Doubles crit chance and adds 50% crit damage for this attack.",
+        "base": 3.0,
+        "increment": 0.26,
+        "max_level": 20
+    }
+}
+
+
 # --- Create the bot instance ---
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!!', intents=intents, help_command=None)
@@ -504,6 +548,96 @@ async def wipe_old_weapons(ctx):
         """)
         count = result.split()[1]
         await ctx.send(f"✅ Deleted **{count}** old rarity weapons.")
+
+@commands.command(name='skill')
+async def skill_info(self, ctx):
+    """Show the skill of your currently equipped weapon."""
+    user_id = str(ctx.author.id)
+
+    async with self.bot.db_pool.acquire() as conn:
+        weapon = await conn.fetchrow("""
+            SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
+            FROM user_weapons uw
+            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+            WHERE uw.user_id = $1 AND uw.equipped = TRUE
+            LIMIT 1
+        """, user_id)
+
+    if not weapon:
+        return await ctx.send("You don't have a weapon equipped.")
+
+    wname = weapon['name']
+    if wname not in SWORD_SKILLS:   # global dictionary
+        return await ctx.send("Your weapon has no special skill.")
+
+    skill = SWORD_SKILLS[wname]
+    current_mult = skill['base'] + (weapon['skill_level'] - 1) * skill['increment']
+
+    embed = discord.Embed(
+        title=f"**{skill['name']}**",
+        description=skill['desc'],
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Weapon", value=wname, inline=True)
+    embed.add_field(name="Level", value=f"{weapon['skill_level']}/{skill['max_level']}", inline=True)
+    embed.add_field(name="Multiplier", value=f"{current_mult:.2f}x ATK", inline=True)
+    embed.add_field(name="Effect", value=skill['effect'], inline=False)
+
+    if weapon['skill_level'] < skill['max_level']:
+        next_mult = current_mult + skill['increment']
+        cost = 500 * (weapon['skill_level'] + 1)
+        embed.add_field(name="Next Level", value=f"{next_mult:.2f}x", inline=True)
+        embed.add_field(name="Upgrade Cost", value=f"{cost} gems", inline=True)
+    else:
+        embed.add_field(name="Next Level", value="MAX", inline=True)
+        embed.add_field(name="Upgrade Cost", value="MAX", inline=True)
+
+    await ctx.send(embed=embed)
+
+@commands.command(name='upgradeskill')
+async def upgrade_skill(self, ctx):
+    """Upgrade your equipped weapon's skill level."""
+    user_id = str(ctx.author.id)
+
+    async with self.bot.db_pool.acquire() as conn:
+        weapon = await conn.fetchrow("""
+            SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
+            FROM user_weapons uw
+            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+            WHERE uw.user_id = $1 AND uw.equipped = TRUE
+            LIMIT 1
+        """, user_id)
+
+    if not weapon:
+        return await ctx.send("You don't have a weapon equipped.")
+
+    wname = weapon['name']
+    if wname not in SWORD_SKILLS:
+        return await ctx.send("Your weapon has no upgradable skill.")
+
+    skill = SWORD_SKILLS[wname]
+    current_level = weapon['skill_level']
+
+    if current_level >= skill['max_level']:
+        return await ctx.send("Your weapon's skill is already max level.")
+
+    cost = 500 * (current_level + 1)
+
+    # Check gems
+    balance = await currency_system.get_balance(user_id)
+    if balance['gems'] < cost:
+        return await ctx.send(f"Insufficient gems. You need **{cost}** gems.")
+
+    # Deduct gems
+    await currency_system.deduct_gems(user_id, cost, f"Upgraded {wname} skill to level {current_level+1}")
+
+    # Update skill level
+    async with self.bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE user_weapons SET skill_level = skill_level + 1 WHERE id = $1", weapon['id'])
+
+    await ctx.send(f"✅ Your **{wname}**'s skill is now **Level {current_level + 1}**!")
+
+
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
@@ -856,6 +990,7 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS bleeding_chance FLOAT DEFAULT 0')
                     await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS crit_chance FLOAT DEFAULT 0')
                     await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS crit_damage FLOAT DEFAULT 0')
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS skill_level INTEGER DEFAULT 1')
 
                     # Armor types
                     await conn.execute('ALTER TABLE armor_types ADD COLUMN IF NOT EXISTS hp_bonus INTEGER DEFAULT 0')
@@ -4370,6 +4505,13 @@ class Shop(commands.Cog):
                 stats.append(f"🩸 **Bleeding Chance:** `{item['bleeding_chance']}%`")
                 stats.append(f"⚡ **Critical Chance:** `{item['crit_chance']}%`")
                 stats.append(f"💥 **Critical Damage:** `{item['crit_damage']}%`")
+                # Get skill info from SWORD_SKILLS
+                wname = item['name']
+                if wname in SWORD_SKILLS:
+                    skill = SWORD_SKILLS[wname]
+                    mult = skill['base'] + (item.get('skill_level', 1) - 1) * skill['increment']
+                    stats.append(f"**Skill:** {skill['name']} Lv.{item.get('skill_level', 1)} ({mult:.1f}x)")
+                    stats.append(f"*{skill['effect']}*")
             
             # ===== ARMOR STATS =====
             elif item_type == 'armor':
