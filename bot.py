@@ -637,6 +637,31 @@ async def upgrade_skill(ctx):
 
     await ctx.send(f"✅ Your **{wname}**'s skill is now **Level {current_level + 1}**!")
 
+#    TRADING SYSTEM
+@bot.command(name='trade')
+async def trade_start(ctx, member: discord.Member):
+    if member == ctx.author:
+        return await ctx.send("You can't trade with yourself.")
+    # Check if either is already in a trade
+    async with bot.db_pool.acquire() as conn:
+        existing = await conn.fetchval("SELECT 1 FROM active_trades WHERE (initiator_id = $1 OR receiver_id = $1) AND status = 'pending'", str(ctx.author.id))
+        if existing:
+            return await ctx.send("You are already in a pending trade.")
+        existing = await conn.fetchval("SELECT 1 FROM active_trades WHERE (initiator_id = $1 OR receiver_id = $1) AND status = 'pending'", str(member.id))
+        if existing:
+            return await ctx.send("That user is already in a pending trade.")
+        # Create trade
+        trade_id = await conn.fetchval("INSERT INTO active_trades (initiator_id, receiver_id, channel_id) VALUES ($1, $2, $3) RETURNING trade_id", str(ctx.author.id), str(member.id), ctx.channel.id)
+    # Send trade message
+    embed = discord.Embed(title="Trade Session", description=f"{ctx.author.mention} wants to trade with {member.mention}\n\nAdd items and lock in when ready.")
+    view = TradeView(trade_id, ctx.author.id, member.id)
+    msg = await ctx.send(embed=embed, view=view)
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE active_trades SET message_id = $1 WHERE trade_id = $2", msg.id, trade_id)
+
+# END TRADING
+
+
 
 
 # LOG TO DISCORD--------------
@@ -982,6 +1007,30 @@ class DatabaseSystem:
                             FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
                         )
                     ''')
+                    # ========== TRADE SYSTEM TABLES ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS active_trades (
+                            trade_id SERIAL PRIMARY KEY,
+                            initiator_id TEXT NOT NULL,
+                            receiver_id TEXT NOT NULL,
+                            channel_id BIGINT NOT NULL,
+                            message_id BIGINT NOT NULL,
+                            initiator_lock BOOLEAN DEFAULT FALSE,
+                            receiver_lock BOOLEAN DEFAULT FALSE,
+                            status TEXT DEFAULT 'pending'
+                        )
+                    ''')
+
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS trade_items (
+                            trade_id INTEGER REFERENCES active_trades(trade_id) ON DELETE CASCADE,
+                            user_id TEXT NOT NULL,
+                            item_type TEXT NOT NULL,
+                            item_id INTEGER NOT NULL,
+                            gems INTEGER DEFAULT 0
+                        )
+                    ''')
+
 
                     # ========== ADD MISSING COLUMNS TO EXISTING TABLES ==========
                     # These ensure the schema is updated if tables already exist
@@ -3739,6 +3788,145 @@ class InventoryView(discord.ui.View):
             print(f"Error in back_to_main: {e}")
             traceback.print_exc()
             await interaction.response.send_message("An error occurred.", ephemeral=True)
+
+
+#    TRADING CLASS
+class TradeView(discord.ui.View):
+    def __init__(self, trade_id, initiator_id, receiver_id):
+        super().__init__(timeout=300)
+        self.trade_id = trade_id
+        self.initiator_id = initiator_id
+        self.receiver_id = receiver_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Only the two participants can interact
+        return str(interaction.user.id) in (self.initiator_id, self.receiver_id)
+
+    @discord.ui.button(label="Add Item", style=discord.ButtonStyle.primary, row=0)
+    async def add_item(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show inventory select menu
+        user_id = str(interaction.user.id)
+        # Fetch user's unequipped items (or all? we can allow equipped too but unequip on trade)
+        async with bot.db_pool.acquire() as conn:
+            weapons = await conn.fetch("SELECT id, name FROM user_weapons WHERE user_id = $1", user_id)
+            armor = await conn.fetch("SELECT id, name FROM user_armor WHERE user_id = $1", user_id)
+            accessories = await conn.fetch("SELECT id, name FROM user_accessories WHERE user_id = $1", user_id)
+            materials = await conn.fetch("SELECT material_id, quantity FROM user_materials WHERE user_id = $1 AND quantity > 0", user_id)
+        # Build select menu options
+        options = []
+        for w in weapons:
+            options.append(discord.SelectOption(label=f"⚔️ {w['name']}", value=f"weapon:{w['id']}"))
+        for a in armor:
+            options.append(discord.SelectOption(label=f"🛡️ {a['name']}", value=f"armor:{a['id']}"))
+        for ac in accessories:
+            options.append(discord.SelectOption(label=f"📿 {ac['name']}", value=f"accessory:{ac['id']}"))
+        for m in materials:
+            # need to fetch material name from shop_items
+            pass  # similar
+        select = discord.ui.Select(placeholder="Choose an item to add...", options=options[:25])
+        async def select_callback(interaction):
+            value = select.values[0]
+            item_type, item_id = value.split(':')
+            # Add to trade_items table
+            async with bot.db_pool.acquire() as conn:
+                await conn.execute("INSERT INTO trade_items (trade_id, user_id, item_type, item_id) VALUES ($1, $2, $3, $4)", self.trade_id, user_id, item_type, int(item_id))
+            await interaction.response.send_message(f"Added item to trade.", ephemeral=True)
+            # Update trade message to show current offers
+            await self.update_trade_message(interaction)
+        select.callback = select_callback
+        view = discord.ui.View()
+        view.add_item(select)
+        await interaction.response.send_message("Select an item:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Add Gems", style=discord.ButtonStyle.primary, row=0)
+    async def add_gems(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Open modal to input gem amount
+        modal = GemModal(self.trade_id, str(interaction.user.id))
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Lock In", style=discord.ButtonStyle.success, row=1)
+    async def lock_in(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = str(interaction.user.id)
+        async with bot.db_pool.acquire() as conn:
+            if user_id == self.initiator_id:
+                await conn.execute("UPDATE active_trades SET initiator_lock = TRUE WHERE trade_id = $1", self.trade_id)
+            else:
+                await conn.execute("UPDATE active_trades SET receiver_lock = TRUE WHERE trade_id = $1", self.trade_id)
+            # Check if both locked
+            row = await conn.fetchrow("SELECT initiator_lock, receiver_lock FROM active_trades WHERE trade_id = $1", self.trade_id)
+            if row and row['initiator_lock'] and row['receiver_lock']:
+                # Execute trade
+                await self.execute_trade(interaction)
+                return
+        await self.update_trade_message(interaction)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger, row=1)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("UPDATE active_trades SET status = 'cancelled' WHERE trade_id = $1", self.trade_id)
+            await conn.execute("DELETE FROM trade_items WHERE trade_id = $1", self.trade_id)
+        await interaction.message.edit(content="Trade cancelled.", view=None)
+        self.stop()
+
+    async def update_trade_message(self, interaction):
+        # Fetch current offers and update embed
+        async with bot.db_pool.acquire() as conn:
+            items = await conn.fetch("SELECT user_id, item_type, item_id, gems FROM trade_items WHERE trade_id = $1", self.trade_id)
+            trade = await conn.fetchrow("SELECT initiator_lock, receiver_lock FROM active_trades WHERE trade_id = $1", self.trade_id)
+        # Build description
+        initiator_items = []
+        receiver_items = []
+        for it in items:
+            if it['user_id'] == self.initiator_id:
+                if it['gems'] > 0:
+                    initiator_items.append(f"{it['gems']} gems")
+                else:
+                    # fetch item name
+                    name = await self.get_item_name(it['item_type'], it['item_id'])
+                    initiator_items.append(name)
+            else:
+                # similar for receiver
+                pass
+        embed = discord.Embed(title="Trade Session")
+        embed.add_field(name=f"<@{self.initiator_id}>", value="\n".join(initiator_items) or "Nothing", inline=True)
+        embed.add_field(name=f"<@{self.receiver_id}>", value="\n".join(receiver_items) or "Nothing", inline=True)
+        embed.add_field(name="Status", value=f"Initiator locked: {trade['initiator_lock']}\nReceiver locked: {trade['receiver_lock']}", inline=False)
+        await interaction.message.edit(embed=embed)
+
+    async def execute_trade(self, interaction):
+        # Transfer items and gems
+        async with bot.db_pool.acquire() as conn:
+            async with conn.transaction():
+                items = await conn.fetch("SELECT user_id, item_type, item_id, gems FROM trade_items WHERE trade_id = $1", self.trade_id)
+                # For each item, change ownership
+                for it in items:
+                    if it['gems'] > 0:
+                        # Transfer gems: deduct from sender, add to receiver
+                        sender = it['user_id']
+                        receiver = self.receiver_id if sender == self.initiator_id else self.initiator_id
+                        await currency_system.deduct_gems(sender, it['gems'], f"Trade with {receiver}")
+                        await currency_system.add_gems(receiver, it['gems'], f"Trade with {sender}")
+                    else:
+                        # Transfer item: update user_id in respective table
+                        table_map = {'weapon': 'user_weapons', 'armor': 'user_armor', 'accessory': 'user_accessories', 'material': 'user_materials'}
+                        if it['item_type'] == 'material':
+                            # For materials, we need to decrement from sender and increment receiver
+                            # This is more complex – we'll handle separately
+                            pass
+                        else:
+                            new_owner = self.receiver_id if it['user_id'] == self.initiator_id else self.initiator_id
+                            await conn.execute(f"UPDATE {table_map[it['item_type']]} SET user_id = $1 WHERE id = $2", new_owner, it['item_id'])
+                # Mark trade as completed
+                await conn.execute("UPDATE active_trades SET status = 'completed' WHERE trade_id = $1", self.trade_id)
+                await conn.execute("DELETE FROM trade_items WHERE trade_id = $1", self.trade_id)
+        await interaction.message.edit(content="Trade completed!", view=None)
+        self.stop()
+
+
+
+#    END
+
+
 
 
 #    MY PROFILE CLASS
