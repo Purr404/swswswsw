@@ -3613,8 +3613,9 @@ class ProfileView(discord.ui.View):
         super().__init__(timeout=180)
         self.user_id = user_id
 
-    @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🔄", style=discord.ButtonStyle.secondary)
     async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        print(f"DEBUG: interaction type = {type(interaction)}")
         if str(interaction.user.id) != self.user_id:
             await interaction.response.send_message("This is not your profile.", ephemeral=True)
             return
