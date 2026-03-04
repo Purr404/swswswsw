@@ -1068,6 +1068,17 @@ class DatabaseSystem:
                             gems INTEGER DEFAULT 0
                         )
                     ''')
+                    # ========== MATERIALS TABLE ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_materials (
+                            user_id TEXT NOT NULL,
+                            material_id INTEGER NOT NULL,
+                            quantity INTEGER DEFAULT 0,
+                            PRIMARY KEY (user_id, material_id),
+                            FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE,
+                            FOREIGN KEY (material_id) REFERENCES shop_items(item_id) ON DELETE CASCADE
+                        )
+                    ''')
 
 
                     # ========== ADD MISSING COLUMNS TO EXISTING TABLES ==========
