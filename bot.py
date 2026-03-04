@@ -3866,7 +3866,7 @@ class TradeView(discord.ui.View):
         return str(interaction.user.id) in (self.initiator_id, self.receiver_id)
 
     @discord.ui.button(label="➕ Add Item", style=discord.ButtonStyle.primary, row=0)
-    async def add_item_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def add_item_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
         async with bot.db_pool.acquire() as conn:
             weapons = await conn.fetch("SELECT id, name FROM user_weapons WHERE user_id = $1", user_id)
@@ -3910,7 +3910,7 @@ class TradeView(discord.ui.View):
         await interaction.response.send_message("Select an item:", view=view, ephemeral=True)
 
     @discord.ui.button(label="💎 Add Gems", style=discord.ButtonStyle.primary, row=0)
-    async def add_gems_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def add_gems_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
         # Register pending input
         pending_gem_inputs[user_id] = {
@@ -3925,7 +3925,7 @@ class TradeView(discord.ui.View):
         )
 
     @discord.ui.button(label="🔒 Lock In", style=discord.ButtonStyle.success, row=1)
-    async def lock_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def lock_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
         async with bot.db_pool.acquire() as conn:
             if user_id == self.initiator_id:
@@ -3940,7 +3940,7 @@ class TradeView(discord.ui.View):
         await interaction.response.defer()
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, row=1)
-    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def cancel_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         async with bot.db_pool.acquire() as conn:
             await conn.execute("UPDATE active_trades SET status = 'cancelled' WHERE trade_id = $1", self.trade_id)
             await conn.execute("DELETE FROM trade_items WHERE trade_id = $1", self.trade_id)
