@@ -999,6 +999,10 @@ class DatabaseSystem:
                         )
                     ''')
 
+
+                    await conn.execute("ALTER TABLE active_trades ALTER COLUMN message_id DROP NOT NULL;")
+
+
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS trade_items (
                             trade_id INTEGER REFERENCES active_trades(trade_id) ON DELETE CASCADE,
