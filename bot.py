@@ -549,12 +549,12 @@ async def wipe_old_weapons(ctx):
         count = result.split()[1]
         await ctx.send(f"✅ Deleted **{count}** old rarity weapons.")
 
-@commands.command(name='skill')
-async def skill_info(self, ctx):
+@bot.command(name='skill')
+async def skill_info(ctx):
     """Show the skill of your currently equipped weapon."""
     user_id = str(ctx.author.id)
 
-    async with self.bot.db_pool.acquire() as conn:
+    async with bot.db_pool.acquire() as conn:
         weapon = await conn.fetchrow("""
             SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
             FROM user_weapons uw
@@ -567,7 +567,7 @@ async def skill_info(self, ctx):
         return await ctx.send("You don't have a weapon equipped.")
 
     wname = weapon['name']
-    if wname not in SWORD_SKILLS:   # global dictionary
+    if wname not in SWORD_SKILLS:
         return await ctx.send("Your weapon has no special skill.")
 
     skill = SWORD_SKILLS[wname]
@@ -594,12 +594,12 @@ async def skill_info(self, ctx):
 
     await ctx.send(embed=embed)
 
-@commands.command(name='upgradeskill')
-async def upgrade_skill(self, ctx):
+@bot.command(name='upgradeskill')
+async def upgrade_skill(ctx):
     """Upgrade your equipped weapon's skill level."""
     user_id = str(ctx.author.id)
 
-    async with self.bot.db_pool.acquire() as conn:
+    async with bot.db_pool.acquire() as conn:
         weapon = await conn.fetchrow("""
             SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
             FROM user_weapons uw
@@ -623,7 +623,7 @@ async def upgrade_skill(self, ctx):
 
     cost = 500 * (current_level + 1)
 
-    # Check gems
+    # Check gems using global currency_system
     balance = await currency_system.get_balance(user_id)
     if balance['gems'] < cost:
         return await ctx.send(f"Insufficient gems. You need **{cost}** gems.")
@@ -632,7 +632,7 @@ async def upgrade_skill(self, ctx):
     await currency_system.deduct_gems(user_id, cost, f"Upgraded {wname} skill to level {current_level+1}")
 
     # Update skill level
-    async with self.bot.db_pool.acquire() as conn:
+    async with bot.db_pool.acquire() as conn:
         await conn.execute("UPDATE user_weapons SET skill_level = skill_level + 1 WHERE id = $1", weapon['id'])
 
     await ctx.send(f"✅ Your **{wname}**'s skill is now **Level {current_level + 1}**!")
