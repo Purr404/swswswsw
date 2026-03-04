@@ -321,6 +321,14 @@ async def clean_old_trades():
             WHERE status = 'pending' AND created_at < NOW() - INTERVAL '1 hour'
         """)
 
+@bot.command(name='canceltrade')
+@commands.has_permissions(administrator=True)
+async def cancel_trade(ctx, trade_id: int):
+    """Admin command to cancel a pending trade by ID."""
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE active_trades SET status = 'cancelled' WHERE trade_id = $1", trade_id)
+    await ctx.send(f"✅ Trade {trade_id} cancelled.")
+
 
 @bot.event
 async def on_raw_message_delete(payload):
