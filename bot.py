@@ -321,11 +321,38 @@ async def clean_old_trades():
             WHERE status = 'pending' AND created_at < NOW() - INTERVAL '1 hour'
         """)
 
-@bot.command(name='canceltrade')
-@commands.has_permissions(administrator=True)
-async def cancel_trade(ctx, trade_id: int):
-    """Admin command to cancel a pending trade by ID."""
+@bot.command(name='mypendingtrades')
+async def my_pending_trades(ctx):
+    """Show your pending trades."""
+    user_id = str(ctx.author.id)
     async with bot.db_pool.acquire() as conn:
+        trades = await conn.fetch("""
+            SELECT trade_id, initiator_id, receiver_id, created_at
+            FROM active_trades
+            WHERE (initiator_id = $1 OR receiver_id = $1) AND status = 'pending'
+        """, user_id)
+    if not trades:
+        return await ctx.send("You have no pending trades.")
+    lines = []
+    for t in trades:
+        other_id = t['receiver_id'] if t['initiator_id'] == user_id else t['initiator_id']
+        other = await bot.fetch_user(int(other_id))
+        lines.append(f"**Trade ID {t['trade_id']}** with {other.mention} (started {t['created_at']})")
+    await ctx.send("\n".join(lines))
+
+@bot.command(name='canceltrade')
+async def cancel_trade(ctx, trade_id: int):
+    """Cancel a pending trade (only participants or admin)."""
+    user_id = str(ctx.author.id)
+    async with bot.db_pool.acquire() as conn:
+        trade = await conn.fetchrow("SELECT * FROM active_trades WHERE trade_id = $1", trade_id)
+        if not trade:
+            return await ctx.send("❌ Trade not found.")
+        if trade['status'] != 'pending':
+            return await ctx.send("❌ Trade is not pending.")
+        # Check permission: user must be initiator, receiver, or admin
+        if user_id not in (trade['initiator_id'], trade['receiver_id']) and not ctx.author.guild_permissions.administrator:
+            return await ctx.send("❌ You don't have permission to cancel this trade.")
         await conn.execute("UPDATE active_trades SET status = 'cancelled' WHERE trade_id = $1", trade_id)
     await ctx.send(f"✅ Trade {trade_id} cancelled.")
 
