@@ -3612,9 +3612,14 @@ class ProfileView(discord.ui.View):
     def __init__(self, user_id):
         super().__init__(timeout=180)
         self.user_id = user_id
+        
+        # Create button manually
+        button = discord.ui.Button(label="🔄", style=discord.ButtonStyle.secondary)
+        button.callback = self.refresh_button
+        self.add_item(button)
 
-    @discord.ui.button(label="🔄", style=discord.ButtonStyle.secondary)
-    async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def refresh_button(self, interaction: discord.Interaction):
+        """Callback for the refresh button – receives only the interaction."""
         print(f"DEBUG: interaction type = {type(interaction)}")
         if str(interaction.user.id) != self.user_id:
             await interaction.response.send_message("This is not your profile.", ephemeral=True)
