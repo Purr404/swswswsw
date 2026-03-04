@@ -3926,9 +3926,29 @@ class TradeView(discord.ui.View):
     async def add_item_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
         async with bot.db_pool.acquire() as conn:
-            weapons = await conn.fetch("SELECT id, name FROM user_weapons WHERE user_id = $1", user_id)
-            armor = await conn.fetch("SELECT id, name FROM user_armor WHERE user_id = $1", user_id)
-            accessories = await conn.fetch("SELECT id, name FROM user_accessories WHERE user_id = $1", user_id)
+            # Weapons (with name from shop_items or generated_name)
+            weapons = await conn.fetch("""
+                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1
+            """, user_id)
+            # Armor (your existing query is fine – it joins armor_types)
+            armor = await conn.fetch("""
+                SELECT ua.id, at.name
+                FROM user_armor ua
+                JOIN armor_types at ON ua.armor_id = at.armor_id
+                WHERE ua.user_id = $1
+            """, user_id)
+            # Accessories (your existing query is fine)
+            accessories = await conn.fetch("""
+                SELECT ua.id, at.name
+                FROM user_accessories ua
+                JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                WHERE ua.user_id = $1
+            """, user_id)
+
+            # Materials (your existing query is fine)
             materials = await conn.fetch("""
                 SELECT um.material_id as id, si.name
                 FROM user_materials um
@@ -4105,8 +4125,8 @@ async def on_message(message):
         # Add to trade_items
         async with bot.db_pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO trade_items (trade_id, user_id, gems)
-                VALUES ($1, $2, $3)
+                INSERT INTO trade_items (trade_id, user_id, item_type, item_id, gems)
+                VALUES ($1, $2, 'gems', 0, $3)
             """, pending['trade_id'], user_id, gems)
 
         # Update the trade message
