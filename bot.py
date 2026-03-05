@@ -1091,6 +1091,19 @@ class DatabaseSystem:
                         )
                     ''')
 
+                    # ========== ACTIVE EFFECTS TABLE ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS active_effects (
+                            effect_id SERIAL PRIMARY KEY,
+                            target_id TEXT NOT NULL,
+                            effect_type TEXT NOT NULL,
+                            value INTEGER NOT NULL,
+                            remaining_ticks INTEGER NOT NULL,
+                            last_tick TIMESTAMP DEFAULT NOW(),
+                            FOREIGN KEY (target_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
+                        )
+                    ''')
+
 
                     # ========== ADD MISSING COLUMNS TO EXISTING TABLES ==========
                     # These ensure the schema is updated if tables already exist
@@ -7218,76 +7231,151 @@ class CullingGame(commands.Cog):
 
         return f"💰 You plundered **{steal} gems** from <@{defender_id}>!"
 
-    # ------------------------------------------------------------------
-    # Attack Command
-    # ------------------------------------------------------------------
-    @commands.command(name='attack')
-    async def attack(self, ctx, target: discord.Member):
-        attacker_id = str(ctx.author.id)
-        defender_id = str(target.id)
+@bot.command(name='attack')
+async def attack(ctx, target: discord.Member, *, skill_name: str = None):
+    """Attack another player using your equipped weapon's skill."""
+    attacker_id = str(ctx.author.id)
+    defender_id = str(target.id)
 
-        if attacker_id == defender_id:
-            await ctx.send("❌ You cannot attack yourself.")
-            return
+    # Get Shop cog for helper methods
+    shop_cog = bot.get_cog('Shop')
+    if not shop_cog:
+        return await ctx.send("❌ Shop cog not loaded.")
 
-        if not await self.has_weapon(attacker_id):
-            await ctx.send("❌ You don't have any weapon! Buy one from the shop first.")
-            return
-        if not await self.has_weapon(defender_id):
-            await ctx.send(f"❌ {target.mention} doesn't have any weapon and cannot be attacked.")
-            return
+    # Get stats
+    a_stats = await shop_cog.get_player_stats(attacker_id)
+    d_stats = await shop_cog.get_player_stats(defender_id)
 
-        await self.ensure_player_stats(attacker_id)
-        await self.ensure_player_stats(defender_id)
+    # Check energy
+    if a_stats['energy'] < 1:
+        return await ctx.send("❌ You don't have enough energy to attack.")
 
-        async with self.bot.db_pool.acquire() as conn:
-            energy = await conn.fetchval("SELECT energy FROM player_stats WHERE user_id = $1", attacker_id)
-            if not energy or energy < 1:
-                await ctx.send("❌ You need at least 1 energy to attack.")
-                return
+    # Get equipped weapon and its skill
+    async with bot.db_pool.acquire() as conn:
+        weapon = await conn.fetchrow("""
+            SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
+            FROM user_weapons uw
+            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+            WHERE uw.user_id = $1 AND uw.equipped = TRUE
+            LIMIT 1
+        """, attacker_id)
 
-            weapon = await conn.fetchrow("""
-                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name, uw.image_url
-                FROM user_weapons uw
-                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                WHERE uw.user_id = $1
-                ORDER BY uw.purchased_at DESC
-                LIMIT 1
-            """, attacker_id)
-            if not weapon:
-                await ctx.send("❌ You don't have a weapon to attack with!")
-                return
+    if not weapon:
+        return await ctx.send("❌ You don't have a weapon equipped.")
 
-            defender_stats = await conn.fetchrow("SELECT hp FROM player_stats WHERE user_id = $1", defender_id)
-            defender_weapon = await conn.fetchrow("""
-                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name
-                FROM user_weapons uw
-                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                WHERE uw.user_id = $1
-                ORDER BY uw.purchased_at DESC
-                LIMIT 1
-            """, defender_id)
+    wname = weapon['name']
+    if wname not in SWORD_SKILLS:
+        return await ctx.send("❌ Your weapon has no special skill.")
 
-            await conn.execute("UPDATE player_stats SET energy = energy - 1 WHERE user_id = $1", attacker_id)
+    skill_data = SWORD_SKILLS[wname]
+    if skill_name and skill_name.lower() != skill_data['name'].lower():
+        return await ctx.send(f"Your weapon's skill is **{skill_data['name']}**, not {skill_name}.")
 
-        embed = discord.Embed(
-            title="⚔️ Attack Initiated!",
-            description=f"{ctx.author.mention} is attacking {target.mention}!",
-            color=discord.Color.orange()
-        )
-        embed.add_field(name="Attacker's Weapon", value=f"{weapon['name']} (+{weapon['attack']} ATK)", inline=True)
-        if defender_weapon:
-            embed.add_field(name="Defender's Weapon", value=f"{defender_weapon['name']} (+{defender_weapon['attack']} ATK)", inline=True)
-        embed.add_field(name="Defender's HP", value=f"{defender_stats['hp']} / 1000", inline=False)
-        if weapon['image_url']:
-            embed.set_thumbnail(url=weapon['image_url'])
+    level = weapon['skill_level']
+    multiplier = skill_data['base'] + (level - 1) * skill_data['increment']
 
-        view = AttackView(attacker_id, defender_id, weapon['attack'], self.bot)
-        await ctx.send(embed=embed, view=view)
+    # Damage calculation
+    base_damage = a_stats['atk'] * multiplier
+    damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
 
-    # ------------------------------------------------------------------
-    # HP Check Command
-    # ------------------------------------------------------------------
+    # Critical hit
+    is_crit = random.random() < a_stats['crit_chance'] / 100
+    if is_crit:
+        damage = int(damage * (1 + a_stats['crit_damage'] / 100))
+
+    # Apply damage to defender
+    new_defender_hp = max(0, d_stats['current_hp'] - damage)
+    await shop_cog.update_player_hp(defender_id, new_defender_hp)
+
+    # Reflect damage
+    reflect_damage = 0
+    if d_stats['reflect'] > 0:
+        reflect_damage = int(damage * d_stats['reflect'] / 100)
+        if reflect_damage > 0:
+            new_attacker_hp = max(0, a_stats['current_hp'] - reflect_damage)
+            await shop_cog.update_player_hp(attacker_id, new_attacker_hp)
+
+    # Bleed chance
+    bleed_applied = False
+    bleed_tick = 0
+    if random.random() < a_stats['bleed_chance'] / 100:
+        bleed_tick = int(a_stats['atk'] * (a_stats['bleed_damage'] / 100))
+        if bleed_tick > 0:
+            bleed_applied = True
+            async with bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
+                    VALUES ($1, 'bleed', $2, 3)
+                """, defender_id, bleed_tick)
+
+    # Reduce energy
+    new_attacker_energy = a_stats['energy'] - 1
+    await shop_cog.update_player_energy(attacker_id, new_attacker_energy)
+
+    # Build embed
+    embed = discord.Embed(title="⚔️ Attack Result", color=discord.Color.red())
+    embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.display_avatar.url)
+    embed.set_thumbnail(url=target.display_avatar.url)
+
+    def hp_bar(current, max_hp):
+        percent = current / max_hp
+        filled = int(percent * 10)
+        return "🟥" * filled + "⬛" * (10 - filled)
+
+    a_hp_bar = hp_bar(a_stats['current_hp'], a_stats['max_hp'])
+    d_hp_bar = hp_bar(new_defender_hp, d_stats['max_hp'])
+
+    embed.add_field(name=f"{ctx.author.display_name}'s HP", value=f"{a_hp_bar} `{a_stats['current_hp']}/{a_stats['max_hp']}`", inline=True)
+    embed.add_field(name=f"{target.display_name}'s HP", value=f"{d_hp_bar} `{new_defender_hp}/{d_stats['max_hp']}`", inline=True)
+
+    # Equipped gear
+    attacker_gear = await shop_cog.get_equipped_emojis(attacker_id)
+    defender_gear = await shop_cog.get_equipped_emojis(defender_id)
+    embed.add_field(name=f"{ctx.author.display_name}'s Gear", value=attacker_gear, inline=False)
+    embed.add_field(name=f"{target.display_name}'s Gear", value=defender_gear, inline=False)
+
+    # Damage info
+    damage_text = f"**{damage}** damage dealt"
+    if is_crit:
+        damage_text += " 💥 CRITICAL!"
+    embed.add_field(name="Damage", value=damage_text, inline=False)
+
+    if reflect_damage > 0:
+        embed.add_field(name="Reflect", value=f"Took {reflect_damage} reflect damage", inline=True)
+
+    if bleed_applied:
+        embed.add_field(name="Bleed", value=f"Target will bleed for {bleed_tick} every second for 3 seconds", inline=True)
+
+    # Skill info
+    embed.add_field(name="Skill", value=f"{skill_data['name']} Lv.{level} ({multiplier:.2f}x)", inline=False)
+
+    # Energy
+    embed.add_field(name="Energy", value=f"{new_attacker_energy}/{a_stats['max_energy']}", inline=True)
+
+    await ctx.send(embed=embed)
+
+
+@tasks.loop(seconds=1)
+async def process_effects():
+    """Process bleed/burn effects every second."""
+    async with bot.db_pool.acquire() as conn:
+        # Get all active effects with remaining ticks > 0
+        effects = await conn.fetch("SELECT * FROM active_effects WHERE remaining_ticks > 0")
+        for eff in effects:
+            # Apply damage
+            if eff['effect_type'] in ('bleed', 'burn'):
+                await conn.execute("""
+                    UPDATE player_stats SET hp = GREATEST(hp - $1, 0)
+                    WHERE user_id = $2
+                """, eff['value'], eff['target_id'])
+            # Decrement ticks
+            await conn.execute("""
+                UPDATE active_effects SET remaining_ticks = remaining_ticks - 1
+                WHERE effect_id = $1
+            """, eff['effect_id'])
+        # Remove expired (those with remaining_ticks <= 0) – already handled by decrement, but can also delete after loop
+        await conn.execute("DELETE FROM active_effects WHERE remaining_ticks <= 0")
+
 
 # END CULLING GAME CLASS
 
