@@ -3463,16 +3463,59 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Log every message in the quiz channel
-    if quiz_system.quiz_running and message.channel == quiz_system.quiz_channel:
-        await log_to_discord(bot, f"📨 QUIZ MESSAGE from {message.author.display_name}: '{message.content[:50]}'", "DEBUG")
+    user_id = str(message.author.id)
+
+    # --- 1. Handle pending gem input for trades ---
+    if user_id in pending_gem_inputs:
+        pending = pending_gem_inputs[user_id]
+        if time.time() > pending['expires']:
+            del pending_gem_inputs[user_id]
+            await message.channel.send("⌛ Gem addition timed out.", delete_after=5)
+            return
+
         try:
-            await log_to_discord(bot, "⏩ Calling process_answer...", "DEBUG")
-            result = await quiz_system.process_answer(message.author, message.content)
+            gems = int(message.content)
+            if gems <= 0:
+                raise ValueError
+        except ValueError:
+            await message.channel.send("❌ Invalid amount. Please enter a positive number.", delete_after=5)
+            return
+
+        balance = await currency_system.get_balance(user_id)
+        if balance['gems'] < gems:
+            await message.channel.send("❌ You don't have that many gems.", delete_after=5)
+            return
+
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO trade_items (trade_id, user_id, item_type, item_id, gems)
+                VALUES ($1, $2, 'gems', 0, $3)
+            """, pending['trade_id'], user_id, gems)
+
+        try:
+            channel = bot.get_channel(pending['channel_id'])
+            if channel:
+                trade_msg = await channel.fetch_message(pending['message_id'])
+                await update_trade_embed(trade_msg, pending['trade_id'])
+        except Exception as e:
+            print(f"Error updating trade message: {e}")
+
+        await message.channel.send(f"✅ Added **{gems} gems** to the trade.", delete_after=5)
+        del pending_gem_inputs[user_id]
+        return  # ← Stop processing here
+
+    # --- 2. Quiz answer handling ---
+    if quiz_system.quiz_running and message.channel == quiz_system.quiz_channel:
+        await log_to_discord(bot, f"📨 QUIZ MSG from {message.author.display_name}: '{message.content[:50]}'", "DEBUG")
+        try:
+            # Pass the message object to process_answer so we can add reactions
+            result = await quiz_system.process_answer(message.author, message.content, message)
             await log_to_discord(bot, f"⏪ process_answer returned: {result}", "DEBUG")
         except Exception as e:
             await log_to_discord(bot, f"❌ Error in on_message: {e}", "ERROR")
+        # Continue to process commands if desired (optional)
 
+    # --- 3. Process commands ---
     await bot.process_commands(message)
 
 
@@ -4276,61 +4319,6 @@ async def trade_start(ctx, member: discord.Member):
     view.message_id = msg.id
     async with bot.db_pool.acquire() as conn:
         await conn.execute("UPDATE active_trades SET message_id = $1 WHERE trade_id = $2", msg.id, trade_id)
-
-# Modified on_message to handle pending gem inputs
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-
-    # Check for pending gem input
-    user_id = str(message.author.id)
-    if user_id in pending_gem_inputs:
-        pending = pending_gem_inputs[user_id]
-        if time.time() > pending['expires']:
-            del pending_gem_inputs[user_id]
-            # Optionally notify user
-            await message.channel.send("⌛ Gem addition timed out.", delete_after=5)
-            return
-
-        try:
-            gems = int(message.content)
-            if gems <= 0:
-                raise ValueError
-        except ValueError:
-            await message.channel.send("❌ Invalid amount. Please enter a positive number.", delete_after=5)
-            return
-
-        # Check user has enough gems
-        balance = await currency_system.get_balance(user_id)
-        if balance['gems'] < gems:
-            await message.channel.send("❌ You don't have that many gems.", delete_after=5)
-            return
-
-        # Add to trade_items
-        async with bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO trade_items (trade_id, user_id, item_type, item_id, gems)
-                VALUES ($1, $2, 'gems', 0, $3)
-            """, pending['trade_id'], user_id, gems)
-
-        # Update the trade message
-        try:
-            channel = bot.get_channel(pending['channel_id'])
-            if channel:
-                trade_msg = await channel.fetch_message(pending['message_id'])
-                await update_trade_embed(trade_msg, pending['trade_id'])
-        except Exception as e:
-            print(f"Error updating trade message: {e}")
-
-        await message.channel.send(f"✅ Added **{gems} gems** to the trade.", delete_after=5)
-        del pending_gem_inputs[user_id]
-        return  # Don't process commands after handling gem input
-
-    await bot.process_commands(message)
-
-
-
 
 #    MY PROFILE CLASS
 
