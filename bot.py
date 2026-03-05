@@ -7365,9 +7365,23 @@ async def get_player_stats(user_id: str):
         if not player:
             await conn.execute("INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy) VALUES ($1, $2, $2, 3, 3)", user_id, BASE_HP)
             player = {'hp': BASE_HP, 'max_hp': BASE_HP, 'energy': 3, 'max_energy': 3}
-        weapon = await conn.fetchrow("SELECT attack, bleeding_chance, crit_chance, crit_damage FROM user_weapons WHERE user_id = $1 AND equipped = TRUE LIMIT 1", user_id)
-        armor = await conn.fetch("SELECT defense, reflect_damage FROM user_armor WHERE user_id = $1 AND equipped = TRUE", user_id)
-        accessories = await conn.fetch("SELECT bonus_stat, bonus_value FROM user_accessories WHERE user_id = $1 AND equipped = TRUE", user_id)
+        weapon = await conn.fetchrow("""
+            SELECT attack, bleeding_chance, crit_chance, crit_damage
+            FROM user_weapons
+            WHERE user_id = $1 AND equipped = TRUE
+            LIMIT 1
+        """, user_id)
+        armor = await conn.fetch("""
+            SELECT defense, reflect_damage
+            FROM user_armor
+            WHERE user_id = $1 AND equipped = TRUE
+        """, user_id)
+        accessories = await conn.fetch("""
+            SELECT at.bonus_stat, ua.bonus_value
+            FROM user_accessories ua
+            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
 
     atk = 0
     defense = BASE_DEF
@@ -7388,16 +7402,17 @@ async def get_player_stats(user_id: str):
         reflect += a['reflect_damage'] or 0
 
     for acc in accessories:
-        if acc['bonus_stat'] == 'atk':
-            atk += acc['bonus_value']
-        elif acc['bonus_stat'] == 'def':
-            defense += acc['bonus_value']
-        elif acc['bonus_stat'] == 'crit':
-            crit_chance += acc['bonus_value']
-        elif acc['bonus_stat'] == 'bleed':
-            bleed_damage += acc['bonus_value']
-
-    # (Optional: add set bonuses here using your existing logic)
+        stat = acc['bonus_stat']
+        val = acc['bonus_value']
+        if stat == 'atk':
+            atk += val
+        elif stat == 'def':
+            defense += val
+        elif stat == 'crit':
+            crit_chance += val
+        elif stat == 'bleed':
+            bleed_damage += val
+        # HP/energy not added here
 
     return {
         'current_hp': player['hp'],
@@ -7412,6 +7427,41 @@ async def get_player_stats(user_id: str):
         'bleed_damage': bleed_damage,
         'reflect': reflect
     }
+
+async def get_equipped_emojis(user_id: str) -> str:
+    """Return a string of custom emojis representing the user's equipped gear."""
+    async with bot.db_pool.acquire() as conn:
+        weapon_name = await conn.fetchval("""
+            SELECT COALESCE(si.name, uw.generated_name)
+            FROM user_weapons uw
+            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+            WHERE uw.user_id = $1 AND uw.equipped = TRUE
+            LIMIT 1
+        """, user_id)
+        armor = await conn.fetch("""
+            SELECT at.name, at.slot
+            FROM user_armor ua
+            JOIN armor_types at ON ua.armor_id = at.armor_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+        acc = await conn.fetch("""
+            SELECT at.name, ua.slot
+            FROM user_accessories ua
+            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+
+    emojis = []
+    if weapon_name:
+        emojis.append(get_item_emoji(weapon_name, 'weapon'))
+    # Order armor by slot
+    slot_order = {'helm':0, 'suit':1, 'gauntlets':2, 'boots':3}
+    armor.sort(key=lambda x: slot_order.get(x['slot'], 99))
+    for a in armor:
+        emojis.append(get_item_emoji(a['name'], 'armor'))
+    for a in acc:
+        emojis.append(get_item_emoji(a['name'], 'accessory'))
+    return ' '.join(emojis) if emojis else 'None'
 
 async def update_player_hp(user_id: str, new_hp: int):
     async with bot.db_pool.acquire() as conn:
