@@ -2249,16 +2249,22 @@ class QuizSystem:
     # ------------------------------------------------------------
     async def process_answer(self, user, answer_text):
         try:
+            await log_to_discord(self.bot, f"🔍 process_answer called by {user.display_name}: '{answer_text}'", "DEBUG")
+
             if not self.quiz_running:
+            await log_to_discord(self.bot, "⏹️ Quiz not running, ignoring", "DEBUG")
                 return False
             if self.question_start_time is None:
+            await log_to_discord(self.bot, "⏳ No start time, ignoring", "DEBUG")
                 return False
             if self.current_question >= len(self.quiz_questions):
+            await log_to_discord(self.bot, "❓ No current question, ignoring", "DEBUG")
                 return False
 
             q = self.quiz_questions[self.current_question]
             answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
             if answer_time > q['time']:
+            await log_to_discord(self.bot, f"⏱️ Answer time: {answer_time}s (limit: {q['time']}s)", "DEBUG")
                 return False
 
             GRACE_SECONDS = 2
@@ -2276,10 +2282,12 @@ class QuizSystem:
                 }
 
             if self.participants[uid]["answered_current"]:
+            await log_to_discord(self.bot, f"⚠️ {user.display_name} already answered this question", "DEBUG")
                 return False
 
             user_ans = answer_text.lower().strip()
             is_correct = user_ans in [a.lower() for a in q['a']]
+            await log_to_discord(self.bot, f"✅ Is correct: {is_correct}", "DEBUG")
 
             points = 0
             if is_correct:
@@ -2295,6 +2303,8 @@ class QuizSystem:
                 "points": points,
                 "time": answer_time
             })
+            await log_to_discord(self.bot, f"📝 Answer recorded for {user.display_name}. Current participants: {len(self.participants)}", "DEBUG")
+
 
             if is_correct:
                 await self.log_answer(user, q['q'], answer_text, points, answer_time)
