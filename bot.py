@@ -4,6 +4,7 @@ import json
 import asyncio
 import random
 from datetime import datetime, timezone, timedelta
+from typing import Dict, List, Optional, Any, Tuple
 import traceback   # used in log_to_discord
 import aiohttp
 import io
@@ -1907,18 +1908,25 @@ class QuizSystem:
     def __init__(self, bot):
         self.bot = bot
         self.currency = currency_system
-        self.quiz_questions = []
-        self.current_question = 0
-        self.participants = {}
-        self.quiz_channel = None
-        self.quiz_logs_channel = None
-        self.quiz_running = False
-        self.question_start_time = None
-        self._ending = False
-        self.load_questions()
+        self.quiz_questions: List[Dict] = []
+        self.current_question: int = 0
+        self.participants: Dict[str, Dict] = {}
+        self.quiz_channel: Optional[discord.TextChannel] = None
+        self.quiz_logs_channel: Optional[discord.TextChannel] = None
+        self.quiz_running: bool = False
+        self.question_start_time: Optional[datetime] = None
+        self.question_expiry: Optional[datetime] = None   # exact expiry timestamp
+        self.question_message: Optional[discord.Message] = None
+        self.countdown_loop: Optional[asyncio.Task] = None
+        self._timer_handle: Optional[asyncio.TimerHandle] = None   # for call_later
+        self._ending: bool = False
 
-        # Countdown loop – will be started per question
-        self.countdown_loop = None
+        # Constants (for easy tuning)
+        self.START_DELAY = 60          # seconds before first question
+        self.TRANSITION_TIME = 10       # seconds between questions
+        self.PARTICIPATION_BASE = 50    # base gems for anyone with >0 score
+
+        self.load_questions()
 
     # ------------------------------------------------------------
     # QUESTION LOADING
@@ -2054,6 +2062,7 @@ class QuizSystem:
             {"cat": "🧩 Abstract Reasoning", "q": "If TABLE = 40 (sum of letter positions), what is CHAIR?", "a": ["35"], "pts": 200, "time": 60},
             {"cat": "🧩 Abstract Reasoning", "q": "Find the next number: 4, 9, 19, 39, 79, ___.", "a": ["159"], "pts": 200, "time": 60},
             {"cat": "🧩 Abstract Reasoning", "q": "If RED = 27 and BLUE = 40 (sum of letters), what is GREEN?", "a": ["49"], "pts": 200, "time": 60},
+
             # 🔬 Science – University Level & Trendy (20 questions, 60 seconds each)
             {"cat": "🔬 Science", "q": "What is the name of the gene‑editing technology that uses a protein called Cas9?", "a": ["crispr", "crispr-cas9", "crispr/cas9"], "pts": 500, "time": 60},
             {"cat": "🔬 Science", "q": "In quantum mechanics, what term describes the phenomenon where particles become correlated and instantaneously affect each other regardless of distance?", "a": ["entanglement", "quantum entanglement"], "pts": 500, "time": 60},
@@ -2075,22 +2084,26 @@ class QuizSystem:
             {"cat": "🔬 Science", "q": "What is the name of the first quantum computer developed by Google that claimed quantum supremacy in 2019?", "a": ["sycamore"], "pts": 500, "time": 60},
             {"cat": "🔬 Science", "q": "Which enzyme is responsible for unzipping DNA during replication?", "a": ["helicase"], "pts": 400, "time": 60},
             {"cat": "🔬 Science", "q": "What is the term for the minimum energy required to remove an electron from an atom in its ground state?", "a": ["ionization energy", "ionisation energy"], "pts": 400, "time": 60},
-    ]
+        ]
 
     # ------------------------------------------------------------
     # POINTS & UTILITIES
     # ------------------------------------------------------------
-    def calculate_points(self, answer_time, total_time, max_points):
+    def calculate_points(self, answer_time: int, total_time: int, max_points: int) -> int:
+        """Calculate points based on time left, with a minimum of 1 point."""
         time_left = total_time - answer_time
         if time_left <= 0:
             return 0
-        return int(max_points * (time_left / total_time))
+        points = int(max_points * (time_left / total_time))
+        return max(points, 1)   # guarantee at least 1 point for a correct answer
 
-    def calculate_average_time(self, user_data):
+    def calculate_average_time(self, user_data: Dict) -> float:
+        """Calculate average response time for correct answers."""
         correct_times = [a['time'] for a in user_data['answers'] if a['correct']]
         return sum(correct_times) / len(correct_times) if correct_times else 0
 
-    def get_rank_emoji(self, rank):
+    def get_rank_emoji(self, rank: int) -> str:
+        """Return an emoji for the given rank (1-10)."""
         rank_emojis = {
             1: "🥇", 2: "🥈", 3: "🥉", 4: "4️⃣", 5: "5️⃣",
             6: "6️⃣", 7: "7️⃣", 8: "8️⃣", 9: "9️⃣", 10: "🔟"
@@ -2100,7 +2113,8 @@ class QuizSystem:
     # ------------------------------------------------------------
     # QUIZ LIFECYCLE
     # ------------------------------------------------------------
-    async def start_quiz(self, channel, logs_channel):
+    async def start_quiz(self, channel: discord.TextChannel, logs_channel: discord.TextChannel):
+        """Start the quiz with a 60‑second countdown and 20 random questions."""
         try:
             self.quiz_channel = channel
             self.quiz_logs_channel = logs_channel
@@ -2110,17 +2124,18 @@ class QuizSystem:
             self.current_question = 0
             self.participants = {}
             self.question_start_time = None
+            self.question_expiry = None
             self._ending = False
 
             # --- RANDOMLY SELECT 20 QUESTIONS FROM THE POOL ---
             pool = self.all_questions
-            num_questions = min(20, len(pool))   # use 20 or fewer if pool is smaller
+            num_questions = min(20, len(pool))
             self.quiz_questions = random.sample(pool, num_questions)
-            random.shuffle(self.quiz_questions)   # extra shuffle for good measure
+            # No need to shuffle again; sample already randomizes
 
             await log_to_discord(self.bot, f"📚 Selected {num_questions} random questions", "INFO")
 
-            # --- START EMBED (unchanged) ---
+            # --- START EMBED ---
             embed = discord.Embed(
                 title="🎯 **Quiz Time!**",
                 description=(
@@ -2130,7 +2145,7 @@ class QuizSystem:
                     "• Faster answers = more points\n"
                     "• Multiple attempts allowed\n"
                     "```\n"
-                    f"**First question starts in** ⏰ **60 seconds**"
+                    f"**First question starts in** ⏰ **{self.START_DELAY} seconds**"
                 ),
                 color=0xFFD700
             )
@@ -2140,7 +2155,9 @@ class QuizSystem:
             embed.set_footer(text="Good luck! 🍀", icon_url=self.bot.user.display_avatar.url)
 
             start_msg = await channel.send(embed=embed)
-            for i in range(60, 0, -1):
+
+            # Countdown loop with error handling
+            for i in range(self.START_DELAY, 0, -1):
                 embed.description = (
                     "```\n"
                     "• Type your answer in chat\n"
@@ -2150,7 +2167,14 @@ class QuizSystem:
                     "```\n"
                     f"**First question starts in** ⏰ **{i} seconds**"
                 )
-                await start_msg.edit(embed=embed)
+                try:
+                    await start_msg.edit(embed=embed)
+                except discord.NotFound:
+                    await log_to_discord(self.bot, "Start message deleted, aborting quiz", "WARN")
+                    return
+                except Exception as e:
+                    await log_to_discord(self.bot, f"Error during countdown edit: {e}", "ERROR")
+                    # Continue counting; if edit fails repeatedly, maybe break
                 await asyncio.sleep(1)
 
             await start_msg.delete()
@@ -2160,38 +2184,50 @@ class QuizSystem:
             await log_to_discord(self.bot, "❌ start_quiz failed", "ERROR", e)
 
     async def send_question(self):
+        """Send the next quiz question and start timers."""
         try:
             if self.current_question >= len(self.quiz_questions):
                 await self.end_quiz()
                 return
 
+            # Cancel any pending timer from previous question
+            if self._timer_handle:
+                self._timer_handle.cancel()
+                self._timer_handle = None
+
             q = self.quiz_questions[self.current_question]
-            
+
             # --- QUESTION EMBED WITH CATEGORY ---
             embed = discord.Embed(
-                title=f"❓ **{q.get('cat', 'General')}**",  # Category in title
+                title=f"❓ **{q.get('cat', 'General')}**",
                 description=f"```\n{q['q']}\n```",
                 color=0x1E90FF
             )
-            # Timer bar and points
             embed.add_field(
                 name=f"⏳ **Time Left**",
                 value=f"```\n{'🟩'*20}\n{q['time']:02d} seconds\n```\n**Max Points:** ⭐ {q['pts']}",
                 inline=False
             )
-            embed.set_footer(text=f"Question {self.current_question+1}/{len(self.quiz_questions)} • {q.get('cat', '')}", 
-                         icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None)
+            embed.set_footer(
+                text=f"Question {self.current_question+1}/{len(self.quiz_questions)} • {q.get('cat', '')}",
+                icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None
+            )
 
             self.question_message = await self.quiz_channel.send(embed=embed)
             self.question_start_time = datetime.now(timezone.utc)
-
+            self.question_expiry = self.question_start_time + timedelta(seconds=q['time'])
 
             # --- TIMERS ---
             if self.countdown_loop:
                 self.countdown_loop.cancel()
             self.countdown_loop = self.bot.loop.create_task(self._run_countdown(q['time']))
 
-            self.bot.loop.call_later(q['time'], lambda: asyncio.create_task(self._timer_expired()))
+            # Schedule the expiry callback (store handle for cancellation)
+            self._timer_handle = self.bot.loop.call_later(
+                q['time'],
+                lambda: asyncio.create_task(self._timer_expired())
+            )
+
             await log_to_discord(self.bot, f"⏲️ Timer set for {q['time']}s (Q{self.current_question+1})", "INFO")
 
         except Exception as e:
@@ -2199,10 +2235,13 @@ class QuizSystem:
 
     async def _timer_expired(self):
         """Called when the question time limit is reached."""
+        # Double‑check that the quiz is still running and this question is still current
+        if not self.quiz_running or self.current_question >= len(self.quiz_questions):
+            return
         await log_to_discord(self.bot, f"⏳ Timer expired for question {self.current_question+1}", "INFO")
         await self.end_question()
 
-    async def _run_countdown(self, total_time):
+    async def _run_countdown(self, total_time: int):
         """Live countdown bar – updates every second with 4‑color progress."""
         await log_to_discord(self.bot, f"⏳ Countdown started for {total_time}s", "INFO")
         while self.quiz_running and self.question_start_time:
@@ -2220,37 +2259,42 @@ class QuizSystem:
                 progress = int((time_left / total_time) * 20)  # 20 blocks
                 ratio = time_left / total_time
 
-                # --- 4‑COLOR BAR (based on percentage) ---
-                if ratio > 0.75:               # > 75% time left
-                    bar_char = "🟩"            # Green
+                # 4‑color bar based on percentage remaining
+                if ratio > 0.75:
+                    bar_char = "🟩"      # Green
                     embed_color = discord.Color.blue()
-                elif ratio > 0.50:             # 50% – 75%
-                    bar_char = "🟨"            # Yellow
+                elif ratio > 0.50:
+                    bar_char = "🟨"      # Yellow
                     embed_color = discord.Color.green()
-                elif ratio > 0.25:             # 25% – 50%
-                    bar_char = "🟧"            # Orange
+                elif ratio > 0.25:
+                    bar_char = "🟧"      # Orange
                     embed_color = discord.Color.orange()
-                else:                          # < 25%
-                    bar_char = "🟥"            # Red
+                else:
+                    bar_char = "🟥"      # Red
                     embed_color = discord.Color.red()
-  
+
                 bar = bar_char * progress + "⬜" * (20 - progress)
 
                 # Update the timer field
+                field_updated = False
                 for i, field in enumerate(embed.fields):
                     if "⏳" in field.name:
                         embed.set_field_at(
-                         i,
+                            i,
                             name=f"⏳ **{time_left:02d} SECONDS LEFT**",
                             value=f"```\n{bar}\n{time_left:02d} seconds\n```\n**Max Points:** ⭐ {self.quiz_questions[self.current_question]['pts']}",
                             inline=False
                         )
+                        field_updated = True
                         break
 
-                # Set embed border color
-                embed.color = embed_color
+                if not field_updated:
+                    await log_to_discord(self.bot, "Timer field not found in embed", "WARN")
+                    break
 
+                embed.color = embed_color
                 await self.question_message.edit(embed=embed)
+
             except Exception as e:
                 await log_to_discord(self.bot, "⚠️ Countdown error (non‑fatal)", "WARN", e)
             await asyncio.sleep(1)
@@ -2260,19 +2304,22 @@ class QuizSystem:
     # ------------------------------------------------------------
     # ANSWER PROCESSING
     # ------------------------------------------------------------
-    async def process_answer(self, user, answer_text):
+    async def process_answer(self, user: discord.User, answer_text: str) -> bool:
+        """Process a user's answer. Returns True if answer was recorded (correct or not)."""
         try:
             if not self.quiz_running:
                 return False
-            if self.question_start_time is None:
+            if self.question_start_time is None or self.question_expiry is None:
                 return False
             if self.current_question >= len(self.quiz_questions):
                 return False
 
+            # Use expiry timestamp for cutoff (more precise)
+            if datetime.now(timezone.utc) > self.question_expiry:
+                return False
+
             q = self.quiz_questions[self.current_question]
             answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
-            if answer_time > q['time']:
-                return False
 
             uid = str(user.id)
             if uid not in self.participants:
@@ -2285,7 +2332,7 @@ class QuizSystem:
                 }
 
             if self.participants[uid]["answered_current"]:
-                return False
+                return False   # Already answered correctly this question
 
             user_ans = answer_text.lower().strip()
             is_correct = user_ans in [a.lower() for a in q['a']]
@@ -2313,7 +2360,8 @@ class QuizSystem:
             await log_to_discord(self.bot, f"❌ process_answer error for {user.id}", "ERROR", e)
             return False
 
-    async def log_answer(self, user, question, answer, points, time):
+    async def log_answer(self, user: discord.User, question: str, answer: str, points: int, time: int):
+        """Log a correct answer to the logs channel."""
         if not self.quiz_logs_channel:
             return
         try:
@@ -2332,21 +2380,30 @@ class QuizSystem:
     # END QUESTION / TRANSITION
     # ------------------------------------------------------------
     async def end_question(self):
-        """End current question, show stats (auto‑delete), countdown 10s, next question."""
+        """End current question, show stats, countdown, and move to next."""
         await log_to_discord(self.bot, f"🔚 end_question() called for Q{self.current_question+1}", "INFO")
         try:
+            # Cancel the timer handle
+            if self._timer_handle:
+                self._timer_handle.cancel()
+                self._timer_handle = None
+
             # --- DELETE THE QUESTION MESSAGE ---
-            if hasattr(self, 'question_message') and self.question_message:
+            if self.question_message:
                 try:
                     await self.question_message.delete()
                     await log_to_discord(self.bot, f"🗑️ Deleted question message for Q{self.current_question+1}", "INFO")
                 except Exception as e:
                     await log_to_discord(self.bot, f"⚠️ Could not delete question message: {e}", "WARN")
+                finally:
+                    self.question_message = None
 
-            # --- STOP COUNTDOWN TIMER ---
+            # --- STOP COUNTDOWN LOOP ---
             if self.countdown_loop:
                 self.countdown_loop.cancel()
+                self.countdown_loop = None
             self.question_start_time = None
+            self.question_expiry = None
 
             q = self.quiz_questions[self.current_question]
             correct = "`, `".join([a.capitalize() for a in q['a']])
@@ -2383,10 +2440,9 @@ class QuizSystem:
             embed.add_field(name="📋 Statistics", value="\n".join(stats), inline=False)
             embed.set_footer(text=f"Question {self.current_question+1}/{len(self.quiz_questions)}")
 
-            # --- SEND STATS & AUTO‑DELETE AFTER 5 SECONDS ---
             stats_msg = await self.quiz_channel.send(embed=embed)
             self.bot.loop.create_task(self._delete_after(stats_msg, 10))
-            await log_to_discord(self.bot, "📊 Statistics embed will self‑destruct in 5s", "INFO")
+            await log_to_discord(self.bot, "📊 Statistics embed will self‑destruct in 10s", "INFO")
 
             # --- LAST QUESTION? ---
             if self.current_question + 1 == len(self.quiz_questions):
@@ -2394,12 +2450,12 @@ class QuizSystem:
                 await self.end_quiz()
                 return
 
-            # --- NOT LAST: LEADERBOARD + 10‑SECOND COUNTDOWN ---
-            lb_embed = await self.create_leaderboard()          # initial (no countdown yet)
+            # --- NOT LAST: LEADERBOARD + COUNTDOWN ---
+            lb_embed = await self.create_leaderboard()   # initial (no countdown)
             lb_msg = await self.quiz_channel.send(embed=lb_embed)
- 
-            for seconds in range(10, 0, -1):                   # 🔥 10 seconds
-                updated = await self.create_leaderboard(countdown=seconds)
+
+            for seconds in range(self.TRANSITION_TIME, 0, -1):
+                updated = await self.create_leaderboard(countdown=seconds, total=self.TRANSITION_TIME)
                 await lb_msg.edit(embed=updated)
                 await asyncio.sleep(1)
 
@@ -2417,9 +2473,8 @@ class QuizSystem:
             await log_to_discord(self.bot, "❌ end_question crashed – forcing end_quiz", "CRITICAL", e)
             await self.end_quiz()
 
-
-
-    async def create_leaderboard(self, countdown=None):
+    async def create_leaderboard(self, countdown: Optional[int] = None, total: int = 10) -> discord.Embed:
+        """Create a leaderboard embed, optionally with a countdown bar."""
         try:
             if not self.participants:
                 return discord.Embed(title="📊 Leaderboard", description="No participants yet!", color=discord.Color.blue())
@@ -2427,21 +2482,20 @@ class QuizSystem:
             sorted_p = sorted(self.participants.items(), key=lambda x: x[1]["score"], reverse=True)
             embed = discord.Embed(title="📊 **LEADERBOARD**", color=discord.Color.gold())
 
-            # --- 10‑SECOND COUNTDOWN BAR (COLOR‑CODED) ---
+            # --- COUNTDOWN BAR (if applicable) ---
             if countdown is not None:
-                total = 15  # exactly 20 seconds
+                # total should be the full countdown duration (e.g., 10 seconds)
                 progress = int((countdown / total) * 10)  # 10 blocks
                 ratio = countdown / total
 
-                # Choose bar color based on percentage remaining
                 if ratio > 0.75:
-                    bar_char = "🟩"  # Green
+                    bar_char = "🟩"
                 elif ratio > 0.50:
-                    bar_char = "🟨"  # Yellow
+                    bar_char = "🟨"
                 elif ratio > 0.25:
-                    bar_char = "🟧"  # Orange
+                    bar_char = "🟧"
                 else:
-                    bar_char = "🟥"  # Red
+                    bar_char = "🟥"
 
                 bar = bar_char * progress + "⬜" * (10 - progress)
                 embed.description = (
@@ -2451,12 +2505,14 @@ class QuizSystem:
             else:
                 embed.description = "🏆 **Current standings**"
 
-            # --- RANKINGS WITH PER‑QUESTION STATUS (unchanged) ---
+            # --- RANKINGS WITH PER‑QUESTION STATUS ---
             lines = []
             for i, (uid, data) in enumerate(sorted_p):
-                status = "⏳"
+                # Determine status for the current question
                 attempts = [a for a in data["answers"] if a["question"] == self.current_question]
-                if attempts:
+                if not attempts:
+                    status = "❌ No answer"
+                else:
                     last = attempts[-1]
                     if last["correct"]:
                         status = f"✅ +{last['points']} pts ({last['time']}s)"
@@ -2474,8 +2530,7 @@ class QuizSystem:
             await log_to_discord(self.bot, "❌ create_leaderboard failed", "ERROR", e)
             return discord.Embed(title="⚠️ Leaderboard Error", color=discord.Color.red())
 
-
-    async def _delete_after(self, message, delay):
+    async def _delete_after(self, message: discord.Message, delay: int):
         """Delete a message after `delay` seconds."""
         await asyncio.sleep(delay)
         try:
@@ -2486,37 +2541,41 @@ class QuizSystem:
     # ------------------------------------------------------------
     # REWARD DISTRIBUTION
     # ------------------------------------------------------------
-    async def distribute_quiz_rewards(self, sorted_participants):
-        """Give gems only to participants who scored > 0."""
+    async def distribute_quiz_rewards(self, sorted_participants: List[Tuple[str, Dict]]) -> Dict[str, Dict]:
+        """Give gems to participants who scored > 0."""
         rewards = {}
 
-        total_possible = sum(q['pts'] for q in self.quiz_questions)
+        # Determine the number of questions for perfect accuracy check
+        total_questions = len(self.quiz_questions)
 
         for rank, (uid, data) in enumerate(sorted_participants, 1):
-            # --- SKIP PARTICIPANTS WITH ZERO SCORE ---
+            # Skip participants with zero score
             if data["score"] <= 0:
                 await log_to_discord(self.bot, f"⏭️ Skipping {data['name']} – score 0, no reward", "INFO")
                 rewards[uid] = {"gems": 0, "rank": rank, "result": None}
                 continue
 
             try:
-                base = 50  # participation (only for those who scored >0)
-                if rank == 1: base += 500
-                elif rank == 2: base += 250
-                elif rank == 3: base += 125
-                elif rank <= 10: base += 75
+                base = self.PARTICIPATION_BASE
+                if rank == 1:
+                    base += 500
+                elif rank == 2:
+                    base += 250
+                elif rank == 3:
+                    base += 125
+                elif rank <= 10:
+                    base += 75
 
                 base += (data["score"] // 100) * 10          # score bonus
                 base += self.calculate_speed_bonus(uid)      # speed bonus
 
-                max_score = len(self.quiz_questions) * 300
-                if data["score"] == max_score:
+                # Perfect accuracy bonus (all questions correct)
+                if data["correct_answers"] == total_questions:
                     base += 250
-                    reason = f"🎯 Perfect Score! ({data['score']} pts, Rank #{rank})"
+                    reason = f"🎯 Perfect Accuracy! ({data['correct_answers']}/{total_questions} correct, Rank #{rank})"
                 else:
                     reason = f"🏆 Quiz Rewards ({data['score']} pts, Rank #{rank})"
 
-                # --- ADD GEMS TO DATABASE ---
                 result = await self.currency.add_gems(uid, base, reason)
                 rewards[uid] = {"gems": base, "rank": rank, "result": result}
 
@@ -2534,7 +2593,8 @@ class QuizSystem:
         await log_to_discord(self.bot, f"✅ Reward distribution complete. Total entries: {len(rewards)}", "INFO")
         return rewards
 
-    def calculate_speed_bonus(self, user_id):
+    def calculate_speed_bonus(self, user_id: str) -> int:
+        """Calculate a small bonus for very fast correct answers (max 50)."""
         if user_id not in self.participants:
             return 0
         bonus = 0
@@ -2543,7 +2603,8 @@ class QuizSystem:
                 bonus += max(1, 10 - ans["time"])
         return min(bonus, 50)
 
-    async def log_reward(self, user_id, username, gems, rank):
+    async def log_reward(self, user_id: str, username: str, gems: int, rank: int):
+        """Log a reward distribution to the logs channel."""
         if not self.quiz_logs_channel:
             return
         embed = discord.Embed(title="💰 Gems Distributed", color=discord.Color.gold())
@@ -2553,21 +2614,35 @@ class QuizSystem:
         await self.quiz_logs_channel.send(embed=embed)
 
     # ------------------------------------------------------------
-    # END QUIZ – FULLY LOGGED
+    # STOP QUIZ (IMMEDIATE)
     # ------------------------------------------------------------
-
     async def stop_quiz(self):
-        """Immediately stop the quiz and reset."""
-        await log_to_discord(self.bot, "🛑 stop_quiz() called", "INFO")  # ✅ self.bot first
+        """Immediately stop the quiz and reset all state."""
+        await log_to_discord(self.bot, "🛑 stop_quiz() called", "INFO")
 
         self.quiz_running = False
         self._ending = True
+
+        # Cancel all timers
+        if self._timer_handle:
+            self._timer_handle.cancel()
+            self._timer_handle = None
 
         if self.countdown_loop:
             self.countdown_loop.cancel()
             self.countdown_loop = None
 
+        # Delete the current question message if it exists
+        if self.question_message:
+            try:
+                await self.question_message.delete()
+            except Exception as e:
+                await log_to_discord(self.bot, f"Could not delete question message: {e}", "WARN")
+            finally:
+                self.question_message = None
+
         self.question_start_time = None
+        self.question_expiry = None
 
         # Reset all state
         self.quiz_channel = None
@@ -2576,10 +2651,13 @@ class QuizSystem:
         self.participants = {}
         self._ending = False
 
-        await log_to_discord(self.bot, "✅ Quiz stopped and reset", "INFO")  # ✅ self.bot first
+        await log_to_discord(self.bot, "✅ Quiz stopped and reset", "INFO")
 
-
+    # ------------------------------------------------------------
+    # END QUIZ (FINAL)
+    # ------------------------------------------------------------
     async def end_quiz(self):
+        """End the quiz, distribute rewards, and send final leaderboard."""
         if self._ending:
             await log_to_discord(self.bot, "⚠️ end_quiz already in progress, ignoring", "WARN")
             return
@@ -2594,8 +2672,15 @@ class QuizSystem:
 
             self.quiz_running = False
             self.question_start_time = None
+            self.question_expiry = None
+
+            # Cancel any remaining timers
+            if self._timer_handle:
+                self._timer_handle.cancel()
+                self._timer_handle = None
             if self.countdown_loop:
                 self.countdown_loop.cancel()
+                self.countdown_loop = None
 
             # --- 1. SHOW FINISHED MESSAGE ---
             try:
@@ -2672,13 +2757,14 @@ class QuizSystem:
             except Exception as e:
                 await log_to_discord(self.bot, "⚠️ Failed to send rewards summary", "WARN", e)
 
-            # --- 7. SEND DMs ---
+            # --- 7. SEND DMs (using fetch_user to ensure we get uncached users) ---
             dm_count = 0
             for uid, data in self.participants.items():
                 reward = rewards.get(uid, {})
                 if reward and reward.get("gems", 0) > 0:
                     try:
-                        user = self.bot.get_user(int(uid))
+                        # Fetch the user even if not cached
+                        user = await self.bot.fetch_user(int(uid))
                         if user:
                             balance = await self.currency.get_balance(uid)
                             dm = discord.Embed(
@@ -2690,6 +2776,8 @@ class QuizSystem:
                             dm.add_field(name="*New Balance*", value=f"💎 {balance['gems']} Gems", inline=False)
                             await user.send(embed=dm)
                             dm_count += 1
+                    except discord.NotFound:
+                        await log_to_discord(self.bot, f"User {uid} not found, DM skipped", "WARN")
                     except Exception as e:
                         await log_to_discord(self.bot, f"❌ DM failed for {uid}", "WARN", e)
 
@@ -2708,11 +2796,12 @@ class QuizSystem:
             self.current_question = 0
             self.participants = {}
             self.question_start_time = None
+            self.question_expiry = None
             self.quiz_running = False
             self.countdown_loop = None
+            self._timer_handle = None
             self._ending = False
             await log_to_discord(self.bot, "✅ Quiz system reset complete", "INFO")
-
 
 # === END CREATE QUIZ SYSTEM WITH SHARED CURRENCY ===
 quiz_system = QuizSystem(bot)
