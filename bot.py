@@ -3929,77 +3929,18 @@ class TradeView(discord.ui.View):
         self.initiator_id = initiator_id
         self.receiver_id = receiver_id
         self.message_id = message_id
+        self.message = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return str(interaction.user.id) in (self.initiator_id, self.receiver_id)
 
+
     @discord.ui.button(label="➕ Add Item", style=discord.ButtonStyle.primary, row=0)
     async def add_item_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
-        async with bot.db_pool.acquire() as conn:
-            # Weapons (with name from shop_items or generated_name)
-            weapons = await conn.fetch("""
-                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name
-                FROM user_weapons uw
-                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                WHERE uw.user_id = $1
-            """, user_id)
-            print(f"DEBUG: weapons: {weapons}")
-            # Armor (your existing query is fine – it joins armor_types)
-            armor = await conn.fetch("""
-                SELECT ua.id, at.name
-                FROM user_armor ua
-                JOIN armor_types at ON ua.armor_id = at.armor_id
-                WHERE ua.user_id = $1
-            """, user_id)
-            print(f"DEBUG: armor: {armor}")
-            # Accessories (your existing query is fine)
-            accessories = await conn.fetch("""
-                SELECT ua.id, at.name
-                FROM user_accessories ua
-                JOIN accessory_types at ON ua.accessory_id = at.accessory_id
-                WHERE ua.user_id = $1
-            """, user_id)
-            print(f"DEBUG: accessories: {accessories}")
-
-            # Materials (your existing query is fine)
-            materials = await conn.fetch("""
-                SELECT um.material_id as id, si.name
-                FROM user_materials um
-                JOIN shop_items si ON um.material_id = si.item_id
-                WHERE um.user_id = $1 AND um.quantity > 0
-            """, user_id)
-            print(f"DEBUG: materials: {materials}")
-
-        options = []
-        for w in weapons:
-            options.append(discord.SelectOption(label=f"⚔️ {w['name']}", value=f"weapon:{w['id']}"))
-        for a in armor:
-            options.append(discord.SelectOption(label=f"🛡️ {a['name']}", value=f"armor:{a['id']}"))
-        for ac in accessories:
-            options.append(discord.SelectOption(label=f"📿 {ac['name']}", value=f"accessory:{ac['id']}"))
-        for m in materials:
-            options.append(discord.SelectOption(label=f"📦 {m['name']}", value=f"material:{m['id']}"))
-
-        if not options:
-            return await interaction.response.send_message("You have no items to trade.", ephemeral=True)
-
-        select = discord.ui.Select(placeholder="Choose an item to add...", options=options[:25])
-        async def select_callback(select_interaction: discord.Interaction):
-            value = select.values[0]
-            item_type, item_id = value.split(':')
-            async with bot.db_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO trade_items (trade_id, user_id, item_type, item_id)
-                    VALUES ($1, $2, $3, $4)
-                """, self.trade_id, user_id, item_type, int(item_id))
-            await select_interaction.response.send_message("✅ Item added to trade.", ephemeral=True)
-            await update_trade_embed(interaction.message, self.trade_id)
-
-        select.callback = select_callback
-        view = discord.ui.View()
-        view.add_item(select)
-        await interaction.response.send_message("Select an item:", view=view, ephemeral=True)
+        # Show category selection
+        view = CategorySelectView(self, user_id)
+        await interaction.response.send_message("Choose an item category:", view=view, ephemeral=True)
 
     @discord.ui.button(label="💎 Add Gems", style=discord.ButtonStyle.primary, row=0)
     async def add_gems_button(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -4076,6 +4017,111 @@ class TradeView(discord.ui.View):
         await interaction.message.edit(content="✅ Trade completed successfully!", embed=None, view=None)
         self.stop()
 
+class CategorySelectView(discord.ui.View):
+    def __init__(self, trade_view: TradeView, user_id: str):
+        super().__init__(timeout=60)
+        self.trade_view = trade_view
+        self.user_id = user_id
+
+    @discord.ui.button(label="⚔️ Weapons", style=discord.ButtonStyle.primary, row=0)
+    async def weapons_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await self.show_items(interaction, 'weapon')
+
+    @discord.ui.button(label="🛡️ Armor", style=discord.ButtonStyle.primary, row=0)
+    async def armor_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await self.show_items(interaction, 'armor')
+
+    @discord.ui.button(label="📿 Accessories", style=discord.ButtonStyle.primary, row=1)
+    async def accessories_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await self.show_items(interaction, 'accessory')
+
+    @discord.ui.button(label="📦 Materials", style=discord.ButtonStyle.primary, row=1)
+    async def materials_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await self.show_items(interaction, 'material')
+
+    async def show_items(self, interaction: discord.Interaction, category: str):
+        # Fetch items of the selected category for this user
+        async with bot.db_pool.acquire() as conn:
+            if category == 'weapon':
+                items = await conn.fetch("""
+                    SELECT uw.id, COALESCE(si.name, uw.generated_name) as name
+                    FROM user_weapons uw
+                    LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                    WHERE uw.user_id = $1
+                """, self.user_id)
+            elif category == 'armor':
+                items = await conn.fetch("""
+                    SELECT ua.id, at.name
+                    FROM user_armor ua
+                    JOIN armor_types at ON ua.armor_id = at.armor_id
+                    WHERE ua.user_id = $1
+                """, self.user_id)
+            elif category == 'accessory':
+                items = await conn.fetch("""
+                    SELECT ua.id, at.name
+                    FROM user_accessories ua
+                    JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                    WHERE ua.user_id = $1
+                """, self.user_id)
+            elif category == 'material':
+                items = await conn.fetch("""
+                    SELECT um.material_id as id, si.name
+                    FROM user_materials um
+                    JOIN shop_items si ON um.material_id = si.item_id
+                    WHERE um.user_id = $1 AND um.quantity > 0
+                """, self.user_id)
+
+        if not items:
+            return await interaction.response.send_message(f"You have no {category}s to trade.", ephemeral=True)
+
+        # Build select options (max 25)
+        options = []
+        for item in items[:25]:
+            # To use per‑item custom emoji, replace with:
+            # emoji = get_item_emoji(item['name'], category)
+            emoji = self.get_category_emoji(category)  # currently generic
+            options.append(discord.SelectOption(
+                label=item['name'][:100],
+                value=f"{category}:{item['id']}",
+                emoji=emoji
+            ))
+
+        select = discord.ui.Select(placeholder=f"Choose a {category}...", options=options)
+
+        async def select_callback(select_interaction: discord.Interaction):
+            value = select.values[0]
+            cat, item_id = value.split(':')
+            async with bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO trade_items (trade_id, user_id, item_type, item_id)
+                    VALUES ($1, $2, $3, $4)
+                """, self.trade_view.trade_id, self.user_id, cat, int(item_id))
+            await select_interaction.response.send_message(f"✅ {category.capitalize()} added to trade.", ephemeral=True)
+            # Update the main trade message
+            if self.trade_view.message:
+                await update_trade_embed(self.trade_view.message, self.trade_view.trade_id)
+
+        select.callback = select_callback
+        view = discord.ui.View()
+        view.add_item(select)
+
+        # If there are more than 25 items, add a note
+        if len(items) > 25:
+            await interaction.response.send_message(
+                f"Showing first 25 {category}s (you have {len(items)} total).",
+                view=view, ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(f"Select a {category}:", view=view, ephemeral=True)
+
+    def get_category_emoji(self, category: str) -> str:
+        return {
+            'weapon': '⚔️',
+            'armor': '🛡️',
+            'accessory': '📿',
+            'material': '📦'
+        }.get(category, '📦')
+
 @bot.command(name='trade')
 async def trade_start(ctx, member: discord.Member):
     if member == ctx.author:
@@ -4101,7 +4147,7 @@ async def trade_start(ctx, member: discord.Member):
     )
     view = TradeView(trade_id, str(ctx.author.id), str(member.id), None)  # message_id unknown yet
     msg = await ctx.send(embed=embed, view=view)
-
+    view.message = msg
     # Update the view with the actual message_id and store it in DB
     view.message_id = msg.id
     async with bot.db_pool.acquire() as conn:
