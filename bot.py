@@ -7806,49 +7806,6 @@ class PlunderButton(discord.ui.Button):
             await interaction.followup.send("❌ An error occurred.", ephemeral=True)
 
 
-class AttackView(discord.ui.View):
-    def __init__(self, attacker_id, defender_id, attack_power, bot):
-        super().__init__(timeout=60)
-        self.attacker_id = attacker_id
-        self.defender_id = defender_id
-        self.attack_power = attack_power
-        self.bot = bot
-
-    @discord.ui.button(label="Resolve Attack", style=discord.ButtonStyle.danger)
-    async def resolve(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if str(interaction.user.id) != self.defender_id:
-            await interaction.response.send_message("Only the defender can resolve this attack.", ephemeral=True)
-            return
-        await interaction.response.defer()
-        damage = self.attack_power
-        async with self.bot.db_pool.acquire() as conn:
-            defender = await conn.fetchrow("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
-            if not defender:
-                await interaction.followup.send("Defender stats not found.")
-                return
-            new_hp = defender['hp'] - damage
-            if new_hp < 0:
-                new_hp = 0
-            await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, self.defender_id)
-            await conn.execute("""
-                INSERT INTO attack_logs (attacker_id, defender_id, damage)
-                VALUES ($1, $2, $3)
-            """, self.attacker_id, self.defender_id, damage)
-        for child in self.children:
-            child.disabled = True
-        await interaction.message.edit(view=self)
-        embed = discord.Embed(
-            title="⚔️ Attack Result",
-            description=f"{interaction.user.mention} took **{damage} damage**!",
-            color=discord.Color.red()
-        )
-        embed.add_field(name="HP Remaining", value=f"{new_hp} / 1000")
-        await interaction.followup.send(embed=embed)
-        if new_hp == 0:
-            await interaction.followup.send(f"{interaction.user.mention} has been defeated! They will respawn with 1000 HP.")
-            async with self.bot.db_pool.acquire() as conn:
-                await conn.execute("UPDATE player_stats SET hp = 1000 WHERE user_id = $1", self.defender_id)
-
 
 
 # Add the shop cog to the bot
