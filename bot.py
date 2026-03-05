@@ -2334,7 +2334,7 @@ class QuizSystem:
             uid = str(user.id)
 
             if uid not in self.participants:
-            await log_to_discord(self.bot, f"[PA] → adding new participant {uid}", "DEBUG")
+                await log_to_discord(self.bot, f"[PA] → adding new participant {uid}", "DEBUG")
                 self.participants[uid] = {
                     "name": user.display_name,
                     "score": 0,
