@@ -2305,24 +2305,34 @@ class QuizSystem:
     # ANSWER PROCESSING
     # ------------------------------------------------------------
     async def process_answer(self, user: discord.User, answer_text: str) -> bool:
-        """Process a user's answer. Returns True if answer was recorded (correct or not)."""
         try:
+            await log_to_discord(self.bot, f"[PA] Called by {user.id} ({user.display_name})", "DEBUG")
+            await log_to_discord(self.bot, f"[PA] quiz_running={self.quiz_running}", "DEBUG")
+            await log_to_discord(self.bot, f"[PA] question_start_time={self.question_start_time}", "DEBUG")
+            await log_to_discord(self.bot, f"[PA] question_expiry={self.question_expiry}", "DEBUG")
+            await log_to_discord(self.bot, f"[PA] current_question={self.current_question}/{len(self.quiz_questions)}", "DEBUG")
+
             if not self.quiz_running:
+                await log_to_discord(self.bot, "[PA] → quiz not running", "DEBUG")
                 return False
             if self.question_start_time is None or self.question_expiry is None:
+                await log_to_discord(self.bot, "[PA] → timers not set", "DEBUG")
                 return False
             if self.current_question >= len(self.quiz_questions):
+                await log_to_discord(self.bot, "[PA] → current_question out of range", "DEBUG")
                 return False
 
-            # Use expiry timestamp for cutoff (more precise)
-            if datetime.now(timezone.utc) > self.question_expiry:
+            now = datetime.now(timezone.utc)
+            if now > self.question_expiry:
+                await log_to_discord(self.bot, f"[PA] → answer after expiry: now={now}, expiry={self.question_expiry}", "DEBUG")
                 return False
 
             q = self.quiz_questions[self.current_question]
-            answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
-
+            answer_time = (now - self.question_start_time).seconds
             uid = str(user.id)
+
             if uid not in self.participants:
+                await log_to_discord(self.bot, f"[PA] → adding new participant {uid}", "DEBUG")
                 self.participants[uid] = {
                     "name": user.display_name,
                     "score": 0,
@@ -2332,10 +2342,13 @@ class QuizSystem:
                 }
 
             if self.participants[uid]["answered_current"]:
-                return False   # Already answered correctly this question
+                await log_to_discord(self.bot, "[PA] → already answered correctly", "DEBUG")
+                return False
 
             user_ans = answer_text.lower().strip()
-            is_correct = user_ans in [a.lower() for a in q['a']]
+            correct_answers = [a.lower() for a in q['a']]
+            is_correct = user_ans in correct_answers
+            await log_to_discord(self.bot, f"[PA] answer='{user_ans}', correct={is_correct}", "DEBUG")
 
             points = 0
             if is_correct:
@@ -2343,6 +2356,7 @@ class QuizSystem:
                 self.participants[uid]["score"] += points
                 self.participants[uid]["correct_answers"] += 1
                 self.participants[uid]["answered_current"] = True
+                await log_to_discord(self.bot, f"[PA] → correct! points={points}, new score={self.participants[uid]['score']}", "DEBUG")
 
             self.participants[uid]["answers"].append({
                 "question": self.current_question,
@@ -2353,11 +2367,16 @@ class QuizSystem:
             })
 
             if is_correct:
+                await log_to_discord(self.bot, "[PA] → logging to quiz-logs", "DEBUG")
                 await self.log_answer(user, q['q'], answer_text, points, answer_time)
 
+            await log_to_discord(self.bot, f"[PA] → done. participants count={len(self.participants)}", "DEBUG")
             return True
+
         except Exception as e:
-            await log_to_discord(self.bot, f"❌ process_answer error for {user.id}", "ERROR", e)
+            await log_to_discord(self.bot, f"❌ process_answer error: {e}", "ERROR")
+            import traceback
+            traceback.print_exc()  # still goes to console (but you can't see it)
             return False
 
     async def log_answer(self, user: discord.User, question: str, answer: str, points: int, time: int):
