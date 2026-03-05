@@ -2284,7 +2284,7 @@ class QuizSystem:
 
             if self.participants[uid]["answered_current"]:
                 await log_to_discord(self.bot, f"⚠️ {user.display_name} already answered this question", "DEBUG")
-            return False
+                return False   # ✅ now inside the if block
 
             user_ans = answer_text.lower().strip()
             is_correct = user_ans in [a.lower() for a in q['a']]
