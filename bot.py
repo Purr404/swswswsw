@@ -3590,6 +3590,28 @@ async def fortune_bag_to(ctx, channel: discord.TextChannel):
 
 # END------
 
+#   FOR BLEED AND BURN
+
+@tasks.loop(seconds=1)
+async def process_effects():
+    """Process bleed/burn effects every second."""
+    async with bot.db_pool.acquire() as conn:
+        # Get all active effects with remaining ticks > 0
+        effects = await conn.fetch("SELECT * FROM active_effects WHERE remaining_ticks > 0")
+        for eff in effects:
+            # Apply damage
+            if eff['effect_type'] in ('bleed', 'burn'):
+                await conn.execute("""
+                    UPDATE player_stats SET hp = GREATEST(hp - $1, 0)
+                    WHERE user_id = $2
+                """, eff['value'], eff['target_id'])
+            # Decrement ticks
+            await conn.execute("""
+                UPDATE active_effects SET remaining_ticks = remaining_ticks - 1
+                WHERE effect_id = $1
+            """, eff['effect_id'])
+        # Remove expired (those with remaining_ticks <= 0) – already handled by decrement, but can also delete after loop
+        await conn.execute("DELETE FROM active_effects WHERE remaining_ticks <= 0")
 
 
 # === BOT STARTUP ===
@@ -7355,26 +7377,129 @@ async def attack(ctx, target: discord.Member, *, skill_name: str = None):
     await ctx.send(embed=embed)
 
 
-@tasks.loop(seconds=1)
-async def process_effects():
-    """Process bleed/burn effects every second."""
+async def get_player_stats(user_id: str):
+    """Return dict of player stats (HP, max_hp, energy, max_energy, atk, def, crit_chance, crit_damage, bleed_chance, bleed_damage, reflect)."""
+    BASE_HP = 1000
+    BASE_DEF = 500
     async with bot.db_pool.acquire() as conn:
-        # Get all active effects with remaining ticks > 0
-        effects = await conn.fetch("SELECT * FROM active_effects WHERE remaining_ticks > 0")
-        for eff in effects:
-            # Apply damage
-            if eff['effect_type'] in ('bleed', 'burn'):
-                await conn.execute("""
-                    UPDATE player_stats SET hp = GREATEST(hp - $1, 0)
-                    WHERE user_id = $2
-                """, eff['value'], eff['target_id'])
-            # Decrement ticks
-            await conn.execute("""
-                UPDATE active_effects SET remaining_ticks = remaining_ticks - 1
-                WHERE effect_id = $1
-            """, eff['effect_id'])
-        # Remove expired (those with remaining_ticks <= 0) – already handled by decrement, but can also delete after loop
-        await conn.execute("DELETE FROM active_effects WHERE remaining_ticks <= 0")
+        player = await conn.fetchrow("SELECT hp, max_hp, energy, max_energy FROM player_stats WHERE user_id = $1", user_id)
+        if not player:
+            # Create default stats
+            await conn.execute("INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy) VALUES ($1, $2, $2, 3, 3)", user_id, BASE_HP)
+            player = {'hp': BASE_HP, 'max_hp': BASE_HP, 'energy': 3, 'max_energy': 3}
+        # Weapon
+        weapon = await conn.fetchrow("""
+            SELECT attack, bleeding_chance, crit_chance, crit_damage
+            FROM user_weapons
+            WHERE user_id = $1 AND equipped = TRUE
+            LIMIT 1
+        """, user_id)
+        # Armor
+        armor_pieces = await conn.fetch("""
+            SELECT defense, reflect_damage
+            FROM user_armor
+            WHERE user_id = $1 AND equipped = TRUE
+        """, user_id)
+        # Accessories
+        accessories = await conn.fetch("""
+            SELECT bonus_stat, bonus_value
+            FROM user_accessories
+            WHERE user_id = $1 AND equipped = TRUE
+        """, user_id)
+
+    # Compute totals
+    atk = 0
+    defense = BASE_DEF
+    crit_chance = 0.0
+    crit_damage = 0.0
+    bleed_chance = 0.0
+    bleed_damage = 0.0
+    reflect = 0
+
+    if weapon:
+        atk += weapon['attack']
+        bleed_chance += weapon['bleeding_chance'] or 0
+        crit_chance += weapon['crit_chance'] or 0
+        crit_damage += weapon['crit_damage'] or 0
+
+    for armor in armor_pieces:
+        defense += armor['defense']
+        reflect += armor['reflect_damage'] or 0
+
+    for acc in accessories:
+        stat = acc['bonus_stat']
+        val = acc['bonus_value']
+        if stat == 'atk':
+            atk += val
+        elif stat == 'def':
+            defense += val
+        elif stat == 'crit':
+            crit_chance += val
+        elif stat == 'bleed':
+            bleed_damage += val
+
+    # Set bonuses (simplified – you can expand later)
+    # For full set bonuses, you'd need to check set_name and counts.
+    # This version omits set bonuses for brevity; add them if needed.
+
+    return {
+        'current_hp': player['hp'],
+        'max_hp': player['max_hp'],
+        'energy': player['energy'],
+        'max_energy': player['max_energy'],
+        'atk': atk,
+        'def': defense,
+        'crit_chance': crit_chance,
+        'crit_damage': crit_damage,
+        'bleed_chance': bleed_chance,
+        'bleed_damage': bleed_damage,
+        'reflect': reflect
+    }
+
+async def update_player_hp(user_id: str, new_hp: int):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, user_id)
+
+async def update_player_energy(user_id: str, new_energy: int):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE player_stats SET energy = $1 WHERE user_id = $2", new_energy, user_id)
+
+async def get_equipped_emojis(user_id: str) -> str:
+    """Return a string of custom emojis representing the user's equipped gear."""
+    async with bot.db_pool.acquire() as conn:
+        weapon_name = await conn.fetchval("""
+            SELECT COALESCE(si.name, uw.generated_name)
+            FROM user_weapons uw
+            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+            WHERE uw.user_id = $1 AND uw.equipped = TRUE
+            LIMIT 1
+        """, user_id)
+        armor = await conn.fetch("""
+            SELECT at.name, at.slot
+            FROM user_armor ua
+            JOIN armor_types at ON ua.armor_id = at.armor_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+        acc = await conn.fetch("""
+            SELECT at.name, ua.slot
+            FROM user_accessories ua
+            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+
+    emojis = []
+    if weapon_name:
+        emojis.append(get_item_emoji(weapon_name, 'weapon'))
+    # Order armor by slot
+    slot_order = {'helm':0, 'suit':1, 'gauntlets':2, 'boots':3}
+    armor.sort(key=lambda x: slot_order.get(x['slot'], 99))
+    for a in armor:
+        emojis.append(get_item_emoji(a['name'], 'armor'))
+    # Accessories – you can decide the order; here just append all
+    for a in acc:
+        emojis.append(get_item_emoji(a['name'], 'accessory'))
+    return ' '.join(emojis) if emojis else 'None'
+
 
 
 # END CULLING GAME CLASS
