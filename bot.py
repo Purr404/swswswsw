@@ -4209,32 +4209,35 @@ class CategorySelectView(discord.ui.View):
         await self.show_items(interaction, 'material')
 
     async def show_items(self, interaction: discord.Interaction, category: str):
-        # Fetch items of the selected category for this user
+        # Fetch items of the selected category with their stats
         async with bot.db_pool.acquire() as conn:
             if category == 'weapon':
                 items = await conn.fetch("""
-                    SELECT uw.id, COALESCE(si.name, uw.generated_name) as name
+                    SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                           uw.attack
                     FROM user_weapons uw
                     LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
                     WHERE uw.user_id = $1
                 """, self.user_id)
             elif category == 'armor':
                 items = await conn.fetch("""
-                    SELECT ua.id, at.name
+                    SELECT ua.id, at.name,
+                           ua.defense, ua.hp_bonus, ua.reflect_damage
                     FROM user_armor ua
                     JOIN armor_types at ON ua.armor_id = at.armor_id
                     WHERE ua.user_id = $1
                 """, self.user_id)
             elif category == 'accessory':
                 items = await conn.fetch("""
-                    SELECT ua.id, at.name
+                    SELECT ua.id, at.name,
+                           ua.bonus_value, at.bonus_stat
                     FROM user_accessories ua
                     JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                     WHERE ua.user_id = $1
                 """, self.user_id)
             elif category == 'material':
                 items = await conn.fetch("""
-                    SELECT um.material_id as id, si.name
+                    SELECT um.material_id as id, si.name, um.quantity
                     FROM user_materials um
                     JOIN shop_items si ON um.material_id = si.item_id
                     WHERE um.user_id = $1 AND um.quantity > 0
@@ -4243,19 +4246,9 @@ class CategorySelectView(discord.ui.View):
         if not items:
             return await interaction.response.send_message(f"You have no {category}s to trade.", ephemeral=True)
 
-        # Build select options (max 25)
-        options = []
-        for item in items[:25]:
-            # To use per‑item custom emoji, replace with:
-            # emoji = get_item_emoji(item['name'], category)
-            emoji = self.get_category_emoji(category)  # currently generic
-            options.append(discord.SelectOption(
-                label=item['name'][:100],
-                value=f"{category}:{item['id']}",
-                emoji=emoji
-            ))
-
-        select = discord.ui.Select(placeholder=f"Choose a {category}...", options=options)
+        # Create paginated view with all items
+        view = ItemPaginationView(self.trade_view, self.user_id, category, items)
+        await interaction.response.send_message(f"Select a {category}:", view=view, ephemeral=True)
 
         async def select_callback(select_interaction: discord.Interaction):
             value = select.values[0]
@@ -4290,6 +4283,96 @@ class CategorySelectView(discord.ui.View):
             'accessory': '📿',
             'material': '📦'
         }.get(category, '📦')
+
+
+class ItemPaginationView(discord.ui.View):
+    def __init__(self, trade_view: TradeView, user_id: str, category: str, items: list):
+        super().__init__(timeout=60)
+        self.trade_view = trade_view
+        self.user_id = user_id
+        self.category = category
+        self.items = items
+        self.page = 0
+        self.max_page = (len(items) - 1) // 25
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.clear_items()
+        start = self.page * 25
+        end = min(start + 25, len(self.items))
+        page_items = self.items[start:end]
+
+        options = []
+        for item in page_items:
+            emoji = get_item_emoji(item['name'], self.category)
+            # Build label with stats
+            if self.category == 'weapon':
+                label = f"{item['name']} (ATK {item['attack']})"
+            elif self.category == 'armor':
+                parts = [f"DEF {item['defense']}"]
+                if item['hp_bonus']:
+                    parts.append(f"HP+{item['hp_bonus']}")
+                if item['reflect_damage']:
+                    parts.append(f"Reflect {item['reflect_damage']}%")
+                label = f"{item['name']} ({', '.join(parts)})"
+            elif self.category == 'accessory':
+                stat_name = item['bonus_stat'].upper()
+                label = f"{item['name']} (+{item['bonus_value']} {stat_name})"
+            elif self.category == 'material':
+                label = f"{item['name']} x{item['quantity']}"
+            else:
+                label = item['name'][:100]
+
+            # Truncate if too long
+            if len(label) > 100:
+                label = label[:97] + "..."
+
+            options.append(discord.SelectOption(
+                label=label,
+                value=f"{self.category}:{item['id']}",
+                emoji=emoji
+            ))
+
+        select = discord.ui.Select(
+            placeholder=f"Choose a {self.category} (page {self.page+1}/{self.max_page+1})",
+            options=options
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+
+        if self.page > 0:
+            prev = discord.ui.Button(label="◀ Previous", style=discord.ButtonStyle.secondary)
+            prev.callback = self.prev_page
+            self.add_item(prev)
+        if self.page < self.max_page:
+            nxt = discord.ui.Button(label="Next ▶", style=discord.ButtonStyle.secondary)
+            nxt.callback = self.next_page
+            self.add_item(nxt)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        select = self.children[0]
+        value = select.values[0]
+        cat, item_id = value.split(':')
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO trade_items (trade_id, user_id, item_type, item_id)
+                VALUES ($1, $2, $3, $4)
+            """, self.trade_view.trade_id, self.user_id, cat, int(item_id))
+        await interaction.response.send_message(f"✅ {self.category.capitalize()} added to trade.", ephemeral=True)
+        if self.trade_view.message:
+            await update_trade_embed(self.trade_view.message, self.trade_view.trade_id)
+
+    async def prev_page(self, interaction: discord.Interaction):
+        self.page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(view=self)
+
+    async def next_page(self, interaction: discord.Interaction):
+        self.page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(view=self)
+
+
 
 @bot.command(name='trade')
 async def trade_start(ctx, member: discord.Member):
