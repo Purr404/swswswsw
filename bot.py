@@ -2156,8 +2156,7 @@ class QuizSystem:
                 return
 
             q = self.quiz_questions[self.current_question]
-            self.question_start_time = datetime.now(timezone.utc)
-
+            
             # --- QUESTION EMBED WITH CATEGORY ---
             embed = discord.Embed(
                 title=f"❓ **{q.get('cat', 'General')}**",  # Category in title
@@ -2174,6 +2173,8 @@ class QuizSystem:
                          icon_url=self.quiz_channel.guild.icon.url if self.quiz_channel.guild.icon else None)
 
             self.question_message = await self.quiz_channel.send(embed=embed)
+            self.question_start_time = datetime.now(timezone.utc)
+
 
             # --- TIMERS ---
             if self.countdown_loop:
