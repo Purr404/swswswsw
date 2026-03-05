@@ -2304,7 +2304,7 @@ class QuizSystem:
     # ------------------------------------------------------------
     # ANSWER PROCESSING
     # ------------------------------------------------------------
-    async def process_answer(self, user: discord.User, answer_text: str) -> bool:
+    async def process_answer(self, user: discord.User, answer_text: str, message: discord.Message = None) -> bool:
         try:
             await log_to_discord(self.bot, f"[PA] Called by {user.id} ({user.display_name})", "DEBUG")
             await log_to_discord(self.bot, f"[PA] quiz_running={self.quiz_running}", "DEBUG")
@@ -2314,17 +2314,25 @@ class QuizSystem:
 
             if not self.quiz_running:
                 await log_to_discord(self.bot, "[PA] → quiz not running", "DEBUG")
+                if message:
+                    await message.add_reaction("❌")
                 return False
             if self.question_start_time is None or self.question_expiry is None:
                 await log_to_discord(self.bot, "[PA] → timers not set", "DEBUG")
+                if message:
+                    await message.add_reaction("⏳")
                 return False
             if self.current_question >= len(self.quiz_questions):
                 await log_to_discord(self.bot, "[PA] → current_question out of range", "DEBUG")
+                if message:
+                    await message.add_reaction("❌")
                 return False
 
             now = datetime.now(timezone.utc)
             if now > self.question_expiry:
                 await log_to_discord(self.bot, f"[PA] → answer after expiry: now={now}, expiry={self.question_expiry}", "DEBUG")
+                if message:
+                    await message.add_reaction("⌛")
                 return False
 
             q = self.quiz_questions[self.current_question]
@@ -2343,6 +2351,8 @@ class QuizSystem:
 
             if self.participants[uid]["answered_current"]:
                 await log_to_discord(self.bot, "[PA] → already answered correctly", "DEBUG")
+                if message:
+                    await message.add_reaction("⚠️")
                 return False
 
             user_ans = answer_text.lower().strip()
@@ -2370,13 +2380,23 @@ class QuizSystem:
                 await log_to_discord(self.bot, "[PA] → logging to quiz-logs", "DEBUG")
                 await self.log_answer(user, q['q'], answer_text, points, answer_time)
 
+            # Add reaction to the message for visual feedback
+            if message:
+                await message.add_reaction("✅" if is_correct else "❌")
+
             await log_to_discord(self.bot, f"[PA] → done. participants count={len(self.participants)}", "DEBUG")
             return True
 
         except Exception as e:
             await log_to_discord(self.bot, f"❌ process_answer error: {e}", "ERROR")
             import traceback
-            traceback.print_exc()  # still goes to console (but you can't see it)
+            traceback.print_exc()
+            # Optionally react with error emoji
+            if message:
+                try:
+                    await message.add_reaction("⚠️")
+                except:
+                    pass
             return False
 
     async def log_answer(self, user: discord.User, question: str, answer: str, points: int, time: int):
