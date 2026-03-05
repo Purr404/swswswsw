@@ -260,6 +260,16 @@ def get_item_emoji(item_name: str, item_type: str) -> str:
     return '📦'
 # ============================================================
 
+async def debug_log(self, message: str):
+    """Send debug message to the quiz logs channel (best effort)."""
+    print(f"🔍 DEBUG: {message}")  # always prints to console
+    if self.quiz_logs_channel:
+        try:
+            await self.quiz_logs_channel.send(f"🔍 `{message}`")
+        except:
+            pass
+
+
 
 SWORD_SKILLS = {
     "Zenith Sword": {
