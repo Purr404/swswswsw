@@ -2263,13 +2263,13 @@ class QuizSystem:
 
             q = self.quiz_questions[self.current_question]
             answer_time = (datetime.now(timezone.utc) - self.question_start_time).seconds
-            if answer_time > q['time']:
             await log_to_discord(self.bot, f"⏱️ Answer time: {answer_time}s (limit: {q['time']}s)", "DEBUG")
-                return False
 
+            # Grace period: allow answers up to 2 seconds after the limit
             GRACE_SECONDS = 2
             if answer_time > q['time'] + GRACE_SECONDS:
-                return False  # too late, ignore completely
+                await log_to_discord(self.bot, f"⏰ Answer too late ({answer_time}s), ignoring completely", "DEBUG")
+                return False
 
             uid = str(user.id)
             if uid not in self.participants:
@@ -2280,22 +2280,37 @@ class QuizSystem:
                     "correct_answers": 0,
                     "answered_current": False
                 }
+                await log_to_discord(self.bot, f"➕ Added participant {user.display_name}", "DEBUG")
 
             if self.participants[uid]["answered_current"]:
-            await log_to_discord(self.bot, f"⚠️ {user.display_name} already answered this question", "DEBUG")
-                return False
+                await log_to_discord(self.bot, f"⚠️ {user.display_name} already answered this question", "DEBUG")
+            return False
 
             user_ans = answer_text.lower().strip()
             is_correct = user_ans in [a.lower() for a in q['a']]
             await log_to_discord(self.bot, f"✅ Is correct: {is_correct}", "DEBUG")
 
-            points = 0
-            if is_correct:
-                points = self.calculate_points(answer_time, q['time'], q['pts'])
-                self.participants[uid]["score"] += points
-                self.participants[uid]["correct_answers"] += 1
-                self.participants[uid]["answered_current"] = True
+            # Determine points: zero if late, otherwise calculate
+            if answer_time > q['time']:
+                # Late answer (within grace) – no points even if correct
+                points = 0
+                if is_correct:
+                    await log_to_discord(self.bot, f"⏰ Late correct answer from {user.display_name} (0 points)", "INFO")
+                else:
+                    await log_to_discord(self.bot, f"⏰ Late incorrect answer from {user.display_name}", "INFO")
+            else:
+                # On-time answer
+                if is_correct:
+                    points = self.calculate_points(answer_time, q['time'], q['pts'])
+                    self.participants[uid]["score"] += points
+                    self.participants[uid]["correct_answers"] += 1
+                else:
+                    points = 0
 
+            # Mark as answered (regardless of correctness or lateness)
+            self.participants[uid]["answered_current"] = True
+
+            # Record the answer
             self.participants[uid]["answers"].append({
                 "question": self.current_question,
                 "answer": answer_text,
@@ -2305,12 +2320,12 @@ class QuizSystem:
             })
             await log_to_discord(self.bot, f"📝 Answer recorded for {user.display_name}. Current participants: {len(self.participants)}", "DEBUG")
 
-
-            if is_correct:
+            # Log correct answers (only on‑time correct, to keep original behavior)
+            if is_correct and answer_time <= q['time']:
                 await self.log_answer(user, q['q'], answer_text, points, answer_time)
 
             return True
-        except Exception as e:
+    except Exception as e:
             await log_to_discord(self.bot, f"❌ process_answer error for {user.id}", "ERROR", e)
             return False
 
