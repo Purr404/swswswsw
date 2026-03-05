@@ -2261,6 +2261,10 @@ class QuizSystem:
             if answer_time > q['time']:
                 return False
 
+            GRACE_SECONDS = 2
+            if answer_time > q['time'] + GRACE_SECONDS:
+                return False  # too late, ignore completely
+
             uid = str(user.id)
             if uid not in self.participants:
                 self.participants[uid] = {
