@@ -2252,13 +2252,13 @@ class QuizSystem:
             await log_to_discord(self.bot, f"🔍 process_answer called by {user.display_name}: '{answer_text}'", "DEBUG")
 
             if not self.quiz_running:
-            await log_to_discord(self.bot, "⏹️ Quiz not running, ignoring", "DEBUG")
+                await log_to_discord(self.bot, "⏹️ Quiz not running, ignoring", "DEBUG")
                 return False
             if self.question_start_time is None:
-            await log_to_discord(self.bot, "⏳ No start time, ignoring", "DEBUG")
+                await log_to_discord(self.bot, "⏳ No start time, ignoring", "DEBUG")
                 return False
             if self.current_question >= len(self.quiz_questions):
-            await log_to_discord(self.bot, "❓ No current question, ignoring", "DEBUG")
+                await log_to_discord(self.bot, "❓ No current question, ignoring", "DEBUG")
                 return False
 
             q = self.quiz_questions[self.current_question]
