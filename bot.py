@@ -2314,25 +2314,19 @@ class QuizSystem:
 
             if not self.quiz_running:
                 await log_to_discord(self.bot, "[PA] → quiz not running", "DEBUG")
-                if message:
-                    await message.add_reaction("❌")
                 return False
-            if self.question_start_time is None or self.question_expiry is None:
+        if self.question_start_time is None or self.question_expiry is None:
                 await log_to_discord(self.bot, "[PA] → timers not set", "DEBUG")
-                if message:
-                    await message.add_reaction("⏳")
                 return False
             if self.current_question >= len(self.quiz_questions):
                 await log_to_discord(self.bot, "[PA] → current_question out of range", "DEBUG")
-                if message:
-                    await message.add_reaction("❌")
                 return False
 
             now = datetime.now(timezone.utc)
-            if now > self.question_expiry:
-                await log_to_discord(self.bot, f"[PA] → answer after expiry: now={now}, expiry={self.question_expiry}", "DEBUG")
-                if message:
-                    await message.add_reaction("⌛")
+            # Grace period of 0.5 seconds
+            grace = timedelta(seconds=0.5)
+            if now > self.question_expiry + grace:
+                await log_to_discord(self.bot, f"[PA] → answer after expiry + grace: now={now}, expiry={self.question_expiry}", "DEBUG")
                 return False
 
             q = self.quiz_questions[self.current_question]
@@ -2340,7 +2334,7 @@ class QuizSystem:
             uid = str(user.id)
 
             if uid not in self.participants:
-                await log_to_discord(self.bot, f"[PA] → adding new participant {uid}", "DEBUG")
+            await log_to_discord(self.bot, f"[PA] → adding new participant {uid}", "DEBUG")
                 self.participants[uid] = {
                     "name": user.display_name,
                     "score": 0,
@@ -2351,8 +2345,6 @@ class QuizSystem:
 
             if self.participants[uid]["answered_current"]:
                 await log_to_discord(self.bot, "[PA] → already answered correctly", "DEBUG")
-                if message:
-                    await message.add_reaction("⚠️")
                 return False
 
             user_ans = answer_text.lower().strip()
@@ -2362,7 +2354,7 @@ class QuizSystem:
 
             points = 0
             if is_correct:
-                points = self.calculate_points(answer_time, q['time'], q['pts'])
+                points = self.calculate_points(answer_time, q['time'], q['pts']) 
                 self.participants[uid]["score"] += points
                 self.participants[uid]["correct_answers"] += 1
                 self.participants[uid]["answered_current"] = True
@@ -2380,10 +2372,6 @@ class QuizSystem:
                 await log_to_discord(self.bot, "[PA] → logging to quiz-logs", "DEBUG")
                 await self.log_answer(user, q['q'], answer_text, points, answer_time)
 
-            # Add reaction to the message for visual feedback
-            if message:
-                await message.add_reaction("✅" if is_correct else "❌")
-
             await log_to_discord(self.bot, f"[PA] → done. participants count={len(self.participants)}", "DEBUG")
             return True
 
@@ -2391,12 +2379,6 @@ class QuizSystem:
             await log_to_discord(self.bot, f"❌ process_answer error: {e}", "ERROR")
             import traceback
             traceback.print_exc()
-            # Optionally react with error emoji
-            if message:
-                try:
-                    await message.add_reaction("⚠️")
-                except:
-                    pass
             return False
 
     async def log_answer(self, user: discord.User, question: str, answer: str, points: int, time: int):
