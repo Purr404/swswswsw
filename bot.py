@@ -2325,7 +2325,7 @@ class QuizSystem:
                 await self.log_answer(user, q['q'], answer_text, points, answer_time)
 
             return True
-    except Exception as e:
+        except Exception as e:
             await log_to_discord(self.bot, f"❌ process_answer error for {user.id}", "ERROR", e)
             return False
 
