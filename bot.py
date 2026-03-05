@@ -2331,7 +2331,7 @@ class QuizSystem:
                 "points": points,
                 "time": answer_time
             })
-            print(f"📝 Answer recorded for {user.display_name}. Current
+            print(f"📝 Answer recorded for {user.display_name}. Current participants: {len(self.participants)}")
             await log_to_discord(self.bot, f"📝 Answer recorded for {user.display_name}. Current participants: {len(self.participants)}", "DEBUG")
 
             # Log correct answers (only on‑time correct, to keep original behavior)
