@@ -7255,24 +7255,15 @@ class CullingGame(commands.Cog):
 
 @bot.command(name='attack')
 async def attack(ctx, target: discord.Member, *, skill_name: str = None):
-    """Attack another player using your equipped weapon's skill."""
     attacker_id = str(ctx.author.id)
     defender_id = str(target.id)
 
-    # Get Shop cog for helper methods
-    shop_cog = bot.get_cog('Shop')
-    if not shop_cog:
-        return await ctx.send("❌ Shop cog not loaded.")
+    a_stats = await get_player_stats(attacker_id)
+    d_stats = await get_player_stats(defender_id)
 
-    # Get stats
-    a_stats = await shop_cog.get_player_stats(attacker_id)
-    d_stats = await shop_cog.get_player_stats(defender_id)
-
-    # Check energy
     if a_stats['energy'] < 1:
         return await ctx.send("❌ You don't have enough energy to attack.")
 
-    # Get equipped weapon and its skill
     async with bot.db_pool.acquire() as conn:
         weapon = await conn.fetchrow("""
             SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
@@ -7296,28 +7287,23 @@ async def attack(ctx, target: discord.Member, *, skill_name: str = None):
     level = weapon['skill_level']
     multiplier = skill_data['base'] + (level - 1) * skill_data['increment']
 
-    # Damage calculation
     base_damage = a_stats['atk'] * multiplier
     damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
 
-    # Critical hit
     is_crit = random.random() < a_stats['crit_chance'] / 100
     if is_crit:
         damage = int(damage * (1 + a_stats['crit_damage'] / 100))
 
-    # Apply damage to defender
     new_defender_hp = max(0, d_stats['current_hp'] - damage)
-    await shop_cog.update_player_hp(defender_id, new_defender_hp)
+    await update_player_hp(defender_id, new_defender_hp)
 
-    # Reflect damage
     reflect_damage = 0
     if d_stats['reflect'] > 0:
         reflect_damage = int(damage * d_stats['reflect'] / 100)
         if reflect_damage > 0:
             new_attacker_hp = max(0, a_stats['current_hp'] - reflect_damage)
-            await shop_cog.update_player_hp(attacker_id, new_attacker_hp)
+            await update_player_hp(attacker_id, new_attacker_hp)
 
-    # Bleed chance
     bleed_applied = False
     bleed_tick = 0
     if random.random() < a_stats['bleed_chance'] / 100:
@@ -7330,11 +7316,9 @@ async def attack(ctx, target: discord.Member, *, skill_name: str = None):
                     VALUES ($1, 'bleed', $2, 3)
                 """, defender_id, bleed_tick)
 
-    # Reduce energy
     new_attacker_energy = a_stats['energy'] - 1
-    await shop_cog.update_player_energy(attacker_id, new_attacker_energy)
+    await update_player_energy(attacker_id, new_attacker_energy)
 
-    # Build embed
     embed = discord.Embed(title="⚔️ Attack Result", color=discord.Color.red())
     embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.display_avatar.url)
     embed.set_thumbnail(url=target.display_avatar.url)
@@ -7350,13 +7334,11 @@ async def attack(ctx, target: discord.Member, *, skill_name: str = None):
     embed.add_field(name=f"{ctx.author.display_name}'s HP", value=f"{a_hp_bar} `{a_stats['current_hp']}/{a_stats['max_hp']}`", inline=True)
     embed.add_field(name=f"{target.display_name}'s HP", value=f"{d_hp_bar} `{new_defender_hp}/{d_stats['max_hp']}`", inline=True)
 
-    # Equipped gear
-    attacker_gear = await shop_cog.get_equipped_emojis(attacker_id)
-    defender_gear = await shop_cog.get_equipped_emojis(defender_id)
+    attacker_gear = await get_equipped_emojis(attacker_id)
+    defender_gear = await get_equipped_emojis(defender_id)
     embed.add_field(name=f"{ctx.author.display_name}'s Gear", value=attacker_gear, inline=False)
     embed.add_field(name=f"{target.display_name}'s Gear", value=defender_gear, inline=False)
 
-    # Damage info
     damage_text = f"**{damage}** damage dealt"
     if is_crit:
         damage_text += " 💥 CRITICAL!"
@@ -7368,46 +7350,25 @@ async def attack(ctx, target: discord.Member, *, skill_name: str = None):
     if bleed_applied:
         embed.add_field(name="Bleed", value=f"Target will bleed for {bleed_tick} every second for 3 seconds", inline=True)
 
-    # Skill info
     embed.add_field(name="Skill", value=f"{skill_data['name']} Lv.{level} ({multiplier:.2f}x)", inline=False)
-
-    # Energy
     embed.add_field(name="Energy", value=f"{new_attacker_energy}/{a_stats['max_energy']}", inline=True)
 
     await ctx.send(embed=embed)
 
 
 async def get_player_stats(user_id: str):
-    """Return dict of player stats (HP, max_hp, energy, max_energy, atk, def, crit_chance, crit_damage, bleed_chance, bleed_damage, reflect)."""
+    """Return dict of player stats."""
     BASE_HP = 1000
     BASE_DEF = 500
     async with bot.db_pool.acquire() as conn:
         player = await conn.fetchrow("SELECT hp, max_hp, energy, max_energy FROM player_stats WHERE user_id = $1", user_id)
         if not player:
-            # Create default stats
             await conn.execute("INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy) VALUES ($1, $2, $2, 3, 3)", user_id, BASE_HP)
             player = {'hp': BASE_HP, 'max_hp': BASE_HP, 'energy': 3, 'max_energy': 3}
-        # Weapon
-        weapon = await conn.fetchrow("""
-            SELECT attack, bleeding_chance, crit_chance, crit_damage
-            FROM user_weapons
-            WHERE user_id = $1 AND equipped = TRUE
-            LIMIT 1
-        """, user_id)
-        # Armor
-        armor_pieces = await conn.fetch("""
-            SELECT defense, reflect_damage
-            FROM user_armor
-            WHERE user_id = $1 AND equipped = TRUE
-        """, user_id)
-        # Accessories
-        accessories = await conn.fetch("""
-            SELECT bonus_stat, bonus_value
-            FROM user_accessories
-            WHERE user_id = $1 AND equipped = TRUE
-        """, user_id)
+        weapon = await conn.fetchrow("SELECT attack, bleeding_chance, crit_chance, crit_damage FROM user_weapons WHERE user_id = $1 AND equipped = TRUE LIMIT 1", user_id)
+        armor = await conn.fetch("SELECT defense, reflect_damage FROM user_armor WHERE user_id = $1 AND equipped = TRUE", user_id)
+        accessories = await conn.fetch("SELECT bonus_stat, bonus_value FROM user_accessories WHERE user_id = $1 AND equipped = TRUE", user_id)
 
-    # Compute totals
     atk = 0
     defense = BASE_DEF
     crit_chance = 0.0
@@ -7422,25 +7383,21 @@ async def get_player_stats(user_id: str):
         crit_chance += weapon['crit_chance'] or 0
         crit_damage += weapon['crit_damage'] or 0
 
-    for armor in armor_pieces:
-        defense += armor['defense']
-        reflect += armor['reflect_damage'] or 0
+    for a in armor:
+        defense += a['defense']
+        reflect += a['reflect_damage'] or 0
 
     for acc in accessories:
-        stat = acc['bonus_stat']
-        val = acc['bonus_value']
-        if stat == 'atk':
-            atk += val
-        elif stat == 'def':
-            defense += val
-        elif stat == 'crit':
-            crit_chance += val
-        elif stat == 'bleed':
-            bleed_damage += val
+        if acc['bonus_stat'] == 'atk':
+            atk += acc['bonus_value']
+        elif acc['bonus_stat'] == 'def':
+            defense += acc['bonus_value']
+        elif acc['bonus_stat'] == 'crit':
+            crit_chance += acc['bonus_value']
+        elif acc['bonus_stat'] == 'bleed':
+            bleed_damage += acc['bonus_value']
 
-    # Set bonuses (simplified – you can expand later)
-    # For full set bonuses, you'd need to check set_name and counts.
-    # This version omits set bonuses for brevity; add them if needed.
+    # (Optional: add set bonuses here using your existing logic)
 
     return {
         'current_hp': player['hp'],
@@ -7455,6 +7412,49 @@ async def get_player_stats(user_id: str):
         'bleed_damage': bleed_damage,
         'reflect': reflect
     }
+
+async def update_player_hp(user_id: str, new_hp: int):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, user_id)
+
+async def update_player_energy(user_id: str, new_energy: int):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE player_stats SET energy = $1 WHERE user_id = $2", new_energy, user_id)
+
+async def get_equipped_emojis(user_id: str) -> str:
+    async with bot.db_pool.acquire() as conn:
+        weapon_name = await conn.fetchval("""
+            SELECT COALESCE(si.name, uw.generated_name)
+            FROM user_weapons uw
+            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+            WHERE uw.user_id = $1 AND uw.equipped = TRUE
+            LIMIT 1
+        """, user_id)
+        armor = await conn.fetch("""
+            SELECT at.name, at.slot
+            FROM user_armor ua
+            JOIN armor_types at ON ua.armor_id = at.armor_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+        acc = await conn.fetch("""
+            SELECT at.name, ua.slot
+            FROM user_accessories ua
+            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+
+    emojis = []
+    if weapon_name:
+        emojis.append(get_item_emoji(weapon_name, 'weapon'))
+    slot_order = {'helm':0, 'suit':1, 'gauntlets':2, 'boots':3}
+    armor.sort(key=lambda x: slot_order.get(x['slot'], 99))
+    for a in armor:
+        emojis.append(get_item_emoji(a['name'], 'armor'))
+    for a in acc:
+        emojis.append(get_item_emoji(a['name'], 'accessory'))
+    return ' '.join(emojis) if emojis else 'None'
+
+
 
 async def update_player_hp(user_id: str, new_hp: int):
     async with bot.db_pool.acquire() as conn:
