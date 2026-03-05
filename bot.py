@@ -3371,10 +3371,13 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Quiz answers
+    # Log every message in the quiz channel
     if quiz_system.quiz_running and message.channel == quiz_system.quiz_channel:
+        await log_to_discord(bot, f"📨 QUIZ MESSAGE from {message.author.display_name}: '{message.content[:50]}'", "DEBUG")
         try:
-            await quiz_system.process_answer(message.author, message.content)
+            await log_to_discord(bot, "⏩ Calling process_answer...", "DEBUG")
+            result = await quiz_system.process_answer(message.author, message.content)
+            await log_to_discord(bot, f"⏪ process_answer returned: {result}", "DEBUG")
         except Exception as e:
             await log_to_discord(bot, f"❌ Error in on_message: {e}", "ERROR")
 
