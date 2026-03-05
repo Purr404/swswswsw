@@ -2315,7 +2315,7 @@ class QuizSystem:
             if not self.quiz_running:
                 await log_to_discord(self.bot, "[PA] → quiz not running", "DEBUG")
                 return False
-        if self.question_start_time is None or self.question_expiry is None:
+            if self.question_start_time is None or self.question_expiry is None:
                 await log_to_discord(self.bot, "[PA] → timers not set", "DEBUG")
                 return False
             if self.current_question >= len(self.quiz_questions):
