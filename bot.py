@@ -7298,7 +7298,7 @@ async def attack(ctx, target: discord.Member):
     msg = await ctx.send(embed=embed, view=view)
     view.message_id = msg.id
 
-#    Attackview
+#    ATTACKVIEW----------
 
 class AttackView(discord.ui.View):
     def __init__(self, attacker_id: str, defender_id: str, channel_id: int, message_id: int):
@@ -7309,18 +7309,15 @@ class AttackView(discord.ui.View):
         self.message_id = message_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # Only the attacker can press the button
         return str(interaction.user.id) == self.attacker_id
 
     @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger)
     async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.defer()
-        # Perform attack (same logic as before, but update the message)
-        # Fetch fresh stats
+        # Perform attack logic (same as before)
         a_stats = await get_player_stats(self.attacker_id)
         d_stats = await get_player_stats(self.defender_id)
 
-        # Check if defender is dead
         if d_stats['hp'] <= 0:
             await interaction.followup.send("Target is already dead!", ephemeral=True)
             return
@@ -7331,7 +7328,6 @@ class AttackView(discord.ui.View):
             await interaction.followup.send("Not enough energy!", ephemeral=True)
             return
 
-        # Get weapon and skill
         async with bot.db_pool.acquire() as conn:
             weapon = await conn.fetchrow("""
                 SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
@@ -7354,20 +7350,16 @@ class AttackView(discord.ui.View):
         level = weapon['skill_level']
         multiplier = skill['base'] + (level - 1) * skill['increment']
 
-        # Damage calculation
         base_damage = a_stats['atk'] * multiplier
         damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
 
-        # Critical
         is_crit = random.random() < a_stats['crit_chance'] / 100
         if is_crit:
             damage = int(damage * (1 + a_stats['crit_damage'] / 100))
 
-        # Apply damage
         new_defender_hp = max(0, d_stats['hp'] - damage)
         await update_player_hp(self.defender_id, new_defender_hp)
 
-        # Reflect
         reflect_damage = 0
         if d_stats['reflect'] > 0:
             reflect_damage = int(damage * d_stats['reflect'] / 100)
@@ -7375,7 +7367,6 @@ class AttackView(discord.ui.View):
                 new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
                 await update_player_hp(self.attacker_id, new_attacker_hp)
 
-        # Bleed
         bleed_applied = False
         bleed_tick = 0
         if random.random() < a_stats['bleed_chance'] / 100:
@@ -7388,11 +7379,9 @@ class AttackView(discord.ui.View):
                         VALUES ($1, 'bleed', $2, 3)
                     """, self.defender_id, bleed_tick)
 
-        # Energy cost
         new_energy = a_stats['energy'] - 1
         await update_player_energy(self.attacker_id, new_energy)
 
-        # Build action result text
         action_lines = []
         action_lines.append(f"**Damage:** {damage}" + (" 💥 CRIT!" if is_crit else ""))
         if reflect_damage > 0:
@@ -7401,7 +7390,7 @@ class AttackView(discord.ui.View):
             action_lines.append(f"**Bleed:** {bleed_tick} dmg/sec for 3s")
         action_text = "\n".join(action_lines) or "No effect."
 
-        # Update the embed with new stats
+        # Update the message
         channel = bot.get_channel(self.channel_id)
         try:
             msg = await channel.fetch_message(self.message_id)
@@ -7409,12 +7398,11 @@ class AttackView(discord.ui.View):
             await interaction.followup.send("Message not found.", ephemeral=True)
             return
 
-        # Build new embed
-        embed = await self.build_duel_embed(action_text)
-        await msg.edit(embed=embed, view=self)
+        new_embed = await self.build_duel_embed(action_text)
+        await msg.edit(embed=new_embed, view=self)
 
     async def build_duel_embed(self, action_text: str = None):
-        """Build the duel embed with current stats."""
+        """Build the duel embed with current stats and gear."""
         a_stats = await get_player_stats(self.attacker_id)
         d_stats = await get_player_stats(self.defender_id)
         a_user = bot.get_user(int(self.attacker_id))
@@ -7422,9 +7410,8 @@ class AttackView(discord.ui.View):
 
         embed = discord.Embed(title=f"⚔️ Duel: {a_user.display_name} vs {d_user.display_name}", color=discord.Color.red())
         embed.set_thumbnail(url=a_user.display_avatar.url)
-        embed.set_image(url=d_user.display_avatar.url)  # or use two thumbnails? We'll just set both as thumbnails?
+        embed.set_image(url=d_user.display_avatar.url)
 
-        # Helper for HP bar
         def hp_bar(current, max_hp):
             if current <= 0:
                 return "⬛" * 10 + " DEAD!"
@@ -7460,7 +7447,6 @@ class AttackView(discord.ui.View):
             embed.add_field(name="▬" * 20, value="Click Attack to begin!", inline=False)
 
         return embed
-
 #  END 
 
 async def get_player_stats(user_id: str):
