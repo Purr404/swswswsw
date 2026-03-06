@@ -7402,10 +7402,10 @@ class AttackView(discord.ui.View):
         a_user = bot.get_user(int(self.attacker_id))
         d_user = bot.get_user(int(self.defender_id))
 
-        # --- DEBUG LOGS ---
-        await log_to_discord(bot, f"DEBUG: Attacker HP={a_stats['hp']}, respawn_at={a_stats.get('respawn_at')}", level="DEBUG")
-        await log_to_discord(bot, f"DEBUG: Defender HP={d_stats['hp']}, respawn_at={d_stats.get('respawn_at')}", level="DEBUG")
-        # ------------------
+        # --- DEBUG PRINT (visible in Railway logs) ---
+        print(f"DEBUG: Attacker HP={a_stats['hp']}, respawn_at={a_stats.get('respawn_at')}")
+        print(f"DEBUG: Defender HP={d_stats['hp']}, respawn_at={d_stats.get('respawn_at')}")
+        # ---------------------------------------------
 
         # Attacker dead check
         if a_stats['hp'] <= 0:
