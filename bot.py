@@ -7456,14 +7456,27 @@ class AttackView(discord.ui.View):
                 async with bot.db_pool.acquire() as conn:
                     db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", self.attacker_id)
                 if db_respawn:
-                    # Ensure timezone-aware (just in case)
+                    now = datetime.now(timezone.utc)
                     if db_respawn.tzinfo is None:
                         db_respawn = db_respawn.replace(tzinfo=timezone.utc)
-                    timestamp = int(db_respawn.timestamp())
-                    msg = f"You are dead and cannot attack! You will revive <t:{timestamp}:R>."
+                    remaining = db_respawn - now
+                    if remaining.total_seconds() <= 0:
+                        msg = "You are dead and cannot attack! (respawn time already passed)"
+                    else:
+                        hours = int(remaining.total_seconds() // 3600)
+                        minutes = int((remaining.total_seconds() % 3600) // 60)
+                        seconds = int(remaining.total_seconds() % 60)
+                        if hours > 0:
+                            time_str = f"{hours}h {minutes}m"
+                        elif minutes > 0:
+                            time_str = f"{minutes}m {seconds}s"
+                        else:
+                            time_str = f"{seconds}s"
+                        msg = f"You are dead and cannot attack! Revives in {time_str}."
                 else:
                     msg = "You are dead and cannot attack! (no respawn time set)"
                 await interaction.followup.send(msg, ephemeral=True)
+                print(f"DEBUG: Attacker dead, sent: {msg}")
                 return
 
             # Defender dead check
