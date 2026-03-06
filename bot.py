@@ -7327,13 +7327,59 @@ async def attack(ctx, target: discord.Member):
     if attacker_id == defender_id:
         return await ctx.send("You can't attack yourself.")
 
-    # Check if either is dead
+    # Fetch stats
     a_stats = await get_player_stats(attacker_id)
     d_stats = await get_player_stats(defender_id)
+
+    # --- Attacker dead check with countdown ---
     if a_stats['hp'] <= 0:
-        return await ctx.send("You are dead and cannot attack!")
+        async with bot.db_pool.acquire() as conn:
+            db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", attacker_id)
+        if db_respawn:
+            if db_respawn.tzinfo is None:
+                db_respawn = db_respawn.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            remaining = db_respawn - now
+            if remaining.total_seconds() <= 0:
+                return await ctx.send("You are dead and cannot attack! (respawn time already passed)")
+            else:
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                seconds = int(remaining.total_seconds() % 60)
+                if hours > 0:
+                    time_str = f"{hours}h {minutes}m"
+                elif minutes > 0:
+                    time_str = f"{minutes}m {seconds}s"
+                else:
+                    time_str = f"{seconds}s"
+                return await ctx.send(f"You are dead and cannot attack! Revives in {time_str}.")
+        else:
+            return await ctx.send("You are dead and cannot attack! (no respawn time set)")
+
+    # --- Defender dead check with countdown ---
     if d_stats['hp'] <= 0:
-        return await ctx.send("That player is already dead!")
+        async with bot.db_pool.acquire() as conn:
+            db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", defender_id)
+        if db_respawn:
+            if db_respawn.tzinfo is None:
+                db_respawn = db_respawn.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            remaining = db_respawn - now
+            if remaining.total_seconds() <= 0:
+                return await ctx.send("That player is already dead! (respawn time already passed)")
+            else:
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                seconds = int(remaining.total_seconds() % 60)
+                if hours > 0:
+                    time_str = f"{hours}h {minutes}m"
+                elif minutes > 0:
+                    time_str = f"{minutes}m {seconds}s"
+                else:
+                    time_str = f"{seconds}s"
+                return await ctx.send(f"That player is already dead! Revives in {time_str}.")
+        else:
+            return await ctx.send("That player is already dead!")
 
     # Create the initial embed
     view = AttackView(attacker_id, defender_id, ctx.channel.id, None)
