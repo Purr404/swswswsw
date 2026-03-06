@@ -7358,26 +7358,6 @@ async def format_gear_grid(user_id: str) -> str:
     line3 = f"{ring1} {earring1} {pendant} {earring2} {ring2}"
     return f"{line1}\n{line2}\n{line3}"
 
-def format_remaining_time(respawn_at):
-    """Return a string like '2h 30m' or '30s' until respawn."""
-    if not respawn_at:
-        return ""
-    now = datetime.now(timezone.utc)
-    # Ensure respawn_at is timezone-aware
-    if respawn_at.tzinfo is None:
-        respawn_at = respawn_at.replace(tzinfo=timezone.utc)
-    remaining = respawn_at - now
-    if remaining.total_seconds() <= 0:
-        return ""  # should be revived already
-    hours = int(remaining.total_seconds() // 3600)
-    minutes = int((remaining.total_seconds() % 3600) // 60)
-    seconds = int(remaining.total_seconds() % 60)
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    elif minutes > 0:
-        return f"{minutes}m {seconds}s"
-    else:
-        return f"{seconds}s"
 
 
 #    ATTACKVIEW----------
@@ -7422,7 +7402,12 @@ class AttackView(discord.ui.View):
         a_user = bot.get_user(int(self.attacker_id))
         d_user = bot.get_user(int(self.defender_id))
 
-        # Check if attacker is dead
+        # --- DEBUG LOGS ---
+        await log_to_discord(bot, f"DEBUG: Attacker HP={a_stats['hp']}, respawn_at={a_stats.get('respawn_at')}", level="DEBUG")
+        await log_to_discord(bot, f"DEBUG: Defender HP={d_stats['hp']}, respawn_at={d_stats.get('respawn_at')}", level="DEBUG")
+        # ------------------
+
+        # Attacker dead check
         if a_stats['hp'] <= 0:
             time_left = format_remaining_time(a_stats.get('respawn_at'))
             msg = "You are dead and cannot attack!"
@@ -7431,7 +7416,7 @@ class AttackView(discord.ui.View):
             await interaction.followup.send(msg, ephemeral=True)
             return
 
-        # Check if defender is dead
+        # Defender dead check
         if d_stats['hp'] <= 0:
             time_left = format_remaining_time(d_stats.get('respawn_at'))
             msg = "Target is already dead!"
@@ -7467,7 +7452,7 @@ class AttackView(discord.ui.View):
         level = weapon['skill_level']
         multiplier = skill['base'] + (level - 1) * skill['increment']
 
-        # Skill-specific modifiers for this attack
+        # Skill-specific modifiers
         crit_mult = 1.0
         crit_damage_bonus = 0
         bleed_chance_bonus = 0
@@ -7480,7 +7465,6 @@ class AttackView(discord.ui.View):
             crit_mult = 2.0
             crit_damage_bonus = 50
 
-        # Effective stats for this attack
         effective_crit_chance = a_stats['crit_chance'] * crit_mult
         effective_crit_damage = a_stats['crit_damage'] + crit_damage_bonus
         effective_bleed_chance = a_stats['bleed_chance'] + bleed_chance_bonus
@@ -7489,7 +7473,6 @@ class AttackView(discord.ui.View):
         base_damage = a_stats['atk'] * multiplier
         damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
 
-        # Critical hit
         is_crit = random.random() < effective_crit_chance / 100
         if is_crit:
             damage = int(damage * (1 + effective_crit_damage / 100))
@@ -7505,7 +7488,7 @@ class AttackView(discord.ui.View):
                 new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
                 await update_player_hp(self.attacker_id, new_attacker_hp)
 
-        # Bleed (using modified chance and damage)
+        # Bleed
         bleed_applied = False
         bleed_tick = 0
         if random.random() < effective_bleed_chance / 100:
@@ -7518,7 +7501,7 @@ class AttackView(discord.ui.View):
                         VALUES ($1, 'bleed', $2, 3)
                     """, self.defender_id, bleed_tick)
 
-        # Burn (only for Dawn Breaker)
+        # Burn (Dawn Breaker)
         burn_applied = False
         burn_tick = 0
         if skill['name'] == "Dawn's Wrath":
@@ -7534,8 +7517,8 @@ class AttackView(discord.ui.View):
                             VALUES ($1, 'burn', $2, 3)
                         """, self.defender_id, burn_tick)
 
-        # Apply buffs/debuffs from other skills
-        buff_applied = None  # store message
+        # Buffs/Debuffs
+        buff_applied = None
         if skill['name'] == "Zenith Slash" and random.random() < 0.20:
             async with bot.db_pool.acquire() as conn:
                 await conn.execute("""
@@ -7555,7 +7538,7 @@ class AttackView(discord.ui.View):
         new_energy = a_stats['energy'] - 1
         await update_player_energy(self.attacker_id, new_energy)
 
-        # Decrement buff turns for both players
+        # Decrement buff turns
         async with bot.db_pool.acquire() as conn:
             await conn.execute("""
                 UPDATE active_buffs SET remaining_turns = remaining_turns - 1
