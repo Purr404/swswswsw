@@ -7479,7 +7479,7 @@ class AttackView(discord.ui.View):
                         elif minutes > 0:
                             time_str = f"{minutes}m {seconds}s"
                         else:
-                        time_str = f"{seconds}s"
+                            time_str = f"{seconds}s"
                         msg = f"Target is already dead! Revives in {time_str}."
                 else:
                     msg = "Target is already dead!"
