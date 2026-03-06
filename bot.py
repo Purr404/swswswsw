@@ -1103,6 +1103,17 @@ class DatabaseSystem:
                             FOREIGN KEY (target_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
                         )
                     ''')
+                    # ========== ACTIVE BUFFS/DEBUFFS TABLE ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS active_buffs (
+                            buff_id SERIAL PRIMARY KEY,
+                            target_id TEXT NOT NULL,
+                            effect_type TEXT NOT NULL,
+                            value FLOAT NOT NULL,
+                            remaining_turns INTEGER NOT NULL,
+                            FOREIGN KEY (target_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
+                        )
+                    ''')
 
 
                     # ========== ADD MISSING COLUMNS TO EXISTING TABLES ==========
@@ -4159,14 +4170,14 @@ class TradeView(discord.ui.View):
         return str(interaction.user.id) in (self.initiator_id, self.receiver_id)
 
 
-    @discord.ui.button(label="➕ Add Item", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="➕", style=discord.ButtonStyle.primary, row=0)
     async def add_item_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
         # Show category selection
         view = CategorySelectView(self, user_id)
         await interaction.response.send_message("Choose an item category:", view=view, ephemeral=True)
 
-    @discord.ui.button(label="💎 Add Gems", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="💎", style=discord.ButtonStyle.primary, row=0)
     async def add_gems_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
         # Register pending input
@@ -4181,7 +4192,7 @@ class TradeView(discord.ui.View):
             ephemeral=True
         )
 
-    @discord.ui.button(label="🔒 Lock In", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="🔒", style=discord.ButtonStyle.success, row=1)
     async def lock_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         user_id = str(interaction.user.id)
         async with bot.db_pool.acquire() as conn:
@@ -4196,7 +4207,7 @@ class TradeView(discord.ui.View):
         await update_trade_embed(interaction.message, self.trade_id)
         await interaction.response.defer()
 
-    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="❌", style=discord.ButtonStyle.danger, row=1)
     async def cancel_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         async with bot.db_pool.acquire() as conn:
             await conn.execute("UPDATE active_trades SET status = 'cancelled' WHERE trade_id = $1", self.trade_id)
@@ -7347,6 +7358,27 @@ async def format_gear_grid(user_id: str) -> str:
     line3 = f"{ring1} {earring1} {pendant} {earring2} {ring2}"
     return f"{line1}\n{line2}\n{line3}"
 
+def format_remaining_time(respawn_at):
+    """Return a string like '2h 30m' or '30s' until respawn."""
+    if not respawn_at:
+        return ""
+    now = datetime.now(timezone.utc)
+    # Ensure respawn_at is timezone-aware
+    if respawn_at.tzinfo is None:
+        respawn_at = respawn_at.replace(tzinfo=timezone.utc)
+    remaining = respawn_at - now
+    if remaining.total_seconds() <= 0:
+        return ""  # should be revived already
+    hours = int(remaining.total_seconds() // 3600)
+    minutes = int((remaining.total_seconds() % 3600) // 60)
+    seconds = int(remaining.total_seconds() % 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    elif minutes > 0:
+        return f"{minutes}m {seconds}s"
+    else:
+        return f"{seconds}s"
+
 
 #    ATTACKVIEW----------
 
@@ -7364,17 +7396,51 @@ class AttackView(discord.ui.View):
     @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger)
     async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.defer()
+
+        # Helper to format remaining time
+        def format_remaining_time(respawn_at):
+            if not respawn_at:
+                return ""
+            now = datetime.now(timezone.utc)
+            if respawn_at.tzinfo is None:
+                respawn_at = respawn_at.replace(tzinfo=timezone.utc)
+            remaining = respawn_at - now
+            if remaining.total_seconds() <= 0:
+                return ""
+            hours = int(remaining.total_seconds() // 3600)
+            minutes = int((remaining.total_seconds() % 3600) // 60)
+            seconds = int(remaining.total_seconds() % 60)
+            if hours > 0:
+                return f"{hours}h {minutes}m"
+            elif minutes > 0:
+                return f"{minutes}m {seconds}s"
+            else:
+                return f"{seconds}s"
+
         a_stats = await get_player_stats(self.attacker_id)
         d_stats = await get_player_stats(self.defender_id)
         a_user = bot.get_user(int(self.attacker_id))
         d_user = bot.get_user(int(self.defender_id))
 
-        if d_stats['hp'] <= 0:
-            await interaction.followup.send("Target is already dead!", ephemeral=True)
-            return
+        # Check if attacker is dead
         if a_stats['hp'] <= 0:
-            await interaction.followup.send("You are dead and cannot attack!", ephemeral=True)
+            time_left = format_remaining_time(a_stats.get('respawn_at'))
+            msg = "You are dead and cannot attack!"
+            if time_left:
+                msg += f" Revives in {time_left}."
+            await interaction.followup.send(msg, ephemeral=True)
             return
+
+        # Check if defender is dead
+        if d_stats['hp'] <= 0:
+            time_left = format_remaining_time(d_stats.get('respawn_at'))
+            msg = "Target is already dead!"
+            if time_left:
+                msg += f" Revives in {time_left}."
+            await interaction.followup.send(msg, ephemeral=True)
+            return
+
+        # Energy check
         if a_stats['energy'] < 1:
             await interaction.followup.send("Not enough energy!", ephemeral=True)
             return
@@ -7401,16 +7467,37 @@ class AttackView(discord.ui.View):
         level = weapon['skill_level']
         multiplier = skill['base'] + (level - 1) * skill['increment']
 
+        # Skill-specific modifiers for this attack
+        crit_mult = 1.0
+        crit_damage_bonus = 0
+        bleed_chance_bonus = 0
+        bleed_damage_mult = 1.0
+
+        if skill['name'] == "Bloodmoon Rend":
+            bleed_chance_bonus = 15
+            bleed_damage_mult = 1.25
+        elif skill['name'] == "Shadowbane":
+            crit_mult = 2.0
+            crit_damage_bonus = 50
+
+        # Effective stats for this attack
+        effective_crit_chance = a_stats['crit_chance'] * crit_mult
+        effective_crit_damage = a_stats['crit_damage'] + crit_damage_bonus
+        effective_bleed_chance = a_stats['bleed_chance'] + bleed_chance_bonus
+
+        # Damage calculation
         base_damage = a_stats['atk'] * multiplier
         damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
 
-        is_crit = random.random() < a_stats['crit_chance'] / 100
+        # Critical hit
+        is_crit = random.random() < effective_crit_chance / 100
         if is_crit:
-            damage = int(damage * (1 + a_stats['crit_damage'] / 100))
+            damage = int(damage * (1 + effective_crit_damage / 100))
 
         new_defender_hp = max(0, d_stats['hp'] - damage)
         await update_player_hp(self.defender_id, new_defender_hp)
 
+        # Reflect
         reflect_damage = 0
         if d_stats['reflect'] > 0:
             reflect_damage = int(damage * d_stats['reflect'] / 100)
@@ -7418,10 +7505,11 @@ class AttackView(discord.ui.View):
                 new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
                 await update_player_hp(self.attacker_id, new_attacker_hp)
 
+        # Bleed (using modified chance and damage)
         bleed_applied = False
         bleed_tick = 0
-        if random.random() < a_stats['bleed_chance'] / 100:
-            bleed_tick = int(a_stats['atk'] * (a_stats['bleed_damage'] / 100))
+        if random.random() < effective_bleed_chance / 100:
+            bleed_tick = int(a_stats['atk'] * (a_stats['bleed_damage'] * bleed_damage_mult / 100))
             if bleed_tick > 0:
                 bleed_applied = True
                 async with bot.db_pool.acquire() as conn:
@@ -7430,8 +7518,50 @@ class AttackView(discord.ui.View):
                         VALUES ($1, 'bleed', $2, 3)
                     """, self.defender_id, bleed_tick)
 
+        # Burn (only for Dawn Breaker)
+        burn_applied = False
+        burn_tick = 0
+        if skill['name'] == "Dawn's Wrath":
+            burn_chance = 25
+            burn_damage_percent = 20
+            if random.random() < burn_chance / 100:
+                burn_tick = int(damage * burn_damage_percent / 100)
+                if burn_tick > 0:
+                    burn_applied = True
+                    async with bot.db_pool.acquire() as conn:
+                        await conn.execute("""
+                            INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
+                            VALUES ($1, 'burn', $2, 3)
+                        """, self.defender_id, burn_tick)
+
+        # Apply buffs/debuffs from other skills
+        buff_applied = None  # store message
+        if skill['name'] == "Zenith Slash" and random.random() < 0.20:
+            async with bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
+                    VALUES ($1, 'atk_mult', 1.5, 2)
+                """, self.attacker_id)
+            buff_applied = f"{a_user.display_name} gains 50% ATK boost for 2 turns!"
+
+        if skill['name'] == "Abyssal Strike" and random.random() < 0.30:
+            async with bot.db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
+                    VALUES ($1, 'def_mult', 0.85, 3)
+                """, self.defender_id)
+            buff_applied = f"{d_user.display_name}'s DEF reduced by 15% for 3 turns!"
+
         new_energy = a_stats['energy'] - 1
         await update_player_energy(self.attacker_id, new_energy)
+
+        # Decrement buff turns for both players
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE active_buffs SET remaining_turns = remaining_turns - 1
+                WHERE target_id IN ($1, $2) AND remaining_turns > 0
+            """, self.attacker_id, self.defender_id)
+            await conn.execute("DELETE FROM active_buffs WHERE remaining_turns <= 0")
 
         # Build action text
         attacker_name = a_user.display_name
@@ -7448,6 +7578,12 @@ class AttackView(discord.ui.View):
 
         if bleed_applied:
             action_lines.append(f"{defender_name} is bleeding for {bleed_tick} damage per second for 3s")
+
+        if burn_applied:
+            action_lines.append(f"{defender_name} is burning for {burn_tick} damage per second for 3s")
+
+        if buff_applied:
+            action_lines.append(buff_applied)
 
         action_text = "\n".join(action_lines)
 
@@ -7579,6 +7715,16 @@ async def get_player_stats(user_id: str):
             crit_chance += val
         elif stat == 'bleed':
             bleed_damage += val
+
+    # Apply active buffs/debuffs
+    async with bot.db_pool.acquire() as conn:
+        buffs = await conn.fetch("SELECT * FROM active_buffs WHERE target_id = $1", user_id)
+    for buff in buffs:
+        if buff['effect_type'] == 'atk_mult':
+            atk = int(atk * buff['value'])
+        elif buff['effect_type'] == 'def_mult':
+            defense = int(defense * buff['value'])
+        # Add other effect types if needed
 
     return {
         'hp': row['hp'],
