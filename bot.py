@@ -7298,6 +7298,57 @@ async def attack(ctx, target: discord.Member):
     msg = await ctx.send(embed=embed, view=view)
     view.message_id = msg.id
 
+
+async def format_gear_grid(user_id: str) -> str:
+    """Return a formatted string of the user's equipped gear."""
+    async with bot.db_pool.acquire() as conn:
+        weapon_name = await conn.fetchval("""
+            SELECT COALESCE(si.name, uw.generated_name)
+            FROM user_weapons uw
+            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+            WHERE uw.user_id = $1 AND uw.equipped = TRUE
+            LIMIT 1
+        """, user_id)
+        armor = await conn.fetch("""
+            SELECT at.name, at.slot
+            FROM user_armor ua
+            JOIN armor_types at ON ua.armor_id = at.armor_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+        acc = await conn.fetch("""
+            SELECT at.name, ua.slot
+            FROM user_accessories ua
+            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+            WHERE ua.user_id = $1 AND ua.equipped = TRUE
+        """, user_id)
+
+    def slot_emoji(slot_type, item_name=None):
+        if item_name:
+            return get_item_emoji(item_name, slot_type)
+        return '⬛'
+
+    armor_dict = {a['slot']: a['name'] for a in armor}
+    acc_dict = {a['slot']: a['name'] for a in acc}
+
+    weapon_emoji = slot_emoji('weapon', weapon_name) if weapon_name else '⬛'
+    helm = slot_emoji('armor', armor_dict.get('helm'))
+    suit = slot_emoji('armor', armor_dict.get('suit'))
+    gauntlets = slot_emoji('armor', armor_dict.get('gauntlets'))
+    boots = slot_emoji('armor', armor_dict.get('boots'))
+    ring1 = slot_emoji('accessory', acc_dict.get('ring1'))
+    ring2 = slot_emoji('accessory', acc_dict.get('ring2'))
+    earring1 = slot_emoji('accessory', acc_dict.get('earring1'))
+    earring2 = slot_emoji('accessory', acc_dict.get('earring2'))
+    pendant = slot_emoji('accessory', acc_dict.get('pendant'))
+
+    lines = []
+    lines.append(f"{weapon_emoji}")  # sword row
+    lines.append(f"{helm} {suit}")   # helm & armor
+    lines.append(f"{gauntlets} {boots} 🐾")  # gauntlets, boots, pet (placeholder)
+    lines.append(f"{ring1} {earring1} {pendant} {earring2} {ring2}")  # accessories
+    return '\n'.join(lines)
+
+
 #    ATTACKVIEW----------
 
 class AttackView(discord.ui.View):
@@ -7530,81 +7581,7 @@ async def get_player_stats(user_id: str):
         'reflect': reflect
     }
 
-async def get_equipped_emojis(user_id: str) -> str:
-    """Return a string of custom emojis representing the user's equipped gear."""
-    async with bot.db_pool.acquire() as conn:
-        weapon_name = await conn.fetchval("""
-            SELECT COALESCE(si.name, uw.generated_name)
-            FROM user_weapons uw
-            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-            WHERE uw.user_id = $1 AND uw.equipped = TRUE
-            LIMIT 1
-        """, user_id)
-        armor = await conn.fetch("""
-            SELECT at.name, at.slot
-            FROM user_armor ua
-            JOIN armor_types at ON ua.armor_id = at.armor_id
-            WHERE ua.user_id = $1 AND ua.equipped = TRUE
-        """, user_id)
-        acc = await conn.fetch("""
-            SELECT at.name, ua.slot
-            FROM user_accessories ua
-            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
-            WHERE ua.user_id = $1 AND ua.equipped = TRUE
-        """, user_id)
 
-    emojis = []
-    if weapon_name:
-        emojis.append(get_item_emoji(weapon_name, 'weapon'))
-    # Order armor by slot
-    slot_order = {'helm':0, 'suit':1, 'gauntlets':2, 'boots':3}
-    armor.sort(key=lambda x: slot_order.get(x['slot'], 99))
-    for a in armor:
-        emojis.append(get_item_emoji(a['name'], 'armor'))
-    for a in acc:
-        emojis.append(get_item_emoji(a['name'], 'accessory'))
-    return ' '.join(emojis) if emojis else 'None'
-
-async def update_player_hp(user_id: str, new_hp: int):
-    async with bot.db_pool.acquire() as conn:
-        await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, user_id)
-
-async def update_player_energy(user_id: str, new_energy: int):
-    async with bot.db_pool.acquire() as conn:
-        await conn.execute("UPDATE player_stats SET energy = $1 WHERE user_id = $2", new_energy, user_id)
-
-async def get_equipped_emojis(user_id: str) -> str:
-    async with bot.db_pool.acquire() as conn:
-        weapon_name = await conn.fetchval("""
-            SELECT COALESCE(si.name, uw.generated_name)
-            FROM user_weapons uw
-            LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-            WHERE uw.user_id = $1 AND uw.equipped = TRUE
-            LIMIT 1
-        """, user_id)
-        armor = await conn.fetch("""
-            SELECT at.name, at.slot
-            FROM user_armor ua
-            JOIN armor_types at ON ua.armor_id = at.armor_id
-            WHERE ua.user_id = $1 AND ua.equipped = TRUE
-        """, user_id)
-        acc = await conn.fetch("""
-            SELECT at.name, ua.slot
-            FROM user_accessories ua
-            JOIN accessory_types at ON ua.accessory_id = at.accessory_id
-            WHERE ua.user_id = $1 AND ua.equipped = TRUE
-        """, user_id)
-
-    emojis = []
-    if weapon_name:
-        emojis.append(get_item_emoji(weapon_name, 'weapon'))
-    slot_order = {'helm':0, 'suit':1, 'gauntlets':2, 'boots':3}
-    armor.sort(key=lambda x: slot_order.get(x['slot'], 99))
-    for a in armor:
-        emojis.append(get_item_emoji(a['name'], 'armor'))
-    for a in acc:
-        emojis.append(get_item_emoji(a['name'], 'accessory'))
-    return ' '.join(emojis) if emojis else 'None'
 
 
 
