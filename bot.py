@@ -7300,7 +7300,7 @@ async def attack(ctx, target: discord.Member):
 
 
 async def format_gear_grid(user_id: str) -> str:
-    """Return a formatted string of the user's equipped gear."""
+    """Return a formatted string of the user's equipped gear (3 lines)."""
     async with bot.db_pool.acquire() as conn:
         weapon_name = await conn.fetchval("""
             SELECT COALESCE(si.name, uw.generated_name)
@@ -7325,12 +7325,12 @@ async def format_gear_grid(user_id: str) -> str:
     def slot_emoji(slot_type, item_name=None):
         if item_name:
             return get_item_emoji(item_name, slot_type)
-        return '⬛'
+        return '*none*'   # or '⬛' if you prefer
 
     armor_dict = {a['slot']: a['name'] for a in armor}
     acc_dict = {a['slot']: a['name'] for a in acc}
 
-    weapon_emoji = slot_emoji('weapon', weapon_name) if weapon_name else '⬛'
+    weapon_emoji = slot_emoji('weapon', weapon_name) if weapon_name else '*none*'
     helm = slot_emoji('armor', armor_dict.get('helm'))
     suit = slot_emoji('armor', armor_dict.get('suit'))
     gauntlets = slot_emoji('armor', armor_dict.get('gauntlets'))
@@ -7341,12 +7341,11 @@ async def format_gear_grid(user_id: str) -> str:
     earring2 = slot_emoji('accessory', acc_dict.get('earring2'))
     pendant = slot_emoji('accessory', acc_dict.get('pendant'))
 
-    lines = []
-    lines.append(f"{weapon_emoji}")  # sword row
-    lines.append(f"{helm} {suit}")   # helm & armor
-    lines.append(f"{gauntlets} {boots} 🐾")  # gauntlets, boots, pet (placeholder)
-    lines.append(f"{ring1} {earring1} {pendant} {earring2} {ring2}")  # accessories
-    return '\n'.join(lines)
+    # Build three lines
+    line1 = f"{weapon_emoji}"
+    line2 = f"{helm} {suit} {gauntlets} {boots} 🐾"   # pet placeholder
+    line3 = f"{ring1} {earring1} {pendant} {earring2} {ring2}"
+    return f"{line1}\n{line2}\n{line3}"
 
 
 #    ATTACKVIEW----------
@@ -7365,9 +7364,10 @@ class AttackView(discord.ui.View):
     @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger)
     async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.defer()
-        # Perform attack logic (same as before)
         a_stats = await get_player_stats(self.attacker_id)
         d_stats = await get_player_stats(self.defender_id)
+        a_user = bot.get_user(int(self.attacker_id))
+        d_user = bot.get_user(int(self.defender_id))
 
         if d_stats['hp'] <= 0:
             await interaction.followup.send("Target is already dead!", ephemeral=True)
@@ -7433,13 +7433,23 @@ class AttackView(discord.ui.View):
         new_energy = a_stats['energy'] - 1
         await update_player_energy(self.attacker_id, new_energy)
 
+        # Build action text
+        attacker_name = a_user.display_name
+        defender_name = d_user.display_name
+        skill_name = skill['name']
         action_lines = []
-        action_lines.append(f"**Damage:** {damage}" + (" 💥 CRIT!" if is_crit else ""))
+        base_line = f"{attacker_name} uses {skill_name} and deals **{damage}** damage to {defender_name}"
+        if is_crit:
+            base_line += " 💥 CRITICAL!"
+        action_lines.append(base_line)
+
         if reflect_damage > 0:
-            action_lines.append(f"**Reflect:** {reflect_damage} damage to attacker")
+            action_lines.append(f"{defender_name}'s reflect deals **{reflect_damage}** damage to {attacker_name}")
+
         if bleed_applied:
-            action_lines.append(f"**Bleed:** {bleed_tick} dmg/sec for 3s")
-        action_text = "\n".join(action_lines) or "No effect."
+            action_lines.append(f"{defender_name} is bleeding for {bleed_tick} damage per second for 3s")
+
+        action_text = "\n".join(action_lines)
 
         # Update the message
         channel = bot.get_channel(self.channel_id)
@@ -7453,7 +7463,7 @@ class AttackView(discord.ui.View):
         await msg.edit(embed=new_embed, view=self)
 
     async def build_duel_embed(self, action_text: str = None):
-        """Build the duel embed with current stats and gear."""
+        """Build the duel embed with vertical stats, gear grids, and action result."""
         a_stats = await get_player_stats(self.attacker_id)
         d_stats = await get_player_stats(self.defender_id)
         a_user = bot.get_user(int(self.attacker_id))
@@ -7470,28 +7480,32 @@ class AttackView(discord.ui.View):
             filled = int(percent * 10)
             return "🟥" * filled + "⬛" * (10 - filled) + f" `{current}/{max_hp}`"
 
-        # Attacker stats
-        a_hp_str = hp_bar(a_stats['hp'], a_stats['max_hp'])
-        a_def_str = f"🛡️ DEF: {a_stats['def']}"
-        a_energy_str = "⚡ " + "🟨" * a_stats['energy'] + "⬛" * (a_stats['max_energy'] - a_stats['energy']) + f" `{a_stats['energy']}/{a_stats['max_energy']}`"
-        a_stats_field = f"{a_hp_str}\n{a_def_str}\n{a_energy_str}"
+        def energy_bar(current, max_energy):
+            percent = current / max_energy
+            filled = int(percent * 10)
+            return "🟨" * filled + "⬛" * (10 - filled) + f" `{current}/{max_energy}`"
 
-        # Defender stats
-        d_hp_str = hp_bar(d_stats['hp'], d_stats['max_hp'])
-        d_def_str = f"🛡️ DEF: {d_stats['def']}"
-        d_energy_str = "⚡ " + "🟨" * d_stats['energy'] + "⬛" * (d_stats['max_energy'] - d_stats['energy']) + f" `{d_stats['energy']}/{d_stats['max_energy']}`"
-        d_stats_field = f"{d_hp_str}\n{d_def_str}\n{d_energy_str}"
+        def def_bar(value):
+            return "🟦" * 10 + f" `{value} DEF`"
 
-        embed.add_field(name=f"{a_user.display_name}'s Stats", value=a_stats_field, inline=True)
-        embed.add_field(name=f"{d_user.display_name}'s Stats", value=d_stats_field, inline=True)
+        a_hp = hp_bar(a_stats['hp'], a_stats['max_hp'])
+        a_def = def_bar(a_stats['def'])
+        a_energy = energy_bar(a_stats['energy'], a_stats['max_energy'])
+        a_stats_text = f"{a_hp}\n{a_def}\n{a_energy}"
 
-        # Gear grids
-        a_grid = await format_gear_grid(self.attacker_id)
-        d_grid = await format_gear_grid(self.defender_id)
-        embed.add_field(name=f"{a_user.display_name}'s Gear", value=a_grid, inline=False)
-        embed.add_field(name=f"{d_user.display_name}'s Gear", value=d_grid, inline=False)
+        d_hp = hp_bar(d_stats['hp'], d_stats['max_hp'])
+        d_def = def_bar(d_stats['def'])
+        d_energy = energy_bar(d_stats['energy'], d_stats['max_energy'])
+        d_stats_text = f"{d_hp}\n{d_def}\n{d_energy}"
 
-        # Divider and action result
+        a_gear = await format_gear_grid(self.attacker_id)
+        d_gear = await format_gear_grid(self.defender_id)
+
+        embed.add_field(name=f"{a_user.display_name}'s Stats", value=a_stats_text, inline=False)
+        embed.add_field(name="Gears", value=a_gear, inline=False)
+        embed.add_field(name=f"{d_user.display_name}'s Stats", value=d_stats_text, inline=False)
+        embed.add_field(name="Gears", value=d_gear, inline=False)
+
         if action_text:
             embed.add_field(name="▬" * 20, value=action_text, inline=False)
         else:
