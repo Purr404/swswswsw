@@ -6899,6 +6899,30 @@ class Shop(commands.Cog):
         user_id = str(ctx.author.id)
 
         async with self.bot.db_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT hp, respawn_at FROM player_stats WHERE user_id = $1", user_id)
+        if row and row['hp'] <= 0:
+            respawn = row['respawn_at']
+            if respawn:
+                if respawn.tzinfo is None:
+                    respawn = respawn.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                remaining = respawn - now
+                if remaining.total_seconds() <= 0:
+                    msg = "You are dead and cannot access your inventory. (respawn time already passed)"
+                else:
+                    hours = int(remaining.total_seconds() // 3600)
+                    minutes = int((remaining.total_seconds() % 3600) // 60)
+                    if hours > 0:
+                        time_str = f"{hours}h {minutes}m"
+                    else:
+                        time_str = f"{minutes}m"
+                    msg = f"You are dead and cannot access your inventory. Revives in {time_str}."
+            else:
+                msg = "You are dead and cannot access your inventory."
+            await ctx.send(msg)
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
             weapons = await conn.fetch("""
                 SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
                        uw.attack, uw.equipped, uw.description,
