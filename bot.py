@@ -707,6 +707,27 @@ async def upgrade_skill(ctx):
     await ctx.send(f"✅ Your **{wname}**'s skill is now **Level {current_level + 1}**!")
 
 
+@bot.command(name='respawn')
+async def check_respawn(ctx):
+    """Check your respawn time."""
+    user_id = str(ctx.author.id)
+    async with bot.db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT hp, respawn_at FROM player_stats WHERE user_id = $1", user_id)
+    if not row:
+        await ctx.send("No stats found.")
+        return
+    hp = row['hp']
+    respawn = row['respawn_at']
+    if hp > 0:
+        await ctx.send(f"Your HP is {hp}. You are alive.")
+    else:
+        if respawn:
+            now = datetime.now(timezone.utc)
+            remaining = respawn - now
+            await ctx.send(f"You are dead. Respawn at {respawn} (in {remaining})")
+        else:
+            await ctx.send("You are dead but no respawn time set!")
+
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
