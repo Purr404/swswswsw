@@ -7416,19 +7416,19 @@ class AttackView(discord.ui.View):
                     return ""
                 if respawn_at.tzinfo is None:
                     respawn_at = respawn_at.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            remaining = respawn_at - now
-            if remaining.total_seconds() <= 0:
-                return ""
-            hours = int(remaining.total_seconds() // 3600)
-            minutes = int((remaining.total_seconds() % 3600) // 60)
-            seconds = int(remaining.total_seconds() % 60)
-            if hours > 0:
-                return f"{hours}h {minutes}m"
-            elif minutes > 0:
-                return f"{minutes}m {seconds}s"
-            else:
-                return f"{seconds}s"
+                now = datetime.now(timezone.utc)
+                remaining = respawn_at - now
+                if remaining.total_seconds() <= 0:
+                    return ""
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                seconds = int(remaining.total_seconds() % 60)
+                if hours > 0:
+                    return f"{hours}h {minutes}m"
+                elif minutes > 0:
+                    return f"{minutes}m {seconds}s"
+                else:
+                    return f"{seconds}s"
 
             # Attacker dead check
             if a_stats['hp'] <= 0:
