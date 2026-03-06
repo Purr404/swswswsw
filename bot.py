@@ -1184,7 +1184,7 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS hp_bonus INTEGER DEFAULT 0')
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS atk_bonus INTEGER DEFAULT 0')
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS bleed_damage FLOAT DEFAULT 0')
-                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS respawn_at TIMESTAMP')
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS respawn_at TIMESTAMPTZ')
 
                     # Update shop_items type constraint
                     await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
@@ -3644,8 +3644,9 @@ async def respawn_task():
             await conn.execute("""
                 UPDATE player_stats
                 SET hp = max_hp, respawn_at = NULL
-                WHERE respawn_at IS NOT NULL AND respawn_at <= NOW()
+                WHERE respawn_at IS NOT NULL AND respawn_at <= NOW() AT TIME ZONE 'UTC'
             """)
+
         print("respawn_task tick")
     except Exception as e:
         print(f"❌ respawn_task error: {e}")
