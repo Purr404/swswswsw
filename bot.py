@@ -7407,29 +7407,8 @@ class AttackView(discord.ui.View):
 
     @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger)
     async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        # Immediate feedback
-        await interaction.response.send_message("⚙️ Processing attack...", ephemeral=True)
-        print("DEBUG: attack_button called")
-
         try:
-            # Fetch stats and users
-            a_stats = await get_player_stats(self.attacker_id)
-            d_stats = await get_player_stats(self.defender_id)
-            a_user = bot.get_user(int(self.attacker_id))
-            d_user = bot.get_user(int(self.defender_id))
-
-            # Debug prints (visible in Railway logs)
-            print(f"DEBUG: Attacker HP={a_stats['hp']}, respawn_at={a_stats.get('respawn_at')}")
-            print(f"DEBUG: Defender HP={d_stats['hp']}, respawn_at={d_stats.get('respawn_at')}")
-
-            # Also send ephemeral debug info
-            await interaction.followup.send(
-                f"**Debug stats:**\n"
-                f"Your HP: {a_stats['hp']}/{a_stats['max_hp']}\n"
-                f"Target HP: {d_stats['hp']}/{d_stats['max_hp']}\n"
-                f"Respawn: {a_stats.get('respawn_at')}",
-                ephemeral=True
-            )
+            await interaction.response.defer()
 
             # Helper to format remaining time
             def format_remaining_time(respawn_at):
