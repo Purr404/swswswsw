@@ -7453,33 +7453,33 @@ class AttackView(discord.ui.View):
 
             # Attacker dead check
             if a_stats['hp'] <= 0:
-                respawn_val = a_stats.get('respawn_at')
-                if respawn_val:
-                    # Ensure it's timezone-aware (just in case)
-                    if respawn_val.tzinfo is None:
-                        respawn_val = respawn_val.replace(tzinfo=timezone.utc)
-                    # Convert to Unix timestamp and use Discord's relative format
-                    timestamp = int(respawn_val.timestamp())
+                async with bot.db_pool.acquire() as conn:
+                    db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", self.attacker_id)
+                if db_respawn:
+                    # Ensure timezone-aware (just in case)
+                    if db_respawn.tzinfo is None:
+                        db_respawn = db_respawn.replace(tzinfo=timezone.utc)
+                    timestamp = int(db_respawn.timestamp())
                     msg = f"You are dead and cannot attack! You will revive <t:{timestamp}:R>."
                 else:
-                    msg = "You are dead and cannot attack!"
+                    msg = "You are dead and cannot attack! (no respawn time set)"
                 await interaction.followup.send(msg, ephemeral=True)
-                print(f"DEBUG: Attacker dead, sent: {msg}")
                 return
 
             # Defender dead check
             if d_stats['hp'] <= 0:
-                respawn_val = d_stats.get('respawn_at')
-                if respawn_val:
-                    if respawn_val.tzinfo is None:
-                        respawn_val = respawn_val.replace(tzinfo=timezone.utc)
-                    timestamp = int(respawn_val.timestamp())
+                async with bot.db_pool.acquire() as conn:
+                    db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", self.defender_id)
+                if db_respawn:
+                    if db_respawn.tzinfo is None:
+                        db_respawn = db_respawn.replace(tzinfo=timezone.utc)
+                    timestamp = int(db_respawn.timestamp())
                     msg = f"Target is already dead! They will revive <t:{timestamp}:R>."
                 else:
                     msg = "Target is already dead!"
                 await interaction.followup.send(msg, ephemeral=True)
-                print(f"DEBUG: Defender dead, sent: {msg}")
                 return
+
 
             # Energy check
             if a_stats['energy'] < 1:
