@@ -3659,14 +3659,15 @@ async def on_ready():
         await load_shop_persistence(bot)
         await load_mining_persistence(bot)
         print("✅ Your data will persist across redeploys")
-    else:
-        print("⚠️ Database not connected – fortune bags and shop will not be available.")
-        print("❌ Data may reset on redeploy")
+        
+        # Start background tasks that need the database
         clean_old_trades.start()
         process_effects.start()
         respawn_task.start()
+    else:
+        print("⚠️ Database not connected – some features will not work.")
+        # Optionally start tasks that don't need DB? Not recommended.
 
-    
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
@@ -3674,7 +3675,6 @@ async def on_ready():
         )
     )
     print("\n🤖 Bot is ready!")
-
 
 @bot.event
 async def on_error(event, *args, **kwargs):
