@@ -7462,16 +7462,29 @@ class AttackView(discord.ui.View):
             if d_stats['hp'] <= 0:
                 async with bot.db_pool.acquire() as conn:
                     db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", self.defender_id)
+
                 if db_respawn:
                     if db_respawn.tzinfo is None:
                         db_respawn = db_respawn.replace(tzinfo=timezone.utc)
-                    timestamp = int(db_respawn.timestamp())
-                    msg = f"Target is already dead! They will revive <t:{timestamp}:R>."
+                    now = datetime.now(timezone.utc)
+                    remaining = db_respawn - now
+                    if remaining.total_seconds() <= 0:
+                        msg = "Target is already dead! (respawn time already passed)"
+                    else:
+                        hours = int(remaining.total_seconds() // 3600)
+                        minutes = int((remaining.total_seconds() % 3600) // 60)
+                        seconds = int(remaining.total_seconds() % 60)
+                        if hours > 0:
+                            time_str = f"{hours}h {minutes}m"
+                        elif minutes > 0:
+                            time_str = f"{minutes}m {seconds}s"
+                        else:
+                        time_str = f"{seconds}s"
+                        msg = f"Target is already dead! Revives in {time_str}."
                 else:
                     msg = "Target is already dead!"
                 await interaction.followup.send(msg, ephemeral=True)
                 return
-
 
             # Energy check
             if a_stats['energy'] < 1:
@@ -7625,7 +7638,7 @@ class AttackView(discord.ui.View):
             action_lines.append(base_line)
 
             if reflect_damage > 0:
-                action_lines.append(f"{defender_name}'s reflected **{reflect_damage}** damage to {attacker_name}")
+                action_lines.append(f"{defender_name} reflected **{reflect_damage}** damage to {attacker_name}")
 
             if bleed_applied:
                 action_lines.append(f"{defender_name} is bleeding, taking {bleed_tick} damage per second for 3s")
