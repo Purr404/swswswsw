@@ -3606,43 +3606,50 @@ async def fortune_bag_to(ctx, channel: discord.TextChannel):
 
 @tasks.loop(seconds=1)
 async def process_effects():
-    async with bot.db_pool.acquire() as conn:
-        # Apply damage
-        await conn.execute("""
-            UPDATE player_stats
-            SET hp = GREATEST(hp - value, 0)
-            FROM active_effects
-            WHERE player_stats.user_id = active_effects.target_id
-              AND active_effects.remaining_ticks > 0
-        """)
-        # Decrement ticks
-        await conn.execute("""
-            UPDATE active_effects
-            SET remaining_ticks = remaining_ticks - 1
-            WHERE remaining_ticks > 0
-        """)
-        # Delete expired
-        await conn.execute("DELETE FROM active_effects WHERE remaining_ticks <= 0")
-        
-        # Set respawn timer for players who just died
-        await conn.execute("""
-            UPDATE player_stats
-            SET respawn_at = NOW() + INTERVAL '2 hours'
-            WHERE hp <= 0 AND respawn_at IS NULL
-        """)
+    try:
+        async with bot.db_pool.acquire() as conn:
+            # Apply damage
+            await conn.execute("""
+                UPDATE player_stats
+                SET hp = GREATEST(hp - value, 0)
+                FROM active_effects
+                WHERE player_stats.user_id = active_effects.target_id
+                  AND active_effects.remaining_ticks > 0
+            """)
+            # Decrement ticks
+            await conn.execute("""
+                UPDATE active_effects
+                SET remaining_ticks = remaining_ticks - 1
+                WHERE remaining_ticks > 0
+            """)
+            # Delete expired
+            await conn.execute("DELETE FROM active_effects WHERE remaining_ticks <= 0")
 
+            # Set respawn timer for players who just died
+            await conn.execute("""
+                UPDATE player_stats
+                SET respawn_at = NOW() + INTERVAL '2 hours'
+                WHERE hp <= 0 AND respawn_at IS NULL
+            """)
+        # Optional debug print (visible in Railway logs)
+        print("process_effects tick")
+    except Exception as e:
+        print(f"❌ process_effects error: {e}")
+        traceback.print_exc()
 
-#    REVIVE TASK
 @tasks.loop(minutes=1)
 async def respawn_task():
-    """Revive players whose respawn time has passed."""
-    async with bot.db_pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE player_stats
-            SET hp = max_hp, respawn_at = NULL
-            WHERE respawn_at IS NOT NULL AND respawn_at <= NOW()
-        """)
-
+    try:
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE player_stats
+                SET hp = max_hp, respawn_at = NULL
+                WHERE respawn_at IS NOT NULL AND respawn_at <= NOW()
+            """)
+        print("respawn_task tick")
+    except Exception as e:
+        print(f"❌ respawn_task error: {e}")
+        traceback.print_exc()
 
 # === BOT STARTUP ===
 @bot.event
@@ -7497,6 +7504,14 @@ class AttackView(discord.ui.View):
 
             new_defender_hp = max(0, d_stats['hp'] - damage)
             await update_player_hp(self.defender_id, new_defender_hp)
+            # If defender died, set respawn timer
+            if new_defender_hp == 0:
+                async with bot.db_pool.acquire() as conn:
+                    await conn.execute("""
+                        UPDATE player_stats
+                        SET respawn_at = NOW() + INTERVAL '2 hours'
+                        WHERE user_id = $1 AND respawn_at IS NULL
+                    """, self.defender_id)
 
             # Reflect
             reflect_damage = 0
@@ -7505,6 +7520,14 @@ class AttackView(discord.ui.View):
                 if reflect_damage > 0:
                     new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
                     await update_player_hp(self.attacker_id, new_attacker_hp)
+                    # If attacker died from reflect, set respawn timer
+                    if new_attacker_hp == 0:
+                        async with bot.db_pool.acquire() as conn:
+                            await conn.execute("""
+                                UPDATE player_stats
+                                SET respawn_at = NOW() + INTERVAL '2 hours'
+                                WHERE user_id = $1 AND respawn_at IS NULL
+                            """, self.attacker_id)
 
             # Bleed
             bleed_applied = False
