@@ -7410,6 +7410,11 @@ class AttackView(discord.ui.View):
         try:
             await interaction.response.defer()
 
+            a_stats = await get_player_stats(self.attacker_id)
+            d_stats = await get_player_stats(self.defender_id)
+            a_user = bot.get_user(int(self.attacker_id))
+            d_user = bot.get_user(int(self.defender_id))
+
             # Helper to format remaining time
             def format_remaining_time(respawn_at):
                 if not respawn_at:
