@@ -7375,8 +7375,29 @@ class AttackView(discord.ui.View):
 
     @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger)
     async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        # Immediate feedback
+        await interaction.response.send_message("⚙️ Processing attack...", ephemeral=True)
+        print("DEBUG: attack_button called")
+
         try:
-            await interaction.response.defer()
+            # Fetch stats and users
+            a_stats = await get_player_stats(self.attacker_id)
+            d_stats = await get_player_stats(self.defender_id)
+            a_user = bot.get_user(int(self.attacker_id))
+            d_user = bot.get_user(int(self.defender_id))
+
+            # Debug prints (visible in Railway logs)
+            print(f"DEBUG: Attacker HP={a_stats['hp']}, respawn_at={a_stats.get('respawn_at')}")
+            print(f"DEBUG: Defender HP={d_stats['hp']}, respawn_at={d_stats.get('respawn_at')}")
+
+            # Also send ephemeral debug info
+            await interaction.followup.send(
+                f"**Debug stats:**\n"
+                f"Your HP: {a_stats['hp']}/{a_stats['max_hp']}\n"
+                f"Target HP: {d_stats['hp']}/{d_stats['max_hp']}\n"
+                f"Respawn: {a_stats.get('respawn_at')}",
+                ephemeral=True
+            )
 
             # Helper to format remaining time
             def format_remaining_time(respawn_at):
@@ -7398,16 +7419,6 @@ class AttackView(discord.ui.View):
                 else:
                     return f"{seconds}s"
 
-            a_stats = await get_player_stats(self.attacker_id)
-            d_stats = await get_player_stats(self.defender_id)
-            a_user = bot.get_user(int(self.attacker_id))
-            d_user = bot.get_user(int(self.defender_id))
-
-            # --- DEBUG LOGS (to #bot-logs) ---
-            await log_to_discord(bot, f"DEBUG: Attacker HP={a_stats['hp']}, respawn_at={a_stats.get('respawn_at')}", level="DEBUG")
-            await log_to_discord(bot, f"DEBUG: Defender HP={d_stats['hp']}, respawn_at={d_stats.get('respawn_at')}", level="DEBUG")
-            # ----------------------------------
-
             # Attacker dead check
             if a_stats['hp'] <= 0:
                 time_left = format_remaining_time(a_stats.get('respawn_at'))
@@ -7415,6 +7426,7 @@ class AttackView(discord.ui.View):
                 if time_left:
                     msg += f" Revives in {time_left}."
                 await interaction.followup.send(msg, ephemeral=True)
+                print(f"DEBUG: Attacker dead, sent: {msg}")
                 return
 
             # Defender dead check
@@ -7424,13 +7436,16 @@ class AttackView(discord.ui.View):
                 if time_left:
                     msg += f" Revives in {time_left}."
                 await interaction.followup.send(msg, ephemeral=True)
+                print(f"DEBUG: Defender dead, sent: {msg}")
                 return
 
             # Energy check
             if a_stats['energy'] < 1:
                 await interaction.followup.send("Not enough energy!", ephemeral=True)
+                print("DEBUG: Not enough energy")
                 return
 
+            # Get equipped weapon
             async with bot.db_pool.acquire() as conn:
                 weapon = await conn.fetchrow("""
                     SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
@@ -7442,11 +7457,13 @@ class AttackView(discord.ui.View):
 
             if not weapon:
                 await interaction.followup.send("You don't have a weapon equipped!", ephemeral=True)
+                print("DEBUG: No weapon")
                 return
 
             wname = weapon['name']
             if wname not in SWORD_SKILLS:
                 await interaction.followup.send("Your weapon has no skill!", ephemeral=True)
+                print("DEBUG: No skill")
                 return
 
             skill = SWORD_SKILLS[wname]
@@ -7558,13 +7575,13 @@ class AttackView(discord.ui.View):
             action_lines.append(base_line)
 
             if reflect_damage > 0:
-                action_lines.append(f"{defender_name}'s reflect deals **{reflect_damage}** damage to {attacker_name}")
+                action_lines.append(f"{defender_name}'s reflected **{reflect_damage}** damage to {attacker_name}")
 
             if bleed_applied:
-                action_lines.append(f"{defender_name} is bleeding for {bleed_tick} damage per second for 3s")
+                action_lines.append(f"{defender_name} is bleeding, taking {bleed_tick} damage per second for 3s")
 
             if burn_applied:
-                action_lines.append(f"{defender_name} is burning for {burn_tick} damage per second for 3s")
+                action_lines.append(f"{defender_name} is burning, taking {burn_tick} damage per second for 3s")
 
             if buff_applied:
                 action_lines.append(buff_applied)
@@ -7583,10 +7600,10 @@ class AttackView(discord.ui.View):
             await msg.edit(embed=new_embed, view=self)
 
         except Exception as e:
+            import traceback
             tb = traceback.format_exc()
-            await log_to_discord(bot, f"Error in attack_button: {e}", level="ERROR", error=e)
-            print(f"Error in attack_button: {e}\n{tb}")  # Console log
-            await interaction.followup.send("An error occurred during the attack.", ephemeral=True)
+            print(f"ERROR in attack_button: {e}\n{tb}")
+            await interaction.followup.send(f"❌ An error occurred: {e}", ephemeral=True)
 
     async def build_duel_embed(self, action_text: str = None):
         """Build the duel embed with vertical stats, gear grids, and action result."""
