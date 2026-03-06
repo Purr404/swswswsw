@@ -4920,6 +4920,10 @@ class Shop(commands.Cog):
             elif main_cat == "tools":
                 await self.show_tools(interaction)
 
+            elif custom_id.startswith("secret_shop_"):
+                purchase_id = int(custom_id.split("_")[2])
+                await self.secret_shop_button(interaction, purchase_id)
+
         elif custom_id == "shop_back_to_main":
             # Build the main categories embed and view
             embed, view = self.build_main_categories()
