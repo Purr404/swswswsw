@@ -7375,211 +7375,218 @@ class AttackView(discord.ui.View):
 
     @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger)
     async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
 
-        # Helper to format remaining time
-        def format_remaining_time(respawn_at):
-            if not respawn_at:
-                return ""
-            now = datetime.now(timezone.utc)
-            if respawn_at.tzinfo is None:
-                respawn_at = respawn_at.replace(tzinfo=timezone.utc)
-            remaining = respawn_at - now
-            if remaining.total_seconds() <= 0:
-                return ""
-            hours = int(remaining.total_seconds() // 3600)
-            minutes = int((remaining.total_seconds() % 3600) // 60)
-            seconds = int(remaining.total_seconds() % 60)
-            if hours > 0:
-                return f"{hours}h {minutes}m"
-            elif minutes > 0:
-                return f"{minutes}m {seconds}s"
-            else:
-                return f"{seconds}s"
+            # Helper to format remaining time
+            def format_remaining_time(respawn_at):
+                if not respawn_at:
+                    return ""
+                now = datetime.now(timezone.utc)
+                if respawn_at.tzinfo is None:
+                    respawn_at = respawn_at.replace(tzinfo=timezone.utc)
+                remaining = respawn_at - now
+                if remaining.total_seconds() <= 0:
+                    return ""
+                hours = int(remaining.total_seconds() // 3600)
+                minutes = int((remaining.total_seconds() % 3600) // 60)
+                seconds = int(remaining.total_seconds() % 60)
+                if hours > 0:
+                    return f"{hours}h {minutes}m"
+                elif minutes > 0:
+                    return f"{minutes}m {seconds}s"
+                else:
+                    return f"{seconds}s"
 
-        a_stats = await get_player_stats(self.attacker_id)
-        d_stats = await get_player_stats(self.defender_id)
-        a_user = bot.get_user(int(self.attacker_id))
-        d_user = bot.get_user(int(self.defender_id))
+            a_stats = await get_player_stats(self.attacker_id)
+            d_stats = await get_player_stats(self.defender_id)
+            a_user = bot.get_user(int(self.attacker_id))
+            d_user = bot.get_user(int(self.defender_id))
 
-        # --- DEBUG PRINT (visible in Railway logs) ---
-        print(f"DEBUG: Attacker HP={a_stats['hp']}, respawn_at={a_stats.get('respawn_at')}")
-        print(f"DEBUG: Defender HP={d_stats['hp']}, respawn_at={d_stats.get('respawn_at')}")
-        # ---------------------------------------------
+            # --- DEBUG LOGS (to #bot-logs) ---
+            await log_to_discord(bot, f"DEBUG: Attacker HP={a_stats['hp']}, respawn_at={a_stats.get('respawn_at')}", level="DEBUG")
+            await log_to_discord(bot, f"DEBUG: Defender HP={d_stats['hp']}, respawn_at={d_stats.get('respawn_at')}", level="DEBUG")
+            # ----------------------------------
 
-        # Attacker dead check
-        if a_stats['hp'] <= 0:
-            time_left = format_remaining_time(a_stats.get('respawn_at'))
-            msg = "You are dead and cannot attack!"
-            if time_left:
-                msg += f" Revives in {time_left}."
-            await interaction.followup.send(msg, ephemeral=True)
-            return
+            # Attacker dead check
+            if a_stats['hp'] <= 0:
+                time_left = format_remaining_time(a_stats.get('respawn_at'))
+                msg = "You are dead and cannot attack!"
+                if time_left:
+                    msg += f" Revives in {time_left}."
+                await interaction.followup.send(msg, ephemeral=True)
+                return
 
-        # Defender dead check
-        if d_stats['hp'] <= 0:
-            time_left = format_remaining_time(d_stats.get('respawn_at'))
-            msg = "Target is already dead!"
-            if time_left:
-                msg += f" Revives in {time_left}."
-            await interaction.followup.send(msg, ephemeral=True)
-            return
+            # Defender dead check
+            if d_stats['hp'] <= 0:
+                time_left = format_remaining_time(d_stats.get('respawn_at'))
+                msg = "Target is already dead!"
+                if time_left:
+                    msg += f" Revives in {time_left}."
+                await interaction.followup.send(msg, ephemeral=True)
+                return
 
-        # Energy check
-        if a_stats['energy'] < 1:
-            await interaction.followup.send("Not enough energy!", ephemeral=True)
-            return
+            # Energy check
+            if a_stats['energy'] < 1:
+                await interaction.followup.send("Not enough energy!", ephemeral=True)
+                return
 
-        async with bot.db_pool.acquire() as conn:
-            weapon = await conn.fetchrow("""
-                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
-                FROM user_weapons uw
-                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
-                WHERE uw.user_id = $1 AND uw.equipped = TRUE
-                LIMIT 1
-            """, self.attacker_id)
+            async with bot.db_pool.acquire() as conn:
+                weapon = await conn.fetchrow("""
+                    SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
+                    FROM user_weapons uw
+                    LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                    WHERE uw.user_id = $1 AND uw.equipped = TRUE
+                    LIMIT 1
+                """, self.attacker_id)
 
-        if not weapon:
-            await interaction.followup.send("You don't have a weapon equipped!", ephemeral=True)
-            return
+            if not weapon:
+                await interaction.followup.send("You don't have a weapon equipped!", ephemeral=True)
+                return
 
-        wname = weapon['name']
-        if wname not in SWORD_SKILLS:
-            await interaction.followup.send("Your weapon has no skill!", ephemeral=True)
-            return
+            wname = weapon['name']
+            if wname not in SWORD_SKILLS:
+                await interaction.followup.send("Your weapon has no skill!", ephemeral=True)
+                return
 
-        skill = SWORD_SKILLS[wname]
-        level = weapon['skill_level']
-        multiplier = skill['base'] + (level - 1) * skill['increment']
+            skill = SWORD_SKILLS[wname]
+            level = weapon['skill_level']
+            multiplier = skill['base'] + (level - 1) * skill['increment']
 
-        # Skill-specific modifiers
-        crit_mult = 1.0
-        crit_damage_bonus = 0
-        bleed_chance_bonus = 0
-        bleed_damage_mult = 1.0
+            # Skill-specific modifiers
+            crit_mult = 1.0
+            crit_damage_bonus = 0
+            bleed_chance_bonus = 0
+            bleed_damage_mult = 1.0
 
-        if skill['name'] == "Bloodmoon Rend":
-            bleed_chance_bonus = 15
-            bleed_damage_mult = 1.25
-        elif skill['name'] == "Shadowbane":
-            crit_mult = 2.0
-            crit_damage_bonus = 50
+            if skill['name'] == "Bloodmoon Rend":
+                bleed_chance_bonus = 15
+                bleed_damage_mult = 1.25
+            elif skill['name'] == "Shadowbane":
+                crit_mult = 2.0
+                crit_damage_bonus = 50
 
-        effective_crit_chance = a_stats['crit_chance'] * crit_mult
-        effective_crit_damage = a_stats['crit_damage'] + crit_damage_bonus
-        effective_bleed_chance = a_stats['bleed_chance'] + bleed_chance_bonus
+            effective_crit_chance = a_stats['crit_chance'] * crit_mult
+            effective_crit_damage = a_stats['crit_damage'] + crit_damage_bonus
+            effective_bleed_chance = a_stats['bleed_chance'] + bleed_chance_bonus
 
-        # Damage calculation
-        base_damage = a_stats['atk'] * multiplier
-        damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
+            # Damage calculation
+            base_damage = a_stats['atk'] * multiplier
+            damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
 
-        is_crit = random.random() < effective_crit_chance / 100
-        if is_crit:
-            damage = int(damage * (1 + effective_crit_damage / 100))
+            is_crit = random.random() < effective_crit_chance / 100
+            if is_crit:
+                damage = int(damage * (1 + effective_crit_damage / 100))
 
-        new_defender_hp = max(0, d_stats['hp'] - damage)
-        await update_player_hp(self.defender_id, new_defender_hp)
+            new_defender_hp = max(0, d_stats['hp'] - damage)
+            await update_player_hp(self.defender_id, new_defender_hp)
 
-        # Reflect
-        reflect_damage = 0
-        if d_stats['reflect'] > 0:
-            reflect_damage = int(damage * d_stats['reflect'] / 100)
-            if reflect_damage > 0:
-                new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
-                await update_player_hp(self.attacker_id, new_attacker_hp)
+            # Reflect
+            reflect_damage = 0
+            if d_stats['reflect'] > 0:
+                reflect_damage = int(damage * d_stats['reflect'] / 100)
+                if reflect_damage > 0:
+                    new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
+                    await update_player_hp(self.attacker_id, new_attacker_hp)
 
-        # Bleed
-        bleed_applied = False
-        bleed_tick = 0
-        if random.random() < effective_bleed_chance / 100:
-            bleed_tick = int(a_stats['atk'] * (a_stats['bleed_damage'] * bleed_damage_mult / 100))
-            if bleed_tick > 0:
-                bleed_applied = True
-                async with bot.db_pool.acquire() as conn:
-                    await conn.execute("""
-                        INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
-                        VALUES ($1, 'bleed', $2, 3)
-                    """, self.defender_id, bleed_tick)
-
-        # Burn (Dawn Breaker)
-        burn_applied = False
-        burn_tick = 0
-        if skill['name'] == "Dawn's Wrath":
-            burn_chance = 25
-            burn_damage_percent = 20
-            if random.random() < burn_chance / 100:
-                burn_tick = int(damage * burn_damage_percent / 100)
-                if burn_tick > 0:
-                    burn_applied = True
+            # Bleed
+            bleed_applied = False
+            bleed_tick = 0
+            if random.random() < effective_bleed_chance / 100:
+                bleed_tick = int(a_stats['atk'] * (a_stats['bleed_damage'] * bleed_damage_mult / 100))
+                if bleed_tick > 0:
+                    bleed_applied = True
                     async with bot.db_pool.acquire() as conn:
                         await conn.execute("""
                             INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
-                            VALUES ($1, 'burn', $2, 3)
-                        """, self.defender_id, burn_tick)
+                            VALUES ($1, 'bleed', $2, 3)
+                        """, self.defender_id, bleed_tick)
 
-        # Buffs/Debuffs
-        buff_applied = None
-        if skill['name'] == "Zenith Slash" and random.random() < 0.20:
+            # Burn (Dawn Breaker)
+            burn_applied = False
+            burn_tick = 0
+            if skill['name'] == "Dawn's Wrath":
+                burn_chance = 25
+                burn_damage_percent = 20
+                if random.random() < burn_chance / 100:
+                    burn_tick = int(damage * burn_damage_percent / 100)
+                    if burn_tick > 0:
+                        burn_applied = True
+                        async with bot.db_pool.acquire() as conn:
+                            await conn.execute("""
+                                INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
+                                VALUES ($1, 'burn', $2, 3)
+                            """, self.defender_id, burn_tick)
+
+            # Buffs/Debuffs
+            buff_applied = None
+            if skill['name'] == "Zenith Slash" and random.random() < 0.20:
+                async with bot.db_pool.acquire() as conn:
+                    await conn.execute("""
+                        INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
+                        VALUES ($1, 'atk_mult', 1.5, 2)
+                    """, self.attacker_id)
+                buff_applied = f"{a_user.display_name} gains 50% ATK boost for 2 turns!"
+
+            if skill['name'] == "Abyssal Strike" and random.random() < 0.30:
+                async with bot.db_pool.acquire() as conn:
+                    await conn.execute("""
+                        INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
+                        VALUES ($1, 'def_mult', 0.85, 3)
+                    """, self.defender_id)
+                buff_applied = f"{d_user.display_name}'s DEF reduced by 15% for 3 turns!"
+
+            new_energy = a_stats['energy'] - 1
+            await update_player_energy(self.attacker_id, new_energy)
+
+            # Decrement buff turns
             async with bot.db_pool.acquire() as conn:
                 await conn.execute("""
-                    INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
-                    VALUES ($1, 'atk_mult', 1.5, 2)
-                """, self.attacker_id)
-            buff_applied = f"{a_user.display_name} gains 50% ATK boost for 2 turns!"
+                    UPDATE active_buffs SET remaining_turns = remaining_turns - 1
+                    WHERE target_id IN ($1, $2) AND remaining_turns > 0
+                """, self.attacker_id, self.defender_id)
+                await conn.execute("DELETE FROM active_buffs WHERE remaining_turns <= 0")
 
-        if skill['name'] == "Abyssal Strike" and random.random() < 0.30:
-            async with bot.db_pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
-                    VALUES ($1, 'def_mult', 0.85, 3)
-                """, self.defender_id)
-            buff_applied = f"{d_user.display_name}'s DEF reduced by 15% for 3 turns!"
+            # Build action text
+            attacker_name = a_user.display_name
+            defender_name = d_user.display_name
+            skill_name = skill['name']
+            action_lines = []
+            base_line = f"{attacker_name} uses {skill_name} and deals **{damage}** damage to {defender_name}"
+            if is_crit:
+                base_line += " 💥 CRITICAL!"
+            action_lines.append(base_line)
 
-        new_energy = a_stats['energy'] - 1
-        await update_player_energy(self.attacker_id, new_energy)
+            if reflect_damage > 0:
+                action_lines.append(f"{defender_name}'s reflect deals **{reflect_damage}** damage to {attacker_name}")
 
-        # Decrement buff turns
-        async with bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE active_buffs SET remaining_turns = remaining_turns - 1
-                WHERE target_id IN ($1, $2) AND remaining_turns > 0
-            """, self.attacker_id, self.defender_id)
-            await conn.execute("DELETE FROM active_buffs WHERE remaining_turns <= 0")
+            if bleed_applied:
+                action_lines.append(f"{defender_name} is bleeding for {bleed_tick} damage per second for 3s")
 
-        # Build action text
-        attacker_name = a_user.display_name
-        defender_name = d_user.display_name
-        skill_name = skill['name']
-        action_lines = []
-        base_line = f"{attacker_name} uses {skill_name} and deals **{damage}** damage to {defender_name}"
-        if is_crit:
-            base_line += " 💥 CRITICAL!"
-        action_lines.append(base_line)
+            if burn_applied:
+                action_lines.append(f"{defender_name} is burning for {burn_tick} damage per second for 3s")
 
-        if reflect_damage > 0:
-            action_lines.append(f"{defender_name}'s reflect deals **{reflect_damage}** damage to {attacker_name}")
+            if buff_applied:
+                action_lines.append(buff_applied)
 
-        if bleed_applied:
-            action_lines.append(f"{defender_name} is bleeding for {bleed_tick} damage per second for 3s")
+            action_text = "\n".join(action_lines)
 
-        if burn_applied:
-            action_lines.append(f"{defender_name} is burning for {burn_tick} damage per second for 3s")
+            # Update the message
+            channel = bot.get_channel(self.channel_id)
+            try:
+                msg = await channel.fetch_message(self.message_id)
+            except:
+                await interaction.followup.send("Message not found.", ephemeral=True)
+                return
 
-        if buff_applied:
-            action_lines.append(buff_applied)
+            new_embed = await self.build_duel_embed(action_text)
+            await msg.edit(embed=new_embed, view=self)
 
-        action_text = "\n".join(action_lines)
-
-        # Update the message
-        channel = bot.get_channel(self.channel_id)
-        try:
-            msg = await channel.fetch_message(self.message_id)
-        except:
-            await interaction.followup.send("Message not found.", ephemeral=True)
-            return
-
-        new_embed = await self.build_duel_embed(action_text)
-        await msg.edit(embed=new_embed, view=self)
+        except Exception as e:
+            tb = traceback.format_exc()
+            await log_to_discord(bot, f"Error in attack_button: {e}", level="ERROR", error=e)
+            print(f"Error in attack_button: {e}\n{tb}")  # Console log
+            await interaction.followup.send("An error occurred during the attack.", ephemeral=True)
 
     async def build_duel_embed(self, action_text: str = None):
         """Build the duel embed with vertical stats, gear grids, and action result."""
