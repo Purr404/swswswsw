@@ -7453,20 +7453,30 @@ class AttackView(discord.ui.View):
 
             # Attacker dead check
             if a_stats['hp'] <= 0:
-                time_left = format_remaining_time(a_stats.get('respawn_at'))
-                msg = "You are dead and cannot attack!"
-                if time_left:
-                    msg += f" Revives in {time_left}."
+                respawn_val = a_stats.get('respawn_at')
+                if respawn_val:
+                    # Ensure it's timezone-aware (just in case)
+                    if respawn_val.tzinfo is None:
+                        respawn_val = respawn_val.replace(tzinfo=timezone.utc)
+                    # Convert to Unix timestamp and use Discord's relative format
+                    timestamp = int(respawn_val.timestamp())
+                    msg = f"You are dead and cannot attack! You will revive <t:{timestamp}:R>."
+                else:
+                    msg = "You are dead and cannot attack!"
                 await interaction.followup.send(msg, ephemeral=True)
                 print(f"DEBUG: Attacker dead, sent: {msg}")
                 return
 
             # Defender dead check
             if d_stats['hp'] <= 0:
-                time_left = format_remaining_time(d_stats.get('respawn_at'))
-                msg = "Target is already dead!"
-                if time_left:
-                    msg += f" Revives in {time_left}."
+                respawn_val = d_stats.get('respawn_at')
+                if respawn_val:
+                    if respawn_val.tzinfo is None:
+                        respawn_val = respawn_val.replace(tzinfo=timezone.utc)
+                    timestamp = int(respawn_val.timestamp())
+                    msg = f"Target is already dead! They will revive <t:{timestamp}:R>."
+                else:
+                    msg = "Target is already dead!"
                 await interaction.followup.send(msg, ephemeral=True)
                 print(f"DEBUG: Defender dead, sent: {msg}")
                 return
