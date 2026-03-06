@@ -7453,6 +7453,7 @@ class AttackView(discord.ui.View):
         self.message_id = message_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Only the attacker can press the button
         return str(interaction.user.id) == self.attacker_id
 
     @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger)
@@ -7460,64 +7461,40 @@ class AttackView(discord.ui.View):
         try:
             await interaction.response.defer()
 
+            # Fetch fresh stats
             a_stats = await get_player_stats(self.attacker_id)
             d_stats = await get_player_stats(self.defender_id)
             a_user = bot.get_user(int(self.attacker_id))
             d_user = bot.get_user(int(self.defender_id))
 
-            # Helper to format remaining time
-            def format_remaining_time(respawn_at):
-                if not respawn_at:
-                    return ""
-                if respawn_at.tzinfo is None:
-                    respawn_at = respawn_at.replace(tzinfo=timezone.utc)
-                now = datetime.now(timezone.utc)
-                remaining = respawn_at - now
-                if remaining.total_seconds() <= 0:
-                    return ""
-                hours = int(remaining.total_seconds() // 3600)
-                minutes = int((remaining.total_seconds() % 3600) // 60)
-                seconds = int(remaining.total_seconds() % 60)
-                if hours > 0:
-                    return f"{hours}h {minutes}m"
-                elif minutes > 0:
-                    return f"{minutes}m {seconds}s"
-                else:
-                    return f"{seconds}s"
-
-            # Attacker dead check
+            # --- Attacker dead check (with countdown) ---
             if a_stats['hp'] <= 0:
                 async with bot.db_pool.acquire() as conn:
                     db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", self.attacker_id)
                 if db_respawn:
-                    now = datetime.now(timezone.utc)
                     if db_respawn.tzinfo is None:
                         db_respawn = db_respawn.replace(tzinfo=timezone.utc)
+                    now = datetime.now(timezone.utc)
                     remaining = db_respawn - now
                     if remaining.total_seconds() <= 0:
                         msg = "You are dead and cannot attack! (respawn time already passed)"
                     else:
                         hours = int(remaining.total_seconds() // 3600)
                         minutes = int((remaining.total_seconds() % 3600) // 60)
-                        seconds = int(remaining.total_seconds() % 60)
                         if hours > 0:
                             time_str = f"{hours}h {minutes}m"
-                        elif minutes > 0:
-                            time_str = f"{minutes}m {seconds}s"
                         else:
-                            time_str = f"{seconds}s"
+                            time_str = f"{minutes}m"
                         msg = f"You are dead and cannot attack! Revives in {time_str}."
                 else:
                     msg = "You are dead and cannot attack! (no respawn time set)"
                 await interaction.followup.send(msg, ephemeral=True)
-                print(f"DEBUG: Attacker dead, sent: {msg}")
                 return
 
-            # Defender dead check
+            # --- Defender dead check (with countdown) ---
             if d_stats['hp'] <= 0:
                 async with bot.db_pool.acquire() as conn:
                     db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", self.defender_id)
-
                 if db_respawn:
                     if db_respawn.tzinfo is None:
                         db_respawn = db_respawn.replace(tzinfo=timezone.utc)
@@ -7528,26 +7505,22 @@ class AttackView(discord.ui.View):
                     else:
                         hours = int(remaining.total_seconds() // 3600)
                         minutes = int((remaining.total_seconds() % 3600) // 60)
-                        seconds = int(remaining.total_seconds() % 60)
                         if hours > 0:
                             time_str = f"{hours}h {minutes}m"
-                        elif minutes > 0:
-                            time_str = f"{minutes}m {seconds}s"
                         else:
-                            time_str = f"{seconds}s"
+                            time_str = f"{minutes}m"
                         msg = f"Target is already dead! Revives in {time_str}."
                 else:
                     msg = "Target is already dead!"
                 await interaction.followup.send(msg, ephemeral=True)
                 return
 
-            # Energy check
+            # --- Energy check ---
             if a_stats['energy'] < 1:
                 await interaction.followup.send("Not enough energy!", ephemeral=True)
-                print("DEBUG: Not enough energy")
                 return
 
-            # Get equipped weapon
+            # --- Get equipped weapon ---
             async with bot.db_pool.acquire() as conn:
                 weapon = await conn.fetchrow("""
                     SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
@@ -7559,20 +7532,18 @@ class AttackView(discord.ui.View):
 
             if not weapon:
                 await interaction.followup.send("You don't have a weapon equipped!", ephemeral=True)
-                print("DEBUG: No weapon")
                 return
 
             wname = weapon['name']
             if wname not in SWORD_SKILLS:
                 await interaction.followup.send("Your weapon has no skill!", ephemeral=True)
-                print("DEBUG: No skill")
                 return
 
             skill = SWORD_SKILLS[wname]
             level = weapon['skill_level']
             multiplier = skill['base'] + (level - 1) * skill['increment']
 
-            # Skill-specific modifiers
+            # --- Skill-specific modifiers ---
             crit_mult = 1.0
             crit_damage_bonus = 0
             bleed_chance_bonus = 0
@@ -7589,7 +7560,7 @@ class AttackView(discord.ui.View):
             effective_crit_damage = a_stats['crit_damage'] + crit_damage_bonus
             effective_bleed_chance = a_stats['bleed_chance'] + bleed_chance_bonus
 
-            # Damage calculation
+            # --- Damage calculation ---
             base_damage = a_stats['atk'] * multiplier
             damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
 
@@ -7608,14 +7579,13 @@ class AttackView(discord.ui.View):
                         WHERE user_id = $1 AND respawn_at IS NULL
                     """, self.defender_id)
 
-            # Reflect
+            # --- Reflect ---
             reflect_damage = 0
             if d_stats['reflect'] > 0:
                 reflect_damage = int(damage * d_stats['reflect'] / 100)
                 if reflect_damage > 0:
                     new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
                     await update_player_hp(self.attacker_id, new_attacker_hp)
-                    # If attacker died from reflect, set respawn timer
                     if new_attacker_hp == 0:
                         async with bot.db_pool.acquire() as conn:
                             await conn.execute("""
@@ -7624,7 +7594,7 @@ class AttackView(discord.ui.View):
                                 WHERE user_id = $1 AND respawn_at IS NULL
                             """, self.attacker_id)
 
-            # Bleed
+            # --- Bleed ---
             bleed_applied = False
             bleed_tick = 0
             if random.random() < effective_bleed_chance / 100:
@@ -7637,7 +7607,7 @@ class AttackView(discord.ui.View):
                             VALUES ($1, 'bleed', $2, 3)
                         """, self.defender_id, bleed_tick)
 
-            # Burn (Dawn Breaker)
+            # --- Burn (Dawn Breaker) ---
             burn_applied = False
             burn_tick = 0
             if skill['name'] == "Dawn's Wrath":
@@ -7653,7 +7623,7 @@ class AttackView(discord.ui.View):
                                 VALUES ($1, 'burn', $2, 3)
                             """, self.defender_id, burn_tick)
 
-            # Buffs/Debuffs
+            # --- Buffs/Debuffs ---
             buff_applied = None
             if skill['name'] == "Zenith Slash" and random.random() < 0.20:
                 async with bot.db_pool.acquire() as conn:
@@ -7674,7 +7644,7 @@ class AttackView(discord.ui.View):
             new_energy = a_stats['energy'] - 1
             await update_player_energy(self.attacker_id, new_energy)
 
-            # Decrement buff turns
+            # --- Decrement buff turns ---
             async with bot.db_pool.acquire() as conn:
                 await conn.execute("""
                     UPDATE active_buffs SET remaining_turns = remaining_turns - 1
@@ -7682,7 +7652,7 @@ class AttackView(discord.ui.View):
                 """, self.attacker_id, self.defender_id)
                 await conn.execute("DELETE FROM active_buffs WHERE remaining_turns <= 0")
 
-            # Build action text
+            # --- Build action text ---
             attacker_name = a_user.display_name
             defender_name = d_user.display_name
             skill_name = skill['name']
@@ -7706,7 +7676,7 @@ class AttackView(discord.ui.View):
 
             action_text = "\n".join(action_lines)
 
-            # Update the message
+            # --- Update the message ---
             channel = bot.get_channel(self.channel_id)
             try:
                 msg = await channel.fetch_message(self.message_id)
@@ -7720,8 +7690,8 @@ class AttackView(discord.ui.View):
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
-            print(f"ERROR in attack_button: {e}\n{tb}")
-            await interaction.followup.send(f"❌ An error occurred: {e}", ephemeral=True)
+            await log_to_discord(bot, f"Error in attack_button: {e}", level="ERROR", error=e)
+            await interaction.followup.send("❌ An error occurred. Check bot‑logs.", ephemeral=True)
 
     async def build_duel_embed(self, action_text: str = None):
         """Build the duel embed with vertical stats, gear grids, and action result."""
