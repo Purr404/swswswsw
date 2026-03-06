@@ -722,6 +722,9 @@ async def check_respawn(ctx):
         await ctx.send(f"Your HP is {hp}. You are alive.")
     else:
         if respawn:
+            # Ensure respawn is timezone-aware (assume UTC if naive)
+            if respawn.tzinfo is None:
+                respawn = respawn.replace(tzinfo=timezone.utc)
             now = datetime.now(timezone.utc)
             remaining = respawn - now
             await ctx.send(f"You are dead. Respawn at {respawn} (in {remaining})")
