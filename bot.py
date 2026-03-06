@@ -7726,8 +7726,7 @@ class AttackView(discord.ui.View):
 
         embed = discord.Embed(title=f"⚔️ Duel: {a_user.display_name} vs {d_user.display_name}", color=discord.Color.red())
         embed.set_thumbnail(url=a_user.display_avatar.url)
-        embed.set_image(url=d_user.display_avatar.url)
-
+        
         def hp_bar(current, max_hp):
             if current <= 0:
                 return "⬛" * 10 + " DEAD!"
@@ -7758,6 +7757,7 @@ class AttackView(discord.ui.View):
 
         embed.add_field(name=f"{a_user.display_name}'s Stats", value=a_stats_text, inline=False)
         embed.add_field(name="Gears", value=a_gear, inline=False)
+        embed.add_field(name="▬" * 20, value="\u200b", inline=False)
         embed.add_field(name=f"{d_user.display_name}'s Stats", value=d_stats_text, inline=False)
         embed.add_field(name="Gears", value=d_gear, inline=False)
 
