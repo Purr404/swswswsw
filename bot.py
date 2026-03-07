@@ -7480,7 +7480,7 @@ class AttackView(discord.ui.View):
         # Only the attacker can press the button
         return str(interaction.user.id) == self.attacker_id
 
-    @discord.ui.button(label="⚔️ Attack", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger)
     async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         try:
             await interaction.response.defer()
@@ -7724,7 +7724,7 @@ class AttackView(discord.ui.View):
         a_user = bot.get_user(int(self.attacker_id))
         d_user = bot.get_user(int(self.defender_id))
 
-        embed = discord.Embed(title=f"⚔️ Duel: {a_user.display_name} vs {d_user.display_name}", color=discord.Color.red())
+        embed = discord.Embed(title=f"{a_user.display_name} vs {d_user.display_name}", color=discord.Color.red())
         embed.set_thumbnail(url=a_user.display_avatar.url)
         
         def hp_bar(current, max_hp):
