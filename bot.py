@@ -8281,7 +8281,7 @@ class BossAttackView(discord.ui.View):
         )
         embed.add_field(name="HP", value=f"{bar} `{current_hp}/{max_hp}`", inline=False)
         # Replace with your actual boss image URL
-        embed.set_image(url="https://example.com/boss_image.png")
+        embed.set_image(url="https://image2url.com/r2/default/images/1772975631054-b8438230-322e-4160-a75e-55364aca1acd.png")
         return embed
 
     @staticmethod
