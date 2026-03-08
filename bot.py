@@ -1138,6 +1138,33 @@ class DatabaseSystem:
                             FOREIGN KEY (target_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
                         )
                     ''')
+                    # ========== BOSS SYSTEM TABLES ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS boss_config (
+                            guild_id BIGINT PRIMARY KEY,
+                            channel_id BIGINT NOT NULL,
+                            message_id BIGINT,
+                            boss_hp BIGINT NOT NULL,
+                            max_hp BIGINT NOT NULL,
+                            last_reset TIMESTAMPTZ
+                        )
+                    ''')
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS boss_attempts (
+                            user_id TEXT NOT NULL,
+                            reset_date DATE NOT NULL,
+                            attempts_used INTEGER DEFAULT 0,
+                            PRIMARY KEY (user_id, reset_date)
+                        )
+                    ''')
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS boss_damage (
+                            user_id TEXT NOT NULL,
+                            reset_date DATE NOT NULL,
+                            total_damage BIGINT DEFAULT 0,
+                            PRIMARY KEY (user_id, reset_date)
+                        )
+                    ''')
 
 
                     # ========== ADD MISSING COLUMNS TO EXISTING TABLES ==========
@@ -3696,6 +3723,8 @@ async def on_ready():
         clean_old_trades.start()
         process_effects.start()
         respawn_task.start()
+        boss_reset_task.start()
+        await load_boss_persistence()
     else:
         print("⚠️ Database not connected – some features will not work.")
         # Optionally start tasks that don't need DB? Not recommended.
@@ -8064,6 +8093,379 @@ class PlunderButton(discord.ui.Button):
 
 
 
+
+
+
+
+
+
+# ========== BOSS SYSTEM ==========
+
+import random
+from datetime import datetime, timezone, timedelta, date
+
+class BossAttackView(discord.ui.View):
+    def __init__(self, guild_id: int):
+        super().__init__(timeout=None)  # persistent view
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, custom_id="boss_attack")
+    async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        # 1. Fetch boss config
+        async with bot.db_pool.acquire() as conn:
+            config = await conn.fetchrow("SELECT boss_hp, max_hp FROM boss_config WHERE guild_id = $1", self.guild_id)
+        if not config:
+            await interaction.followup.send("❌ Boss not configured.", ephemeral=True)
+            return
+        if config['boss_hp'] <= 0:
+            await interaction.followup.send("❌ The boss is already dead! Wait for the daily reset.", ephemeral=True)
+            return
+
+        user_id = str(interaction.user.id)
+        reset_date = self.get_reset_date()
+
+        # 2. Check daily attempts
+        async with bot.db_pool.acquire() as conn:
+            attempt_row = await conn.fetchrow("SELECT attempts_used FROM boss_attempts WHERE user_id = $1 AND reset_date = $2", user_id, reset_date)
+            attempts_used = attempt_row['attempts_used'] if attempt_row else 0
+            if attempts_used >= 5:
+                await interaction.followup.send("❌ You have used all 5 attempts for today. Come back tomorrow!", ephemeral=True)
+                return
+
+        # 3. Get player stats (includes ATK, crit, and active buffs)
+        a_stats = await get_player_stats(user_id)
+        if not a_stats:
+            await interaction.followup.send("❌ Could not load your stats.", ephemeral=True)
+            return
+
+        # 4. Fetch equipped weapon and its skill
+        async with bot.db_pool.acquire() as conn:
+            weapon = await conn.fetchrow("""
+                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.user_id = $1 AND uw.equipped = TRUE
+                LIMIT 1
+            """, user_id)
+
+        if not weapon:
+            # No weapon equipped – use a basic attack
+            skill_mult = 1.0
+            skill_name = "Basic Attack"
+            crit_mult = 1.0
+            crit_damage_bonus = 0
+        else:
+            wname = weapon['name']
+            if wname in SWORD_SKILLS:
+                skill_data = SWORD_SKILLS[wname]
+                level = weapon['skill_level']
+                skill_mult = skill_data['base'] + (level - 1) * skill_data['increment']
+                skill_name = skill_data['name']
+
+                # Skill‑specific modifiers (only those that affect damage/crit)
+                crit_mult = 1.0
+                crit_damage_bonus = 0
+                if skill_data['name'] == "Shadowbane":
+                    crit_mult = 2.0
+                    crit_damage_bonus = 50
+                # Bloodmoon Rend affects bleed, which we ignore for boss, so no change.
+            else:
+                # Weapon has no registered skill – treat as basic
+                skill_mult = 1.0
+                skill_name = "Attack"
+                crit_mult = 1.0
+                crit_damage_bonus = 0
+
+        # 5. Effective crit stats for this attack
+        effective_crit_chance = a_stats['crit_chance'] * crit_mult
+        effective_crit_damage = a_stats['crit_damage'] + crit_damage_bonus
+
+        # 6. Base damage (no defense subtraction)
+        base_damage = a_stats['atk'] * skill_mult
+        # Add a small random variance (±5%) for fun – remove if you want deterministic damage
+        variance = random.uniform(0.95, 1.05)
+        damage = int(base_damage * variance)
+
+        # 7. Critical hit
+        is_crit = random.random() < effective_crit_chance / 100
+        if is_crit:
+            damage = int(damage * (1 + effective_crit_damage / 100))
+
+        # 8. Update boss HP (with row lock to prevent race conditions)
+        async with bot.db_pool.acquire() as conn:
+            async with conn.transaction():
+                current_hp = await conn.fetchval("SELECT boss_hp FROM boss_config WHERE guild_id = $1 FOR UPDATE", self.guild_id)
+                new_hp = max(0, current_hp - damage)
+                await conn.execute("UPDATE boss_config SET boss_hp = $1 WHERE guild_id = $2", new_hp, self.guild_id)
+
+        # 9. Update attempts
+        async with bot.db_pool.acquire() as conn:
+            if attempt_row:
+                await conn.execute("UPDATE boss_attempts SET attempts_used = attempts_used + 1 WHERE user_id = $1 AND reset_date = $2", user_id, reset_date)
+            else:
+                await conn.execute("INSERT INTO boss_attempts (user_id, reset_date, attempts_used) VALUES ($1, $2, 1)", user_id, reset_date)
+
+        # 10. Update total damage for leaderboard
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO boss_damage (user_id, reset_date, total_damage)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id, reset_date) DO UPDATE
+                SET total_damage = boss_damage.total_damage + $3
+            """, user_id, reset_date, damage)
+
+        # 11. Send feedback to the user
+        crit_text = " 💥 CRITICAL!" if is_crit else ""
+        await interaction.followup.send(
+            f"✅ You used **{skill_name}** and dealt **{damage}** damage to the boss{crit_text}!\n"
+            f"Attempts left: {4 - attempts_used}.",
+            ephemeral=True
+        )
+
+        # 12. Update the public boss message with new HP
+        await self.update_boss_message(interaction, new_hp, config['max_hp'])
+
+    @discord.ui.button(label="🏆 Rankings", style=discord.ButtonStyle.secondary, custom_id="boss_rankings")
+    async def rankings_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        reset_date = self.get_reset_date()
+        async with bot.db_pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT user_id, total_damage
+                FROM boss_damage
+                WHERE reset_date = $1
+                ORDER BY total_damage DESC
+                LIMIT 10
+            """, reset_date)
+
+        if not rows:
+            await interaction.response.send_message("No damage recorded yet. Attack the boss!", ephemeral=True)
+            return
+
+        embed = discord.Embed(title="🏆 Boss Damage Leaderboard", color=discord.Color.gold())
+        desc_lines = []
+        for idx, row in enumerate(rows, start=1):
+            user = bot.get_user(int(row['user_id']))
+            name = user.display_name if user else f"User {row['user_id'][:6]}"
+            desc_lines.append(f"{idx}. **{name}** – {row['total_damage']} damage")
+        embed.description = "\n".join(desc_lines)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def update_boss_message(self, interaction: discord.Interaction, current_hp: int, max_hp: int):
+        """Edit the main boss embed with updated HP."""
+        async with bot.db_pool.acquire() as conn:
+            msg_id = await conn.fetchval("SELECT message_id FROM boss_config WHERE guild_id = $1", self.guild_id)
+        if not msg_id:
+            return
+        channel = interaction.channel
+        try:
+            msg = await channel.fetch_message(msg_id)
+            embed = self.build_boss_embed(current_hp, max_hp)
+            await msg.edit(embed=embed)
+        except:
+            pass
+
+    def build_boss_embed(self, current_hp: int, max_hp: int) -> discord.Embed:
+        """Create the boss status embed with HP bar and image."""
+        percent = current_hp / max_hp
+        filled = int(percent * 20)
+        bar = "🟥" * filled + "⬛" * (20 - filled)
+        embed = discord.Embed(
+            title="**Server Boss**",
+            description=(
+                "Click the button below to attack the boss! You have **5 attempts per day**.\n\n"
+                "**Rewards:** Top 10 get gems (1st: 1000, 2nd: 500, 3rd: 250, 4th-10th: 100)."
+            ),
+            color=discord.Color.red()
+        )
+        embed.add_field(name="HP", value=f"{bar} `{current_hp}/{max_hp}`", inline=False)
+        # Replace with your actual boss image URL
+        embed.set_image(url="https://example.com/boss_image.png")
+        return embed
+
+    @staticmethod
+    def get_reset_date() -> date:
+        """Return the date of the current boss cycle (based on 10 AM PHT = 2 AM UTC)."""
+        now = datetime.now(timezone.utc)
+        reset_hour_utc = 2
+        if now.hour < reset_hour_utc:
+            return (now - timedelta(days=1)).date()
+        else:
+            return now.date()
+
+
+
+@bot.command(name='setboss')
+@commands.has_permissions(administrator=True)
+async def set_boss(ctx, channel: discord.TextChannel, hp: int = 100000):
+    """Set the boss channel and initial HP."""
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO boss_config (guild_id, channel_id, boss_hp, max_hp)
+            VALUES ($1, $2, $3, $3)
+            ON CONFLICT (guild_id) DO UPDATE
+            SET channel_id = $2, boss_hp = $3, max_hp = $3
+        """, ctx.guild.id, channel.id, hp)
+    await ctx.send(f"✅ Boss channel set to {channel.mention}. Now use `!!spawnboss` to create the attack message.")
+
+@bot.command(name='spawnboss')
+@commands.has_permissions(administrator=True)
+async def spawn_boss(ctx):
+    """Create the persistent boss attack message in the configured channel."""
+    async with bot.db_pool.acquire() as conn:
+        config = await conn.fetchrow("SELECT channel_id, boss_hp, max_hp FROM boss_config WHERE guild_id = $1", ctx.guild.id)
+    if not config:
+        return await ctx.send("❌ Boss not configured. Use `!!setboss` first.")
+
+    channel = ctx.guild.get_channel(config['channel_id'])
+    if not channel:
+        return await ctx.send("❌ Boss channel not found.")
+
+    embed = BossAttackView.build_boss_embed(config['boss_hp'], config['max_hp'])
+    view = BossAttackView(ctx.guild.id)
+    msg = await channel.send(embed=embed, view=view)
+
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE boss_config SET message_id = $1 WHERE guild_id = $2", msg.id, ctx.guild.id)
+
+    await ctx.send(f"✅ Boss spawned in {channel.mention}!")
+
+
+@bot.command(name='bossleaderboard')
+async def boss_leaderboard(ctx):
+    """Show current damage rankings."""
+    reset_date = BossAttackView.get_reset_date()
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT user_id, total_damage
+            FROM boss_damage
+            WHERE reset_date = $1
+            ORDER BY total_damage DESC
+            LIMIT 10
+        """, reset_date)
+
+    if not rows:
+        return await ctx.send("No damage recorded yet. Attack the boss!")
+
+    embed = discord.Embed(title="🏆 Boss Damage Leaderboard", color=discord.Color.gold())
+    desc_lines = []
+    for idx, row in enumerate(rows, start=1):
+        user = bot.get_user(int(row['user_id']))
+        name = user.display_name if user else f"User {row['user_id'][:6]}"
+        desc_lines.append(f"{idx}. **{name}** – {row['total_damage']} damage")
+    embed.description = "\n".join(desc_lines)
+    await ctx.send(embed=embed)
+
+
+
+from discord.ext import tasks
+
+@tasks.loop(minutes=1)
+async def boss_reset_task():
+    now = datetime.now(timezone.utc)
+    if now.hour == 2 and now.minute == 0:   # 10 AM PHT
+        await perform_boss_reset()
+
+async def perform_boss_reset():
+    """Compute rankings, send rewards, reset boss HP, and clear daily data."""
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, channel_id, message_id, max_hp FROM boss_config")
+    for row in rows:
+        guild_id = row['guild_id']
+        channel_id = row['channel_id']
+        message_id = row['message_id']
+        max_hp = row['max_hp']
+        reset_date = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+
+        # Fetch all damage records for the previous reset date
+        async with bot.db_pool.acquire() as conn2:
+            rankings = await conn2.fetch("""
+                SELECT user_id, total_damage
+                FROM boss_damage
+                WHERE reset_date = $1
+                ORDER BY total_damage DESC
+            """, reset_date)
+
+        # Distribute rewards
+        if rankings:
+            for idx, r in enumerate(rankings, start=1):
+                user_id = r['user_id']
+                damage = r['total_damage']
+                if idx == 1:
+                    gems = 1000
+                elif idx == 2:
+                    gems = 500
+                elif idx == 3:
+                    gems = 250
+                elif idx <= 10:
+                    gems = 100
+                else:
+                    continue
+
+                await currency_system.add_gems(user_id, gems, f"Boss damage rank #{idx}")
+                try:
+                    user = await bot.fetch_user(int(user_id))
+                    if user:
+                        embed = discord.Embed(title="🏆 Boss Rewards", color=discord.Color.gold())
+                        embed.description = f"You ranked **#{idx}** with **{damage}** damage!"
+                        embed.add_field(name="Reward", value=f"💎 {gems} gems")
+                        await user.send(embed=embed)
+                except:
+                    pass
+
+        # Reset boss HP
+        async with bot.db_pool.acquire() as conn3:
+            await conn3.execute("UPDATE boss_config SET boss_hp = $1 WHERE guild_id = $2", max_hp, guild_id)
+            # Clear old attempts/damage for that reset date
+            await conn3.execute("DELETE FROM boss_attempts WHERE reset_date = $1", reset_date)
+            await conn3.execute("DELETE FROM boss_damage WHERE reset_date = $1", reset_date)
+
+        # Update the boss message if it exists
+        if channel_id and message_id:
+            guild = bot.get_guild(guild_id)
+            if guild:
+                channel = guild.get_channel(channel_id)
+                if channel:
+                    try:
+                        msg = await channel.fetch_message(message_id)
+                        embed = BossAttackView.build_boss_embed(max_hp, max_hp)
+                        await msg.edit(embed=embed)
+                        # Optional announcement
+                        await channel.send("**Server Boss has Repawn**")
+                    except:
+                        pass
+
+@boss_reset_task.before_loop
+async def before_boss_reset():
+    await bot.wait_until_ready()
+    while bot.db_pool is None:
+        await asyncio.sleep(1)
+
+
+
+async def load_boss_persistence():
+    """Re‑attach boss views after bot restart."""
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, channel_id, message_id FROM boss_config WHERE message_id IS NOT NULL")
+    for row in rows:
+        guild = bot.get_guild(row['guild_id'])
+        if not guild:
+            continue
+        channel = guild.get_channel(row['channel_id'])
+        if not channel:
+            continue
+        try:
+            msg = await channel.fetch_message(row['message_id'])
+            view = BossAttackView(row['guild_id'])
+            await msg.edit(view=view)
+            print(f"✅ Reattached boss view in #{channel.name}")
+        except Exception as e:
+            print(f"⚠️ Failed to reattach boss view: {e}")
+
+
+
+
 # Add the shop cog to the bot
 bot.add_cog(Shop(bot))
 
@@ -8083,7 +8485,6 @@ async def load_mining_persistence(bot):
 
 
 bot.add_cog(CullingGame(bot, currency_system))
-
 
 
 # === RUN BOT ===
