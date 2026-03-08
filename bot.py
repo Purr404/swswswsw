@@ -146,9 +146,9 @@ CUSTOM_EMOJIS = {
     'angel_pen': '<:angel_pen:1477134827017994280>',
     
     # Pets (you can add these later when you have the emoji IDs)
-    'pet_dragon': '<:pet_dragon:000000000000000000>',  # Replace with actual ID
-    'pet_griffin': '<:pet_griffin:000000000000000000>',  # Replace with actual ID
-    'pet_lion': '<:pet_lion:000000000000000000>',  # Replace with actual ID
+    'baby_fox': '<:baby_fox:1480154975069016205>',  # Replace with actual ID
+    'baby_tiger': '<:baby_tiger:1480155125493399656>',  # Replace with actual ID
+    'baby_purr': '<:baby_purr:1480158366516121660>',  # Replace with actual ID
     
     # Tools/Misc
     'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
