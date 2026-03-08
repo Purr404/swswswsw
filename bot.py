@@ -8266,8 +8266,8 @@ class BossAttackView(discord.ui.View):
         except:
             pass
 
-    def build_boss_embed(self, current_hp: int, max_hp: int) -> discord.Embed:
-        """Create the boss status embed with HP bar and image."""
+    @staticmethod
+    def build_boss_embed(current_hp: int, max_hp: int) -> discord.Embed:
         percent = current_hp / max_hp
         filled = int(percent * 20)
         bar = "🟥" * filled + "⬛" * (20 - filled)
