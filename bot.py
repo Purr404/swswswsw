@@ -1250,7 +1250,7 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS respawn_at TIMESTAMPTZ')
                     # Boss system
                     await conn.execute('ALTER TABLE boss_config ADD COLUMN IF NOT EXISTS boss_image_url TEXT')
-
+                    await conn.execute('ALTER TABLE boss_config ADD COLUMN IF NOT EXISTS announce_channel_id BIGINT')
                     # Update shop_items type constraint
                     await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
                     await conn.execute('''
