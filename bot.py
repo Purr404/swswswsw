@@ -8337,6 +8337,20 @@ async def set_boss(ctx, channel: discord.TextChannel, hp: int = 100000):
         """, ctx.guild.id, channel.id, hp)
     await ctx.send(f"✅ Boss channel set to {channel.mention}. Now use `!!spawnboss` to create the attack message.")
 
+
+
+@bot.command(name='bossmaxhp')
+@commands.has_permissions(administrator=True)
+async def boss_max_hp(ctx, new_max_hp: int):
+    """Set the boss's maximum HP (will take effect after next reset)."""
+    if new_max_hp <= 0:
+        return await ctx.send("❌ HP must be positive.")
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE boss_config SET max_hp = $1 WHERE guild_id = $2", new_max_hp, ctx.guild.id)
+    await ctx.send(f"✅ Boss max HP set to {new_max_hp}. It will respawn with this HP at the next reset.")
+
+
+
 @bot.command(name='spawnboss')
 @commands.has_permissions(administrator=True)
 async def spawn_boss(ctx):
