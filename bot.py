@@ -1248,6 +1248,8 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS atk_bonus INTEGER DEFAULT 0')
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS bleed_damage FLOAT DEFAULT 0')
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS respawn_at TIMESTAMPTZ')
+                    # Boss system
+                    await conn.execute('ALTER TABLE boss_config ADD COLUMN IF NOT EXISTS boss_image_url TEXT')
 
                     # Update shop_items type constraint
                     await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
@@ -8113,8 +8115,7 @@ class PlunderButton(discord.ui.Button):
 
 # ========== BOSS SYSTEM ==========
 
-import random
-from datetime import datetime, timezone, timedelta, date
+
 
 class BossAttackView(discord.ui.View):
     def __init__(self, guild_id: int):
@@ -8273,13 +8274,19 @@ class BossAttackView(discord.ui.View):
         channel = interaction.channel
         try:
             msg = await channel.fetch_message(msg_id)
-            embed = self.build_boss_embed(current_hp, max_hp)
+            embed = await self.build_boss_embed(current_hp, max_hp)
             await msg.edit(embed=embed)
         except:
             pass
 
-    @staticmethod
-    def build_boss_embed(current_hp: int, max_hp: int) -> discord.Embed:
+    async def build_boss_embed(self, current_hp: int, max_hp: int) -> discord.Embed:
+        """Fetch current boss image URL from DB and build embed."""
+        async with bot.db_pool.acquire() as conn:
+            image_url = await conn.fetchval("SELECT boss_image_url FROM boss_config WHERE guild_id = $1", self.guild_id)
+        if not image_url:
+            # fallback if none set
+            image_url = "https://example.com/boss_image.png"
+
         percent = current_hp / max_hp
         filled = int(percent * 20)
         bar = "🟥" * filled + "⬛" * (20 - filled)
@@ -8292,8 +8299,7 @@ class BossAttackView(discord.ui.View):
             color=discord.Color.red()
         )
         embed.add_field(name="HP", value=f"{bar} `{current_hp}/{max_hp}`", inline=False)
-        # Replace with your actual boss image URL
-        embed.set_image(url="https://image2url.com/r2/default/images/1772975631054-b8438230-322e-4160-a75e-55364aca1acd.png")
+        embed.set_image(url=image_url)
         return embed
 
     @staticmethod
@@ -8306,6 +8312,15 @@ class BossAttackView(discord.ui.View):
         else:
             return now.date()
 
+
+
+@bot.command(name='bossannounce')
+@commands.has_permissions(administrator=True)
+async def boss_announce(ctx, channel: discord.TextChannel):
+    """Set the channel where boss reset announcements will be sent."""
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("UPDATE boss_config SET announce_channel_id = $1 WHERE guild_id = $2", channel.id, ctx.guild.id)
+    await ctx.send(f"✅ Boss reset announcements will now be sent to {channel.mention}")
 
 
 @bot.command(name='setboss')
@@ -8334,15 +8349,23 @@ async def spawn_boss(ctx):
     if not channel:
         return await ctx.send("❌ Boss channel not found.")
 
-    embed = BossAttackView.build_boss_embed(config['boss_hp'], config['max_hp'])
+    # Pick a random initial image
+    initial_image = random.choice(BOSS_IMAGES) if BOSS_IMAGES else None
+
+    # Store the image in the database
+    async with bot.db_pool.acquire() as conn2:
+        await conn2.execute("UPDATE boss_config SET boss_image_url = $1 WHERE guild_id = $2", initial_image, ctx.guild.id)
+
+    # Build embed with the new image
+    temp_view = BossAttackView(ctx.guild.id)
+    embed = await temp_view.build_boss_embed(config['boss_hp'], config['max_hp'])
     view = BossAttackView(ctx.guild.id)
     msg = await channel.send(embed=embed, view=view)
 
-    async with bot.db_pool.acquire() as conn:
-        await conn.execute("UPDATE boss_config SET message_id = $1 WHERE guild_id = $2", msg.id, ctx.guild.id)
+    async with bot.db_pool.acquire() as conn3:
+        await conn3.execute("UPDATE boss_config SET message_id = $1 WHERE guild_id = $2", msg.id, ctx.guild.id)
 
     await ctx.send(f"✅ Boss spawned in {channel.mention}!")
-
 
 @bot.command(name='bossleaderboard')
 async def boss_leaderboard(ctx):
@@ -8380,7 +8403,7 @@ async def boss_reset_task():
         await perform_boss_reset()
 
 async def perform_boss_reset():
-    """Compute rankings, send rewards, reset boss HP, and clear daily data."""
+    """Compute rankings, send rewards, reset boss HP, pick new image, and clear daily data."""
     async with bot.db_pool.acquire() as conn:
         rows = await conn.fetch("SELECT guild_id, channel_id, message_id, max_hp FROM boss_config")
     for row in rows:
@@ -8390,7 +8413,7 @@ async def perform_boss_reset():
         max_hp = row['max_hp']
         reset_date = (datetime.now(timezone.utc) - timedelta(days=1)).date()
 
-        # Fetch all damage records for the previous reset date
+        # --- Fetch and distribute rankings (same as before) ---
         async with bot.db_pool.acquire() as conn2:
             rankings = await conn2.fetch("""
                 SELECT user_id, total_damage
@@ -8399,7 +8422,6 @@ async def perform_boss_reset():
                 ORDER BY total_damage DESC
             """, reset_date)
 
-        # Distribute rewards
         if rankings:
             for idx, r in enumerate(rankings, start=1):
                 user_id = r['user_id']
@@ -8414,7 +8436,6 @@ async def perform_boss_reset():
                     gems = 100
                 else:
                     continue
-
                 await currency_system.add_gems(user_id, gems, f"Boss damage rank #{idx}")
                 try:
                     user = await bot.fetch_user(int(user_id))
@@ -8426,14 +8447,21 @@ async def perform_boss_reset():
                 except:
                     pass
 
-        # Reset boss HP
+        # --- Pick a new random boss image ---
+        new_image_url = random.choice(BOSS_IMAGES) if BOSS_IMAGES else None
+
+        # --- Reset boss HP and update image ---
         async with bot.db_pool.acquire() as conn3:
-            await conn3.execute("UPDATE boss_config SET boss_hp = $1 WHERE guild_id = $2", max_hp, guild_id)
-            # Clear old attempts/damage for that reset date
+            await conn3.execute("""
+                UPDATE boss_config
+                SET boss_hp = $1, boss_image_url = COALESCE($2, boss_image_url)
+                WHERE guild_id = $3
+            """, max_hp, new_image_url, guild_id)
+            # Clear old attempts/damage
             await conn3.execute("DELETE FROM boss_attempts WHERE reset_date = $1", reset_date)
             await conn3.execute("DELETE FROM boss_damage WHERE reset_date = $1", reset_date)
 
-        # Update the boss message if it exists
+        # --- Update the boss message if it exists ---
         if channel_id and message_id:
             guild = bot.get_guild(guild_id)
             if guild:
@@ -8441,12 +8469,28 @@ async def perform_boss_reset():
                 if channel:
                     try:
                         msg = await channel.fetch_message(message_id)
-                        embed = BossAttackView.build_boss_embed(max_hp, max_hp)
+                        temp_view = BossAttackView(guild_id)
+                        embed = await temp_view.build_boss_embed(max_hp, max_hp)
                         await msg.edit(embed=embed)
-                        # Optional announcement
-                        await channel.send("**Server Boss has Repawn**")
-                    except:
-                        pass
+                    except Exception as e:
+                        print(f"Failed to update boss message: {e}")
+
+        # --- Send announcement to the designated channel ---
+        if guild:
+            async with bot.db_pool.acquire() as conn4:
+                announce_id = await conn4.fetchval("SELECT announce_channel_id FROM boss_config WHERE guild_id = $1", guild_id)
+            announce_channel = None
+            if announce_id:
+                announce_channel = guild.get_channel(announce_id)
+            if not announce_channel:
+                # fallback to boss channel
+                announce_channel = guild.get_channel(channel_id)
+            if announce_channel:
+                try:
+                    await announce_channel.send("**Boss has Respawned!**")
+                except Exception as e:
+                    print(f"Failed to send announcement: {e}")
+
 
 @boss_reset_task.before_loop
 async def before_boss_reset():
