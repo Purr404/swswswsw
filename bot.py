@@ -11,6 +11,7 @@ import io
 import textwrap
 import string
 import time
+from datetime import datetime, timezone, timedelta, date
 
 async def log_to_discord(bot, message, level="INFO", error=None):
     """ALWAYS prints to Railway logs. Best‑effort send to #bot-logs."""
