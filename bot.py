@@ -102,6 +102,18 @@ for key, value in os.environ.items():
         else:
             print(f"  {key}: {value[:80]}...")
 
+
+
+BOSS_IMAGES = [
+    "https://image2url.com/r2/default/images/1772975631054-b8438230-322e-4160-a75e-55364aca1acd.png",
+    "https://image2url.com/r2/default/images/1773046503065-c6b43d19-1ca2-49cc-9115-3a5c6b8bf65a.png",
+    "https://image2url.com/r2/default/images/1773046646102-02e4016a-4b8e-4fca-9271-07d6f32c4dbd.png",
+    "https://image2url.com/r2/default/images/1773046677067-525c294e-a2a7-46af-a503-e97f761c54b0.png",
+    # add more as desired
+]
+
+
+
 # ========== 🔥 CUSTOM DISCORD EMOJIS MAPPING 🔥 ==========
 # Copy these exact emoji codes from Discord
 CUSTOM_EMOJIS = {
