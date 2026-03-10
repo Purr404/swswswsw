@@ -5008,7 +5008,22 @@ class Shop(commands.Cog):
         user_id = str(interaction.user.id)
         await interaction.response.defer(ephemeral=True)
 
+        stone_name_map = {
+            'weapon': 'Sword Enhancement Stone',
+            'armor': 'Armor Enhancement Stone',
+            'accessory': 'Accessories Enhancement Stone'
+        }
+        stone_name = stone_name_map[item_type]
+
         async with self.bot.db_pool.acquire() as conn:
+            # Get stone item_id
+            stone_item = await conn.fetchrow("SELECT item_id FROM shop_items WHERE name = $1", stone_name)
+            if not stone_item:
+                await interaction.followup.send("❌ Enhancement stone not found. Contact admin.", ephemeral=True)
+                return
+            stone_id = stone_item['item_id']
+
+            # Get item's current upgrade level
             table_map = {
                 'weapon': 'user_weapons',
                 'armor': 'user_armor',
@@ -5024,6 +5039,9 @@ class Shop(commands.Cog):
                 await interaction.followup.send("❌ Item is already at max level.", ephemeral=True)
                 return
 
+            # Get user's stone quantity
+            stones_qty = await conn.fetchval("SELECT quantity FROM user_materials WHERE user_id = $1 AND material_id = $2", user_id, stone_id) or 0
+
         cost = self.upgrade_stone_cost(current_level)
         chance = self.upgrade_success_rate(current_level)
         stone_emoji = self.get_stone_emoji(item_type)
@@ -5033,12 +5051,14 @@ class Shop(commands.Cog):
             description=f"Do you want to upgrade this **{item_type}** to **+{current_level+1}**?",
             color=discord.Color.orange()
         )
-        embed.add_field(name="Stone Cost", value=f"{stone_emoji} **{cost}**", inline=True)
+        embed.add_field(name="Requirements", value=f"{stone_emoji} **{cost}** {stone_name}", inline=True)
         embed.add_field(name="Success Chance", value=f"**{chance}%**", inline=True)
+        embed.add_field(name="Your Stones", value=f"{stone_emoji} **{stones_qty}**", inline=True)
         embed.add_field(name="On Failure", value="Stones are consumed, item remains at current level.", inline=False)
 
         view = self.UpgradeConfirmView(self, item_type, item_id, cost, chance, stone_emoji)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
 
     async def handle_upgrade(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Perform the upgrade after confirmation."""
@@ -5668,14 +5688,12 @@ class Shop(commands.Cog):
                 ))
             # Upgrade button (if not max level)
             if current_level < 10:
-                cost = self.upgrade_stone_cost(current_level)
-                chance = self.upgrade_success_rate(current_level)
                 stone_emoji = self.get_stone_emoji(item_type)
                 view.add_item(discord.ui.Button(
-                    label=f"{cost} | {chance}%",
+                    label="Upgrade",
                     emoji=stone_emoji,
                     style=discord.ButtonStyle.primary,
-                    custom_id=f"upgrade_confirm_{item_type}_{item_id}",  # new custom_id for confirmation
+                    custom_id=f"upgrade_confirm_{item_type}_{item_id}",
                     row=1
                 ))
             # Always show back button
