@@ -110,6 +110,12 @@ BOSS_IMAGES = [
     "https://image2url.com/r2/default/images/1773046503065-c6b43d19-1ca2-49cc-9115-3a5c6b8bf65a.png",
     "https://image2url.com/r2/default/images/1773046646102-02e4016a-4b8e-4fca-9271-07d6f32c4dbd.png",
     "https://image2url.com/r2/default/images/1773046677067-525c294e-a2a7-46af-a503-e97f761c54b0.png",
+
+"https://image2url.com/r2/default/images/1773112080339-ea113862-56ed-48a2-833c-462421d56b15.png",
+
+"https://image2url.com/r2/default/images/1773112137244-8609699c-1699-4bf8-a3d7-91a03b523a53.png",
+
+"https://image2url.com/r2/default/images/1773112167085-d3ed553d-e10f-4fd7-af08-18889868cc58.png",
     # add more as desired
 ]
 
