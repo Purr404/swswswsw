@@ -1265,6 +1265,10 @@ class DatabaseSystem:
                     # Boss system
                     await conn.execute('ALTER TABLE boss_config ADD COLUMN IF NOT EXISTS boss_image_url TEXT')
                     await conn.execute('ALTER TABLE boss_config ADD COLUMN IF NOT EXISTS announce_channel_id BIGINT')
+                    # Upgrade system columns
+                    await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS upgrade_level INTEGER DEFAULT 0')
+                    await conn.execute('ALTER TABLE user_armor ADD COLUMN IF NOT EXISTS upgrade_level INTEGER DEFAULT 0')
+                    await conn.execute('ALTER TABLE user_accessories ADD COLUMN IF NOT EXISTS upgrade_level INTEGER DEFAULT 0')
                     # Update shop_items type constraint
                     await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
                     await conn.execute('''
@@ -4056,6 +4060,7 @@ class InventoryView(discord.ui.View):
                        uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
                        COALESCE(si.image_url, uw.image_url) as image_url,
                        r.color as rarity_color
+                       uw.upgrade_level
                 FROM user_weapons uw
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
                 LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
@@ -4067,7 +4072,7 @@ class InventoryView(discord.ui.View):
             armor = await conn.fetch("""
                 SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
                        ua.hp_bonus, ua.reflect_damage, at.set_name,
-                       at.image_url, at.description, r.color as rarity_color
+                       at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
                 FROM user_armor ua
                 JOIN armor_types at ON ua.armor_id = at.armor_id
                 LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -4078,7 +4083,7 @@ class InventoryView(discord.ui.View):
             accessories = await conn.fetch("""
                 SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
                        ua.equipped, ua.slot, at.set_name,
-                       at.image_url, at.description, r.color as rarity_color
+                       at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
                 FROM user_accessories ua
                 JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                 LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -4785,6 +4790,32 @@ class Shop(commands.Cog):
     GEM_UNICODE = "💎"
     TREASURE_UNICODE = "🎁"
 
+    # ----- Upgrade System Helpers -----
+    def upgrade_stone_cost(self, current_level: int) -> int:
+        """Return stone cost to upgrade from given level."""
+        return 2 * current_level + 1   # 1,3,5,...,19
+
+    def upgrade_success_rate(self, current_level: int) -> int:
+        """Return success percentage for upgrade from given level."""
+        base = 100 - current_level * 10
+        return max(30, base)
+
+    def get_upgrade_multiplier(self, item_type: str) -> float:
+        """Return stat multiplier for one upgrade based on item type."""
+        if item_type == 'armor':
+            return 1.05
+        else:  # weapon or accessory
+            return 1.10
+
+    def get_stone_emoji(self, item_type: str) -> str:
+        """Return the custom emoji for the enhancement stone of the given item type."""
+        if item_type == 'weapon':
+            return CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+        elif item_type == 'armor':
+            return CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+        else:  # accessory
+            return CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+
     def build_main_categories(self):
         embed = discord.Embed(
             title="🛍️ Shop Categories",
@@ -4954,6 +4985,157 @@ class Shop(commands.Cog):
 
 
 
+    class UpgradeConfirmView(discord.ui.View):
+        def __init__(self, cog, item_type: str, item_id: int, cost: int, chance: int, stone_emoji: str):
+            super().__init__(timeout=60)
+            self.cog = cog
+            self.item_type = item_type
+            self.item_id = item_id
+            self.cost = cost
+            self.chance = chance
+            self.stone_emoji = stone_emoji
+
+        @discord.ui.button(label="✅ Yes", style=discord.ButtonStyle.success)
+        async def yes_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+            await self.cog.handle_upgrade(interaction, self.item_type, self.item_id)
+
+        @discord.ui.button(label="❌ No", style=discord.ButtonStyle.secondary)
+        async def no_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+            await interaction.response.send_message("Upgrade cancelled.", ephemeral=True)
+
+    async def show_upgrade_confirmation(self, interaction: discord.Interaction, item_type: str, item_id: int):
+        """Show an ephemeral confirmation dialog with Yes/No buttons."""
+        user_id = str(interaction.user.id)
+        await interaction.response.defer(ephemeral=True)
+
+        async with self.bot.db_pool.acquire() as conn:
+            table_map = {
+                'weapon': 'user_weapons',
+                'armor': 'user_armor',
+                'accessory': 'user_accessories'
+            }
+            table = table_map[item_type]
+            row = await conn.fetchrow(f"SELECT upgrade_level FROM {table} WHERE id = $1 AND user_id = $2", item_id, user_id)
+            if not row:
+                await interaction.followup.send("❌ Item not found.", ephemeral=True)
+                return
+            current_level = row['upgrade_level']
+            if current_level >= 10:
+                await interaction.followup.send("❌ Item is already at max level.", ephemeral=True)
+                return
+
+        cost = self.upgrade_stone_cost(current_level)
+        chance = self.upgrade_success_rate(current_level)
+        stone_emoji = self.get_stone_emoji(item_type)
+
+        embed = discord.Embed(
+            title="⬆️ Confirm Upgrade",
+            description=f"Do you want to upgrade this **{item_type}** to **+{current_level+1}**?",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="Stone Cost", value=f"{stone_emoji} **{cost}**", inline=True)
+        embed.add_field(name="Success Chance", value=f"**{chance}%**", inline=True)
+        embed.add_field(name="On Failure", value="Stones are consumed, item remains at current level.", inline=False)
+
+        view = self.UpgradeConfirmView(self, item_type, item_id, cost, chance, stone_emoji)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    async def handle_upgrade(self, interaction: discord.Interaction, item_type: str, item_id: int):
+        """Perform the upgrade after confirmation."""
+        user_id = str(interaction.user.id)
+        await interaction.response.defer(ephemeral=True)
+
+        stone_name_map = {
+            'weapon': 'Sword Enhancement Stone',
+            'armor': 'Armor Enhancement Stone',
+            'accessory': 'Accessories Enhancement Stone'
+        }
+        stone_name = stone_name_map[item_type]
+
+        async with self.bot.db_pool.acquire() as conn:
+            # Get stone item_id
+            stone_item = await conn.fetchrow("SELECT item_id FROM shop_items WHERE name = $1", stone_name)
+            if not stone_item:
+                await interaction.followup.send("❌ Enhancement stone not found. Contact admin.", ephemeral=True)
+                return
+            stone_id = stone_item['item_id']
+
+            table_map = {
+                'weapon': 'user_weapons',
+                'armor': 'user_armor',
+                'accessory': 'user_accessories'
+            }
+            table = table_map[item_type]
+
+            # Fetch current upgrade level and stats
+            if item_type == 'weapon':
+                row = await conn.fetchrow(f"SELECT upgrade_level, attack FROM {table} WHERE id = $1 AND user_id = $2", item_id, user_id)
+                if not row:
+                    await interaction.followup.send("❌ Weapon not found.", ephemeral=True)
+                    return
+                current_level, current_stat = row['upgrade_level'], row['attack']
+            elif item_type == 'armor':
+                row = await conn.fetchrow(f"SELECT upgrade_level, defense, hp_bonus FROM {table} WHERE id = $1 AND user_id = $2", item_id, user_id)
+                if not row:
+                    await interaction.followup.send("❌ Armor not found.", ephemeral=True)
+                    return
+                current_level, current_def, current_hp = row['upgrade_level'], row['defense'], row['hp_bonus']
+            else:  # accessory
+                row = await conn.fetchrow(f"SELECT upgrade_level, bonus_value FROM {table} WHERE id = $1 AND user_id = $2", item_id, user_id)
+                if not row:
+                    await interaction.followup.send("❌ Accessory not found.", ephemeral=True)
+                    return
+                current_level, current_stat = row['upgrade_level'], row['bonus_value']
+
+            if current_level >= 10:
+                await interaction.followup.send("❌ Item is already at max level (+10).", ephemeral=True)
+                return
+
+            required_stones = self.upgrade_stone_cost(current_level)
+            success_chance = self.upgrade_success_rate(current_level)
+
+            # Check user's stones
+            stones_qty = await conn.fetchval("SELECT quantity FROM user_materials WHERE user_id = $1 AND material_id = $2", user_id, stone_id)
+            if not stones_qty or stones_qty < required_stones:
+                stone_emoji = self.get_stone_emoji(item_type)
+                await interaction.followup.send(
+                    f"❌ You need **{required_stones}** {stone_emoji} **{stone_name}** to upgrade.",
+                    ephemeral=True
+                )
+                return
+
+            # Deduct stones
+            await conn.execute("UPDATE user_materials SET quantity = quantity - $1 WHERE user_id = $2 AND material_id = $3", required_stones, user_id, stone_id)
+
+            # Determine success
+            success = random.randint(1, 100) <= success_chance
+
+            if success:
+                multiplier = self.get_upgrade_multiplier(item_type)
+
+                # Update upgrade level
+                await conn.execute(f"UPDATE {table} SET upgrade_level = upgrade_level + 1 WHERE id = $1", item_id)
+
+                # Apply stat increase
+                if item_type == 'weapon':
+                    new_stat = round(current_stat * multiplier)
+                    await conn.execute(f"UPDATE {table} SET attack = $1 WHERE id = $2", new_stat, item_id)
+                elif item_type == 'armor':
+                    new_def = round(current_def * multiplier)
+                    new_hp = round(current_hp * multiplier)
+                    await conn.execute(f"UPDATE {table} SET defense = $1, hp_bonus = $2 WHERE id = $3", new_def, new_hp, item_id)
+                else:  # accessory
+                    new_stat = round(current_stat * multiplier)
+                    await conn.execute(f"UPDATE {table} SET bonus_value = $1 WHERE id = $2", new_stat, item_id)
+
+                message = f"✅ Upgrade successful! Your item is now **+{current_level+1}**."
+            else:
+                message = f"❌ Upgrade failed! You lost **{required_stones}** stones, but the item remains at **+{current_level}**."
+
+            await interaction.followup.send(message, ephemeral=True)
+
+        # Refresh the item view
+        await self.handle_item_selection(interaction, item_type, item_id)
     # -------------------------------------------------------------------------
     # INTERACTION HANDLER
     # -------------------------------------------------------------------------
@@ -5032,6 +5214,14 @@ class Shop(commands.Cog):
         # ===== BACK BUTTONS =====
         elif custom_id == "category_back":
             await self.handle_inventory_action(interaction, "back")
+
+        elif custom_id.startswith("upgrade_confirm_"):
+            # format: upgrade_confirm_{item_type}_{item_id}
+            parts = custom_id.split('_')
+            if len(parts) >= 4:
+                item_type = parts[2]
+                item_id = int(parts[3])
+                await self.show_upgrade_confirmation(interaction, item_type, item_id)
 
         # ===== PAGINATION BUTTONS =====   <-- INSERT HERE
         elif custom_id.startswith("category_prev_"):
@@ -5275,6 +5465,7 @@ class Shop(commands.Cog):
                                uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
                                COALESCE(si.image_url, uw.image_url) as image_url,
                                r.color as rarity_color
+                               uw.upgrade_level
                         FROM user_weapons uw
                         LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
                         LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
@@ -5286,7 +5477,7 @@ class Shop(commands.Cog):
                     item = await conn.fetchrow("""
                         SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
                                ua.hp_bonus, ua.reflect_damage, at.set_name,
-                               at.image_url, at.description, r.color as rarity_color
+                               at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
                         FROM user_armor ua
                         JOIN armor_types at ON ua.armor_id = at.armor_id
                         LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -5297,7 +5488,7 @@ class Shop(commands.Cog):
                     item = await conn.fetchrow("""
                         SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
                                ua.equipped, ua.slot, at.set_name,
-                               at.image_url, at.description, r.color as rarity_color
+                               at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
                         FROM user_accessories ua
                         JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                         LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -5432,6 +5623,26 @@ class Shop(commands.Cog):
                         bonus_text = set_bonuses.get(item['set_name'].lower(), "Complete set for bonus!")
                         embed.add_field(name=f"⏳ Set Bonus ({missing} more to go)", value=bonus_text, inline=False)
 
+            # Upgrade info
+            current_level = item.get('upgrade_level', 0)
+            embed.add_field(name="Upgrade Level", value=f"+{current_level}", inline=True)
+
+            if current_level < 10:
+                multiplier = self.get_upgrade_multiplier(item_type)
+                if item_type == 'weapon':
+                    next_atk = round(item['attack'] * multiplier)
+                    embed.add_field(name="Next Upgrade", value=f"ATK: {next_atk}", inline=True)
+                elif item_type == 'armor':
+                    next_def = round(item['defense'] * multiplier)
+                    next_hp = round(item['hp_bonus'] * multiplier)
+                    embed.add_field(name="Next Upgrade", value=f"DEF: {next_def}, HP: +{next_hp}", inline=True)
+                elif item_type == 'accessory':
+                    next_val = round(item['bonus_value'] * multiplier)
+                    embed.add_field(name="Next Upgrade", value=f"{item['bonus_stat'].upper()}: +{next_val}", inline=True)
+
+                chance = self.upgrade_success_rate(current_level)
+                embed.add_field(name="Success Chance", value=f"{chance}%", inline=True)
+
             # Create action view - ONLY show the relevant button
             view = discord.ui.View(timeout=60)
         
@@ -5452,7 +5663,18 @@ class Shop(commands.Cog):
                     custom_id=f"equip_{item_type}_{item_id}", 
                     row=0
                 ))
-        
+            # Upgrade button (if not max level)
+            if current_level < 10:
+                cost = self.upgrade_stone_cost(current_level)
+                chance = self.upgrade_success_rate(current_level)
+                stone_emoji = self.get_stone_emoji(item_type)
+                view.add_item(discord.ui.Button(
+                    label=f"{cost} | {chance}%",
+                    emoji=stone_emoji,
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"upgrade_confirm_{item_type}_{item_id}",  # new custom_id for confirmation
+                    row=1
+                ))
             # Always show back button
             view.add_item(discord.ui.Button(
                 label="🔙", 
@@ -6985,6 +7207,7 @@ class Shop(commands.Cog):
                        uw.attack, uw.equipped, uw.description,
                        COALESCE(si.image_url, uw.image_url) as image_url,
                        r.color as rarity_color
+                       uw.upgrade_level
                 FROM user_weapons uw
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
                 LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
@@ -6995,7 +7218,7 @@ class Shop(commands.Cog):
 
             armor = await conn.fetch("""
                 SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
-                       at.image_url, at.description, r.color as rarity_color
+                       at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
                 FROM user_armor ua
                 JOIN armor_types at ON ua.armor_id = at.armor_id
                 LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -7007,6 +7230,7 @@ class Shop(commands.Cog):
                 SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
                        ua.equipped, ua.slot, at.image_url, at.description,
                        r.color as rarity_color
+                       uw.upgrade_level 
                 FROM user_accessories ua
                 JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                 LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
