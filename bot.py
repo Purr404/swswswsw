@@ -5453,8 +5453,8 @@ class Shop(commands.Cog):
             deferred = True
         except (ConnectionResetError, asyncio.TimeoutError, discord.HTTPException) as e:
             print(f"Defer failed: {e}")
-    
             deferred = False
+
         try:
             # Fetch the specific item with all stats
             async with self.bot.db_pool.acquire() as conn:
@@ -5464,7 +5464,7 @@ class Shop(commands.Cog):
                                uw.attack, uw.equipped, uw.description,
                                uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
                                COALESCE(si.image_url, uw.image_url) as image_url,
-                               r.color as rarity_color
+                               r.color as rarity_color,
                                uw.upgrade_level
                         FROM user_weapons uw
                         LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
@@ -5472,23 +5472,25 @@ class Shop(commands.Cog):
                         LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
                         WHERE uw.id = $1 AND uw.user_id = $2
                     """, item_id, user_id)
-                
+
                 elif item_type == 'armor':
                     item = await conn.fetchrow("""
                         SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
                                ua.hp_bonus, ua.reflect_damage, at.set_name,
-                               at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
+                               at.image_url, at.description, r.color as rarity_color,
+                               ua.upgrade_level
                         FROM user_armor ua
                         JOIN armor_types at ON ua.armor_id = at.armor_id
                         LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
                         WHERE ua.id = $1 AND ua.user_id = $2
                     """, item_id, user_id)
-                
+
                 elif item_type == 'accessory':
                     item = await conn.fetchrow("""
                         SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
                                ua.equipped, ua.slot, at.set_name,
-                               at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
+                               at.image_url, at.description, r.color as rarity_color,
+                               ua.upgrade_level
                         FROM user_accessories ua
                         JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                         LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -5498,6 +5500,7 @@ class Shop(commands.Cog):
             if not item:           
                 await interaction.followup.send("Item not found.", ephemeral=True)
                 return
+
 
             # Get the custom emoji for this item
             item_emoji = get_item_emoji(item['name'], item_type)
