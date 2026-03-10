@@ -4059,7 +4059,7 @@ class InventoryView(discord.ui.View):
                        uw.attack, uw.equipped, uw.description,
                        uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
                        COALESCE(si.image_url, uw.image_url) as image_url,
-                       r.color as rarity_color
+                       r.color as rarity_color,
                        uw.upgrade_level
                 FROM user_weapons uw
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
@@ -4072,7 +4072,8 @@ class InventoryView(discord.ui.View):
             armor = await conn.fetch("""
                 SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
                        ua.hp_bonus, ua.reflect_damage, at.set_name,
-                       at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
+                       at.image_url, at.description, r.color as rarity_color,
+                       ua.upgrade_level
                 FROM user_armor ua
                 JOIN armor_types at ON ua.armor_id = at.armor_id
                 LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -4083,7 +4084,8 @@ class InventoryView(discord.ui.View):
             accessories = await conn.fetch("""
                 SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
                        ua.equipped, ua.slot, at.set_name,
-                       at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
+                       at.image_url, at.description, r.color as rarity_color,
+                       ua.upgrade_level
                 FROM user_accessories ua
                 JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                 LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -7227,7 +7229,7 @@ class Shop(commands.Cog):
                 SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
                        uw.attack, uw.equipped, uw.description,
                        COALESCE(si.image_url, uw.image_url) as image_url,
-                       r.color as rarity_color
+                       r.color as rarity_color,
                        uw.upgrade_level
                 FROM user_weapons uw
                 LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
@@ -7239,7 +7241,8 @@ class Shop(commands.Cog):
 
             armor = await conn.fetch("""
                 SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
-                       at.image_url, at.description, r.color as rarity_color, uw.upgrade_level
+                       at.image_url, at.description, r.color as rarity_color,
+                       ua.upgrade_level
                 FROM user_armor ua
                 JOIN armor_types at ON ua.armor_id = at.armor_id
                 LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
@@ -7250,8 +7253,8 @@ class Shop(commands.Cog):
             accessories = await conn.fetch("""
                 SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
                        ua.equipped, ua.slot, at.image_url, at.description,
-                       r.color as rarity_color
-                       uw.upgrade_level 
+                       r.color as rarity_color,
+                       ua.upgrade_level
                 FROM user_accessories ua
                 JOIN accessory_types at ON ua.accessory_id = at.accessory_id
                 LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
