@@ -5693,7 +5693,7 @@ class Shop(commands.Cog):
             # Upgrade button (if not max level)
             if current_level < 10:
                 view.add_item(discord.ui.Button(
-                    label="Upgrade",
+                    label="*Upgrade*",
                     style=discord.ButtonStyle.primary,
                     custom_id=f"upgrade_confirm_{item_type}_{item_id}",
                     row=0
