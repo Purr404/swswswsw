@@ -178,8 +178,8 @@ CUSTOM_EMOJIS = {
     'pet_box': '<:pet_box:1480855688996589675>',
     'skill_enhancement_stone': '<:skill_enhancement_stone:1480854948123250821>',
     'armors_enhancement_stone': '<:armors_enhancement_stone:1480856847727726592>',
-    'sword_enhancement_stone': '<:\<:sword_enhancement_stone:1480855437388681226>>',
-
+    'sword_enhancement_stone': '<:sword_enhancement_stone:1480855437388681226>',
+    'acc_enhancement_stone': '<:acc_enhancement_stone:1480916604203171870>',
 
 
 }
