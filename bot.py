@@ -4119,6 +4119,7 @@ class InventoryView(discord.ui.View):
             'weapons': [dict(w) for w in weapons],
             'armor': [dict(a) for a in armor],
             'accessories': [dict(a) for a in accessories],
+            'materials': [dict(m) for m in materials],
             'gems': balance['gems']
         }
 
