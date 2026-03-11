@@ -1274,7 +1274,7 @@ class DatabaseSystem:
                     await conn.execute('''
                         ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check 
                         CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box', 
-                                        'random_gear_box', 'random_accessories_box', 'pickaxe'))
+                                        'random_gear_box', 'random_accessories_box', 'pickaxe', 'material'))
                     ''')
 
                     # Update armor_types slot constraint to include new slots
