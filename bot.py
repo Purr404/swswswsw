@@ -5484,12 +5484,21 @@ class Shop(commands.Cog):
                     ORDER BY ua.equipped DESC, ua.purchased_at DESC
                 """, user_id)
 
+                materials = await conn.fetch("""
+                    SELECT um.material_id, si.name, um.quantity, si.description
+                    FROM user_materials um
+                    JOIN shop_items si ON um.material_id = si.item_id
+                    WHERE um.user_id = $1 AND um.quantity > 0
+                    ORDER BY si.name
+                """, user_id)
+
             balance = await currency_system.get_balance(user_id)
         
             inventory_data = {
                 'weapons': [dict(w) for w in weapons],
                 'armor': [dict(a) for a in armor],
                 'accessories': [dict(a) for a in accessories],
+                'materials': [dict(m) for m in materials],  
                 'gems': balance['gems']
             }
 
