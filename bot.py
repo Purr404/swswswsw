@@ -3962,8 +3962,15 @@ class CategoryView(discord.ui.View):
 
         if item_type == 'material':
             for i, item in enumerate(page_items):
-                emoji_key = item['name'].lower().replace(' ', '_')
-                emoji = CUSTOM_EMOJIS.get(emoji_key, '📦')
+                name_lower = item['name'].lower()
+                if 'sword' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+                elif 'armor' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+                elif 'accessories' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+                else:
+                    emoji = '📦'
                 button = discord.ui.Button(
                     label=f"{item['name']} x{item['quantity']}",
                     emoji=emoji,
@@ -5305,6 +5312,9 @@ class Shop(commands.Cog):
                 material_id = int(parts[2])
                 await self.handle_material_selection(interaction, material_id)
 
+        elif custom_id == "back_to_materials":
+            await self.handle_inventory_action(interaction, "materials")
+
         # ===== INVENTORY ITEM BUTTONS =====
         elif custom_id.startswith("inv_"):
             # Format: inv_{item_type}_{item_id}
@@ -6202,7 +6212,7 @@ class Shop(commands.Cog):
 
     async def handle_material_selection(self, interaction: discord.Interaction, material_id: int):
         user_id = str(interaction.user.id)
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)  # important: not ephemeral
 
         async with self.bot.db_pool.acquire() as conn:
             material = await conn.fetchrow("""
@@ -6216,9 +6226,16 @@ class Shop(commands.Cog):
             await interaction.followup.send("Material not found.", ephemeral=True)
             return
 
-        # Get stone emoji from CUSTOM_EMOJIS based on name
-        emoji_key = material['name'].lower().replace(' ', '_')
-        stone_emoji = CUSTOM_EMOJIS.get(emoji_key, '💎')
+        # Determine emoji based on name
+        name_lower = material['name'].lower()
+        if 'sword' in name_lower:
+            stone_emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+        elif 'armor' in name_lower:
+            stone_emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+        elif 'accessories' in name_lower:
+            stone_emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+        else:
+            stone_emoji = '📦'
 
         embed = discord.Embed(
             title=f"{stone_emoji} **{material['name']}**",
@@ -6228,8 +6245,9 @@ class Shop(commands.Cog):
         embed.add_field(name="Quantity", value=str(material['quantity']), inline=True)
 
         view = discord.ui.View(timeout=60)
-        view.add_item(discord.ui.Button(label="🔙", style=discord.ButtonStyle.secondary, custom_id="item_back", row=0))
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        view.add_item(discord.ui.Button(label="🔙", style=discord.ButtonStyle.secondary, custom_id="back_to_materials", row=0))
+
+        await interaction.edit_original_response(embed=embed, view=view)
 
     @commands.command(name='fix_shop_constraint')
     @commands.has_permissions(administrator=True)
