@@ -7404,7 +7404,6 @@ class Shop(commands.Cog):
                 WHERE um.user_id = $1 AND um.quantity > 0
                 ORDER BY si.name
             """, user_id)
-
         balance = await currency_system.get_balance(user_id)
 
         inventory_data = {
