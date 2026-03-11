@@ -3916,21 +3916,13 @@ async def on_command_error(ctx, error):
 # ========== INVENTORY CLASSES ==========
 
 class InventoryItemButton(discord.ui.Button):
-    def __init__(self, item_data, item_type, row=None):
+    def __init__(self, item_data, item_type, row=None, awakened=False):
         self.item_data = item_data
         self.item_type = item_type
-        item_emoji = get_item_emoji(item_data['name'], item_type)
+        item_emoji = get_item_emoji(item_data['name'], item_type, awakened=awakened)
         style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
         custom_id = f"inv_{item_type}_{item_data['id']}"
         super().__init__(label="", emoji=item_emoji, style=style, custom_id=custom_id, row=row)
-
-        # Get the custom emoji for this item
-        item_emoji = get_item_emoji(item_data['name'], item_type)
-        
-        style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
-        custom_id = f"inv_{item_type}_{item_data['id']}"
-        
-        super().__init__(label="", emoji=item_emoji, style=style, custom_id=custom_id)
 
     async def callback(self, interaction: discord.Interaction):
         try:
@@ -3940,7 +3932,6 @@ class InventoryItemButton(discord.ui.Button):
                 self.item_type, 
                 self.item_data['id']
             )
-            # NO RESPONSE HERE!
         except Exception as e:
             print(f"Error in InventoryItemButton: {e}")
             traceback.print_exc()
@@ -3951,6 +3942,7 @@ class InventoryItemButton(discord.ui.Button):
                     await interaction.followup.send("An error occurred.", ephemeral=True)
                 except:
                     pass
+
 
 class CategoryView(discord.ui.View):
     def __init__(self, user_id, items, item_type, parent_view, page=0):
@@ -4193,7 +4185,6 @@ class InventoryView(discord.ui.View):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
                 return
 
-            # Use .get() to avoid KeyError if 'materials' missing
             materials = self.inventory.get('materials', [])
             if not materials:
                 await interaction.response.send_message("You have no materials!", ephemeral=True)
@@ -4206,8 +4197,7 @@ class InventoryView(discord.ui.View):
             print(f"Error in show_materials: {e}")
             traceback.print_exc()
             try:
-                # Use followup because interaction is already deferred
-                await interaction.followup.send("An error occurred.", ephemeral=True)
+                await interaction.response.send_message("An error occurred.", ephemeral=True)
             except:
                 pass
 
