@@ -116,6 +116,10 @@ BOSS_IMAGES = [
 "https://image2url.com/r2/default/images/1773112137244-8609699c-1699-4bf8-a3d7-91a03b523a53.png",
 
 "https://image2url.com/r2/default/images/1773112167085-d3ed553d-e10f-4fd7-af08-18889868cc58.png",
+
+"https://image2url.com/r2/default/images/1773219794810-a5dbee44-07f0-4f1b-8bf3-4e9043b36e8a.png",
+
+"https://image2url.com/r2/default/images/1773219848872-eaade8df-827f-4f7e-9376-a859b74c6218.png",
     # add more as desired
 ]
 
@@ -4861,6 +4865,10 @@ class Shop(commands.Cog):
         else:  # weapon or accessory
             return 1.10
 
+    def get_armor_multipliers(self) -> tuple:
+        """Return (def_mult, hp_mult) for one armor upgrade."""
+        return 1.15, 1.20   # 15% DEF, 20% HP
+
     def get_stone_emoji(self, item_type: str) -> str:
         """Return the custom emoji for the enhancement stone of the given item type."""
         if item_type == 'weapon':
@@ -5228,8 +5236,9 @@ class Shop(commands.Cog):
                     new_stat = round(current_stat * multiplier)
                     await conn.execute(f"UPDATE {table} SET attack = $1 WHERE id = $2", new_stat, item_id)
                 elif item_type == 'armor':
-                    new_def = round(current_def * multiplier)
-                    new_hp = round(current_hp * multiplier)
+                    def_mult, hp_mult = self.get_armor_multipliers()
+                    new_def = round(current_def * def_mult)
+                    new_hp = round(current_hp * hp_mult)
                     await conn.execute(f"UPDATE {table} SET defense = $1, hp_bonus = $2 WHERE id = $3", new_def, new_hp, item_id)
                 else:  # accessory
                     new_stat = round(current_stat * multiplier)
