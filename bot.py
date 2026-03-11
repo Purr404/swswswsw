@@ -187,7 +187,7 @@ CUSTOM_EMOJIS = {
 
 # ============================================================
 # EMOJIS HELPER FUNCTIONS 
-def get_item_emoji(item_name: str, item_type: str) -> str:
+def get_item_emoji(item_name: str, item_type: str, awakened: bool = False) -> str:
     """Return the appropriate custom emoji based on item name and type."""
     item_lower = item_name.lower()
     
@@ -4129,10 +4129,10 @@ class InventoryView(discord.ui.View):
     async def show_weapons(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                await interaction.followup.send("Not your inventory!", ephemeral=True)
                 return
             if not self.inventory['weapons']:
-                await interaction.response.send_message("You have no weapons!", ephemeral=True)
+                await interaction.followup.send("You have no weapons!", ephemeral=True)
                 return
             embed = discord.Embed(title="🗡️ **Weapons**", color=discord.Color.red())
             view = CategoryView(self.user_id, self.inventory['weapons'], 'weapon', self)
@@ -4140,56 +4140,58 @@ class InventoryView(discord.ui.View):
         except Exception as e:
             print(f"Error in show_weapons: {e}")
             traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
+            try:
+                await interaction.followup.send("An error occurred.", ephemeral=True)
+            except:
+                pass
 
     async def show_armor(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                await interaction.followup.send("Not your inventory!", ephemeral=True)
                 return
-
             if not self.inventory['armor']:
-                await interaction.response.send_message("You have no armor!", ephemeral=True)
+                await interaction.followup.send("You have no armor!", ephemeral=True)
                 return
-
             embed = discord.Embed(title="🛡️ **Armor**", color=discord.Color.blue())
             view = CategoryView(self.user_id, self.inventory['armor'], 'armor', self)
             await interaction.edit_original_response(embed=embed, view=view) 
         except Exception as e:
             print(f"Error in show_armor: {e}")
             traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
+            try:
+                await interaction.followup.send("An error occurred.", ephemeral=True)
+            except:
+                pass
 
     async def show_accessories(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                await interaction.followup.send("Not your inventory!", ephemeral=True)
                 return
-
             if not self.inventory['accessories']:
-                await interaction.response.send_message("You have no accessories!", ephemeral=True)
+                await interaction.followup.send("You have no accessories!", ephemeral=True)
                 return
-
             embed = discord.Embed(title="📿 **Accessories**", color=discord.Color.green())
             view = CategoryView(self.user_id, self.inventory['accessories'], 'accessory', self)            
-
             await interaction.edit_original_response(embed=embed, view=view) 
         except Exception as e:
             print(f"Error in show_accessories: {e}")
             traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
+            try:
+                await interaction.followup.send("An error occurred.", ephemeral=True)
+            except:
+                pass
 
     async def show_materials(self, interaction: discord.Interaction):
         try:
             if interaction.user.id != int(self.user_id):
-                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                await interaction.followup.send("Not your inventory!", ephemeral=True)
                 return
-
             materials = self.inventory.get('materials', [])
             if not materials:
-                await interaction.response.send_message("You have no materials!", ephemeral=True)
+                await interaction.followup.send("You have no materials!", ephemeral=True)
                 return
-
             embed = discord.Embed(title="📦 **Materials**", color=discord.Color.light_grey())
             view = CategoryView(self.user_id, materials, 'material', self)
             await interaction.edit_original_response(embed=embed, view=view)
@@ -4197,7 +4199,7 @@ class InventoryView(discord.ui.View):
             print(f"Error in show_materials: {e}")
             traceback.print_exc()
             try:
-                await interaction.response.send_message("An error occurred.", ephemeral=True)
+                await interaction.followup.send("An error occurred.", ephemeral=True)
             except:
                 pass
 
