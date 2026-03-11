@@ -6252,6 +6252,84 @@ class Shop(commands.Cog):
 
         await interaction.edit_original_response(embed=embed, view=view)
 
+
+
+    async def handle_back_to_category(self, interaction: discord.Interaction, item_type: str):
+        """Return from item detail to the category view."""
+        user_id = str(interaction.user.id)
+        await interaction.response.defer(ephemeral=True)
+
+        # Fetch fresh inventory data
+        async with self.bot.db_pool.acquire() as conn:
+            weapons = await conn.fetch("""
+                SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
+                       uw.attack, uw.equipped, uw.description,
+                       uw.bleeding_chance, uw.crit_chance, uw.crit_damage,
+                       COALESCE(si.image_url, uw.image_url) as image_url,
+                       r.color as rarity_color,
+                       uw.upgrade_level
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                LEFT JOIN weapon_variants v ON uw.variant_id = v.variant_id
+                LEFT JOIN rarities r ON v.rarity_id = r.rarity_id
+                WHERE uw.user_id = $1
+                ORDER BY uw.equipped DESC, uw.purchased_at DESC
+            """, user_id)
+
+            armor = await conn.fetch("""
+                SELECT ua.id, at.name, ua.defense, ua.equipped, at.slot,
+                       ua.hp_bonus, ua.reflect_damage, at.set_name,
+                       at.image_url, at.description, r.color as rarity_color,
+                       ua.upgrade_level
+                FROM user_armor ua
+                JOIN armor_types at ON ua.armor_id = at.armor_id
+                LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                WHERE ua.user_id = $1
+                ORDER BY ua.equipped DESC, ua.purchased_at DESC
+            """, user_id)
+
+            accessories = await conn.fetch("""
+                SELECT ua.id, at.name, ua.bonus_value, at.bonus_stat,
+                       ua.equipped, ua.slot, at.set_name,
+                       at.image_url, at.description, r.color as rarity_color,
+                       ua.upgrade_level
+                FROM user_accessories ua
+                JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                LEFT JOIN rarities r ON at.rarity_id = r.rarity_id
+                WHERE ua.user_id = $1
+                ORDER BY ua.equipped DESC, ua.purchased_at DESC
+            """, user_id)
+
+            materials = await conn.fetch("""
+                SELECT um.material_id, si.name, um.quantity, si.description
+                FROM user_materials um
+                JOIN shop_items si ON um.material_id = si.item_id
+                WHERE um.user_id = $1 AND um.quantity > 0
+                ORDER BY si.name
+            """, user_id)
+
+        balance = await currency_system.get_balance(user_id)
+
+        inventory_data = {
+            'weapons': [dict(w) for w in weapons],
+            'armor': [dict(a) for a in armor],
+            'accessories': [dict(a) for a in accessories],
+            'materials': [dict(m) for m in materials],
+            'gems': balance['gems']
+        }
+
+        # Create a temporary view and show the appropriate category
+        temp_view = InventoryView(user_id, inventory_data, self)
+
+        if item_type == 'weapon':
+            await temp_view.show_weapons(interaction)
+        elif item_type == 'armor':
+            await temp_view.show_armor(interaction)
+        elif item_type == 'accessory':
+            await temp_view.show_accessories(interaction)
+        elif item_type == 'material':
+            await temp_view.show_materials(interaction)
+
     @commands.command(name='fix_shop_constraint')
     @commands.has_permissions(administrator=True)
     async def fix_shop_constraint(self, ctx):
