@@ -6176,7 +6176,19 @@ class Shop(commands.Cog):
         view.add_item(discord.ui.Button(label="🔙", style=discord.ButtonStyle.secondary, custom_id="item_back", row=0))
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
-
+    @commands.command(name='fix_shop_constraint')
+    @commands.has_permissions(administrator=True)
+    async def fix_shop_constraint(self, ctx):
+        """Add 'material' to the allowed types in shop_items."""
+        async with self.bot.db_pool.acquire() as conn:
+            # Drop the old constraint and recreate with 'material' included
+            await conn.execute("ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check;")
+            await conn.execute("""
+                ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check 
+                CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box', 
+                                'random_gear_box', 'random_accessories_box', 'pickaxe', 'material'))
+            """)
+        await ctx.send("✅ Shop items type constraint updated to include 'material'.")
 
 
     @commands.command(name='addstones')
