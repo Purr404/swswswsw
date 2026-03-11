@@ -8785,17 +8785,39 @@ class BossAttackView(discord.ui.View):
                 ON CONFLICT (user_id, reset_date) DO UPDATE
                 SET total_damage = boss_damage.total_damage + $3
             """, user_id, reset_date, damage)
+       
 
-        # 11. Send feedback to the user
-        crit_text = " 💥 CRITICAL!" if is_crit else ""
-        await interaction.followup.send(
-            f"✅ You used **{skill_name}** and dealt **{damage}** damage to the boss{crit_text}!\n"
-            f"Attempts left: {4 - attempts_used}.",
-            ephemeral=True
-        )
-
-        # 12. Update the public boss message with new HP
+        # 11. Update the public boss message with new HP
         await self.update_boss_message(interaction, new_hp, config['max_hp'])
+
+        # 12. Stone drop chance (20% for 2-5 random stones)
+        stone_dropped = False
+        if random.random() < 0.2:
+            stone_name = random.choice([
+                'Sword Enhancement Stone',
+                'Armor Enhancement Stone',
+                'Accessories Enhancement Stone'
+            ])
+            stone_qty = random.randint(2, 5)
+
+            async with bot.db_pool.acquire() as conn:
+                stone_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", stone_name)
+                if stone_id:
+                    await conn.execute("""
+                        INSERT INTO user_materials (user_id, material_id, quantity)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (user_id, material_id) DO UPDATE
+                        SET quantity = user_materials.quantity + $3
+                    """, user_id, stone_id, stone_qty)
+            stone_dropped = True
+
+        # 13. Send feedback to the user
+        crit_text = " 💥 CRITICAL!" if is_crit else ""
+        message = f"✅ You used **{skill_name}** and dealt **{damage}** damage to the boss{crit_text}!\nAttempts left: {4 - attempts_used}."
+        if stone_dropped:
+            message += f"\n🎁 You also found **{stone_qty}** {stone_name}!"
+
+        await interaction.followup.send(message, ephemeral=True)
 
     @discord.ui.button(label="🏆 Rankings", style=discord.ButtonStyle.secondary, custom_id="boss_rankings")
     async def rankings_button(self, button: discord.ui.Button, interaction: discord.Interaction):
