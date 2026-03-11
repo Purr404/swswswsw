@@ -4040,7 +4040,7 @@ class InventoryView(discord.ui.View):
         ))
         self.add_item(discord.ui.Button(
             label="📦 Materials", 
-            style=discord.ButtonStyle.secondary, 
+            style=discord.ButtonStyle.primary, 
             custom_id="inventory_materials", 
             row=0
         ))
@@ -5370,9 +5370,12 @@ class Shop(commands.Cog):
                 await self.handle_category_page(interaction, item_type, new_page)
 
 
-        elif custom_id == "item_back":
-            await self.handle_inventory_action(interaction, "back")
-
+        elif custom_id.startswith("item_back_"):
+            # format: item_back_{item_type}
+            parts = custom_id.split('_')
+            if len(parts) >= 3:
+                item_type = parts[2]
+                await self.handle_back_to_category(interaction, item_type)
 
     # HELPER METHODS
     async def handle_category_page(self, interaction: discord.Interaction, item_type: str, page: int):
@@ -5808,7 +5811,7 @@ class Shop(commands.Cog):
             view.add_item(discord.ui.Button(
                 label="🔙", 
                 style=discord.ButtonStyle.secondary, 
-                custom_id="item_back", 
+                custom_id=f"item_back_{item_type}", 
                 row=1
             ))
 
