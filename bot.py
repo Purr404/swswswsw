@@ -5528,6 +5528,7 @@ class Shop(commands.Cog):
                 await interaction.followup.send("Item not found.", ephemeral=True)
                 return
 
+            current_level = item.get('upgrade_level', 0)
 
             # Get the custom emoji for this item
             item_emoji = get_item_emoji(item['name'], item_type)
