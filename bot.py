@@ -5639,10 +5639,12 @@ class Shop(commands.Cog):
 
             # Get the custom emoji for this item
             item_emoji = get_item_emoji(item['name'], item_type)
+            current_level = item.get('upgrade_level', 0)
+            level_str = f" +{current_level}" if current_level > 0 else ""
         
-            # Create detail embed with emoji in title
+            # Create detail embed with emoji and upgrade level in title
             embed = discord.Embed(
-                title=f"{item_emoji} **{item['name']}**",
+                title=f"{item_emoji} **{item['name']}**{level_str}",
                 color=discord.Color.gold()
             )
 
