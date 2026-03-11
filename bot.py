@@ -8801,13 +8801,13 @@ class BossAttackView(discord.ui.View):
 
         # 12. Stone drop chance (20% for 2-5 random stones)
         stone_dropped = False
-        if random.random() < 0.2:
+        if random.random() < 0.35:
             stone_name = random.choice([
                 'Sword Enhancement Stone',
                 'Armor Enhancement Stone',
                 'Accessories Enhancement Stone'
             ])
-            stone_qty = random.randint(2, 5)
+            stone_qty = random.randint(2, 15)
 
             async with bot.db_pool.acquire() as conn:
                 stone_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", stone_name)
@@ -8824,7 +8824,9 @@ class BossAttackView(discord.ui.View):
         crit_text = " 💥 CRITICAL!" if is_crit else ""
         message = f"✅ You used **{skill_name}** and dealt **{damage}** damage to the boss{crit_text}!\nAttempts left: {4 - attempts_used}."
         if stone_dropped:
-            message += f"\n🎁 You also found **{stone_qty}** {stone_name}!"
+            # Get the stone emoji from CUSTOM_EMOJIS using the stone name
+            stone_emoji = CUSTOM_EMOJIS.get(stone_name.lower().replace(' ', '_'), '💎')
+            message += f"\nYou also found **{stone_qty}** {stone_emoji} **{stone_name}**!"
 
         await interaction.followup.send(message, ephemeral=True)
 
