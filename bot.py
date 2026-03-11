@@ -3971,6 +3971,25 @@ class CategoryView(discord.ui.View):
             row = i // 5
             self.add_item(InventoryItemButton(item, item_type, row=row))
 
+        if item_type == 'material':
+            for i, item in enumerate(page_items):
+                # Get emoji from name (convert to key like 'sword_enhancement_stone')
+                emoji_key = item['name'].lower().replace(' ', '_')
+                emoji = CUSTOM_EMOJIS.get(emoji_key, '📦')
+                button = discord.ui.Button(
+                    label=f"{item['name']} x{item['quantity']}",
+                    emoji=emoji,
+                    style=discord.ButtonStyle.secondary,
+                    custom_id=f"inv_material_{item['material_id']}",
+                    row=i // 5
+                )
+                self.add_item(button)
+        else:
+            # Weapons, armor, accessories – use InventoryItemButton
+            for i, item in enumerate(page_items):
+                row = i // 5
+                self.add_item(InventoryItemButton(item, item_type, row=row, awakened=item.get('awakened', False)))
+
         # Add pagination buttons with page number in custom_id
         if self.max_page > 0:
             if self.page > 0:
@@ -4027,6 +4046,12 @@ class InventoryView(discord.ui.View):
             row=0
         ))
         self.add_item(discord.ui.Button(
+            label="📦 Materials", 
+            style=discord.ButtonStyle.secondary, 
+            custom_id="inventory_materials", 
+            row=0
+        ))
+        self.add_item(discord.ui.Button(
             label="🔄", 
             style=discord.ButtonStyle.secondary, 
             custom_id="inventory_back", 
@@ -4047,6 +4072,7 @@ class InventoryView(discord.ui.View):
         embed.add_field(name="⚔️ Weapons", value=str(len(self.inventory['weapons'])), inline=True)
         embed.add_field(name="🛡️ Armor", value=str(len(self.inventory['armor'])), inline=True)
         embed.add_field(name="📿 Accessories", value=str(len(self.inventory['accessories'])), inline=True)
+        embed.add_field(name="📦 Materials", value=str(len(self.inventory.get('materials', []))), inline=True)
 
         return embed
 
@@ -4156,6 +4182,23 @@ class InventoryView(discord.ui.View):
             await interaction.edit_original_response(embed=embed, view=view) 
         except Exception as e:
             print(f"Error in show_accessories: {e}")
+            traceback.print_exc()
+            await interaction.response.send_message("An error occurred.", ephemeral=True)
+
+    async def show_materials(self, interaction: discord.Interaction):
+        try:
+            if interaction.user.id != int(self.user_id):
+                await interaction.response.send_message("Not your inventory!", ephemeral=True)
+                return
+            if not self.inventory['materials']:
+                await interaction.response.send_message("You have no materials!", ephemeral=True)
+                return
+
+            embed = discord.Embed(title="📦 **Materials**", color=discord.Color.light_grey())
+            view = CategoryView(self.user_id, self.inventory['materials'], 'material', self)
+            await interaction.edit_original_response(embed=embed, view=view)
+        except Exception as e:
+            print(f"Error in show_materials: {e}")
             traceback.print_exc()
             await interaction.response.send_message("An error occurred.", ephemeral=True)
 
@@ -5204,10 +5247,19 @@ class Shop(commands.Cog):
             await self.handle_inventory_action(interaction, "armor")
         
         elif custom_id == "inventory_accessories":
-            await self.handle_inventory_action(interaction, "accessories")
+            await self.handle_inventory_action(interaction, "accessories")    
         
         elif custom_id == "inventory_back":
             await self.handle_inventory_action(interaction, "back")
+
+        elif custom_id == "inventory_materials":
+            await self.handle_inventory_action(interaction, "materials")
+
+        elif custom_id.startswith("inv_material_"):
+            parts = custom_id.split('_')
+            if len(parts) >= 3:
+                material_id = int(parts[2])
+                await self.handle_material_selection(interaction, material_id)
 
         # ===== INVENTORY ITEM BUTTONS =====
         elif custom_id.startswith("inv_"):
@@ -5448,6 +5500,8 @@ class Shop(commands.Cog):
                 await temp_view.show_armor(interaction)
             elif action == "accessories":
                 await temp_view.show_accessories(interaction)
+            elif action == "materials":
+                await temp_view.show_materials(interaction)
             elif action == "back":
                 await interaction.edit_original_response(embed=temp_view.create_main_embed(), view=temp_view)
             
@@ -6091,7 +6145,88 @@ class Shop(commands.Cog):
             """, max_hp, user_id)      
 
 
+    async def handle_material_selection(self, interaction: discord.Interaction, material_id: int):
+        user_id = str(interaction.user.id)
+        await interaction.response.defer(ephemeral=True)
 
+        async with self.bot.db_pool.acquire() as conn:
+            material = await conn.fetchrow("""
+                SELECT si.name, si.description, um.quantity
+                FROM user_materials um
+                JOIN shop_items si ON um.material_id = si.item_id
+                WHERE um.user_id = $1 AND um.material_id = $2
+            """, user_id, material_id)
+
+        if not material:
+            await interaction.followup.send("Material not found.", ephemeral=True)
+            return
+
+        # Get stone emoji from CUSTOM_EMOJIS based on name
+        emoji_key = material['name'].lower().replace(' ', '_')
+        stone_emoji = CUSTOM_EMOJIS.get(emoji_key, '💎')
+
+        embed = discord.Embed(
+            title=f"{stone_emoji} **{material['name']}**",
+            description=material['description'] or "No description available.",
+            color=discord.Color.light_grey()
+        )
+        embed.add_field(name="Quantity", value=str(material['quantity']), inline=True)
+
+        view = discord.ui.View(timeout=60)
+        view.add_item(discord.ui.Button(label="🔙", style=discord.ButtonStyle.secondary, custom_id="item_back", row=0))
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+
+
+    @commands.command(name='addstones')
+    @commands.has_permissions(administrator=True)
+    async def add_stones(self, ctx):
+        """Add enhancement stone items to the shop (admin only)."""
+        async with self.bot.db_pool.acquire() as conn:
+            stones = [
+                ('Sword Enhancement Stone', 'Use to upgrade weapons.', 0, 'material'),
+                ('Armor Enhancement Stone', 'Use to upgrade armor.', 0, 'material'),
+                ('Accessories Enhancement Stone', 'Use to upgrade accessories.', 0, 'material')
+            ]
+            for name, desc, price, typ in stones:
+                exists = await conn.fetchval("SELECT 1 FROM shop_items WHERE name = $1", name)
+                if not exists:
+                    await conn.execute("""
+                        INSERT INTO shop_items (name, description, price, type)
+                        VALUES ($1, $2, $3, $4)
+                    """, name, desc, price, typ)
+        await ctx.send("✅ Enhancement stones have been added to the shop database.")
+
+
+    @commands.command(name='givestones')
+    @commands.has_permissions(administrator=True)
+    async def give_stones(self, ctx, stone_type: str, amount: int = 100):
+        """Give yourself enhancement stones (admin only). Types: sword, armor, acc"""
+        stone_map = {
+            'sword': 'Sword Enhancement Stone',
+            'armor': 'Armor Enhancement Stone',
+            'acc': 'Accessories Enhancement Stone'
+        }
+        if stone_type.lower() not in stone_map:
+            return await ctx.send("❌ Invalid stone type. Use `sword`, `armor`, or `acc`.")
+
+        stone_name = stone_map[stone_type.lower()]
+        user_id = str(ctx.author.id)
+
+        async with self.bot.db_pool.acquire() as conn:
+            stone_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", stone_name)
+            if not stone_id:
+                return await ctx.send("❌ Stone not found. Run `!!addstones` first.")
+
+            await conn.execute("""
+                INSERT INTO user_materials (user_id, material_id, quantity)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id, material_id) DO UPDATE
+                SET quantity = user_materials.quantity + $3
+            """, user_id, stone_id, amount)
+
+        await ctx.send(f"✅ Added **{amount}** {stone_name} to your inventory.")
 
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES (using PartialEmoji for custom emojis)
@@ -7249,12 +7384,21 @@ class Shop(commands.Cog):
                 ORDER BY ua.equipped DESC, ua.purchased_at DESC
             """, user_id)
 
+            materials = await conn.fetch("""
+                SELECT um.material_id, si.name, um.quantity, si.description
+                FROM user_materials um
+                JOIN shop_items si ON um.material_id = si.item_id
+                WHERE um.user_id = $1 AND um.quantity > 0
+                ORDER BY si.name
+            """, user_id)
+
         balance = await currency_system.get_balance(user_id)
 
         inventory_data = {
             'weapons': [dict(w) for w in weapons],
             'armor': [dict(a) for a in armor],
             'accessories': [dict(a) for a in accessories],
+            'materials': [dict(m) for m in materials],
             'gems': balance['gems']
         }
 
