@@ -5042,13 +5042,20 @@ class Shop(commands.Cog):
             self.chance = chance
             self.stone_emoji = stone_emoji
 
-        @discord.ui.button(label="✅ Yes", style=discord.ButtonStyle.success)
+        @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
         async def yes_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
             await self.cog.handle_upgrade(interaction, self.item_type, self.item_id)
 
-        @discord.ui.button(label="❌ No", style=discord.ButtonStyle.secondary)
+        @discord.ui.button(label="No", style=discord.ButtonStyle.secondary)
         async def no_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-            await interaction.response.send_message("Upgrade cancelled.", ephemeral=True)
+            await interaction.response.defer(ephemeral=True)
+            embed = discord.Embed(
+                title="❌ Upgrade Cancelled",
+                description="You have cancelled the upgrade.",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed, view=None)
 
     async def show_upgrade_confirmation(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Show an ephemeral confirmation dialog with Yes/No buttons."""
@@ -5098,9 +5105,9 @@ class Shop(commands.Cog):
             description=f"Do you want to upgrade this **{item_type}** to **+{current_level+1}**?",
             color=discord.Color.orange()
         )
-        embed.add_field(name="Requirements", value=f"{stone_emoji} **{cost}** {stone_name}", inline=True)
-        embed.add_field(name="Success Chance", value=f"**{chance}%**", inline=True)
-        embed.add_field(name="Your Stones", value=f"{stone_emoji} **{stones_qty}**", inline=True)
+        embed.add_field(name="You need", value=f"{stone_emoji} **{cost}** {stone_name}", inline=True)        
+        embed.add_field(name="You have", value=f"{stone_emoji} **{stones_qty}**", inline=True)
+        embed.add_field(name="Success rate", value=f"**{chance}%**", inline=True)
         embed.add_field(name="On Failure", value="Stones are consumed, item remains at current level.", inline=False)
 
         view = self.UpgradeConfirmView(self, item_type, item_id, cost, chance, stone_emoji)
@@ -5110,7 +5117,6 @@ class Shop(commands.Cog):
     async def handle_upgrade(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Perform the upgrade after confirmation."""
         user_id = str(interaction.user.id)
-        await interaction.response.defer(ephemeral=True)
 
         stone_name_map = {
             'weapon': 'Sword Enhancement Stone',
@@ -5123,7 +5129,12 @@ class Shop(commands.Cog):
             # Get stone item_id
             stone_item = await conn.fetchrow("SELECT item_id FROM shop_items WHERE name = $1", stone_name)
             if not stone_item:
-                await interaction.followup.send("❌ Enhancement stone not found. Contact admin.", ephemeral=True)
+                embed = discord.Embed(
+                    title="❌ Error",
+                    description="Enhancement stone not found. Contact admin.",
+                    color=discord.Color.red()
+                )
+                await interaction.edit_original_response(embed=embed, view=None)
                 return
             stone_id = stone_item['item_id']
 
@@ -5138,24 +5149,44 @@ class Shop(commands.Cog):
             if item_type == 'weapon':
                 row = await conn.fetchrow(f"SELECT upgrade_level, attack FROM {table} WHERE id = $1 AND user_id = $2", item_id, user_id)
                 if not row:
-                    await interaction.followup.send("❌ Weapon not found.", ephemeral=True)
+                    embed = discord.Embed(
+                        title="❌ Error",
+                        description="Weapon not found.",
+                        color=discord.Color.red()
+                    )
+                    await interaction.edit_original_response(embed=embed, view=None)
                     return
                 current_level, current_stat = row['upgrade_level'], row['attack']
             elif item_type == 'armor':
                 row = await conn.fetchrow(f"SELECT upgrade_level, defense, hp_bonus FROM {table} WHERE id = $1 AND user_id = $2", item_id, user_id)
                 if not row:
-                    await interaction.followup.send("❌ Armor not found.", ephemeral=True)
+                    embed = discord.Embed(
+                        title="❌ Error",
+                        description="Armor not found.",
+                        color=discord.Color.red()
+                    )
+                    await interaction.edit_original_response(embed=embed, view=None)
                     return
                 current_level, current_def, current_hp = row['upgrade_level'], row['defense'], row['hp_bonus']
             else:  # accessory
                 row = await conn.fetchrow(f"SELECT upgrade_level, bonus_value FROM {table} WHERE id = $1 AND user_id = $2", item_id, user_id)
                 if not row:
-                    await interaction.followup.send("❌ Accessory not found.", ephemeral=True)
+                    embed = discord.Embed(
+                        title="❌ Error",
+                        description="Accessory not found.",
+                        color=discord.Color.red()
+                    )
+                    await interaction.edit_original_response(embed=embed, view=None)
                     return
                 current_level, current_stat = row['upgrade_level'], row['bonus_value']
 
             if current_level >= 10:
-                await interaction.followup.send("❌ Item is already at max level (+10).", ephemeral=True)
+                embed = discord.Embed(
+                    title="❌ Error",
+                    description="Item is already at max level (+10).",
+                    color=discord.Color.red()
+                )
+                await interaction.edit_original_response(embed=embed, view=None)
                 return
 
             required_stones = self.upgrade_stone_cost(current_level)
@@ -5165,10 +5196,12 @@ class Shop(commands.Cog):
             stones_qty = await conn.fetchval("SELECT quantity FROM user_materials WHERE user_id = $1 AND material_id = $2", user_id, stone_id)
             if not stones_qty or stones_qty < required_stones:
                 stone_emoji = self.get_stone_emoji(item_type)
-                await interaction.followup.send(
-                    f"❌ You need **{required_stones}** {stone_emoji} **{stone_name}** to upgrade.",
-                    ephemeral=True
+                embed = discord.Embed(
+                    title="❌ Insufficient Stones",
+                    description=f"You need **{required_stones}** {stone_emoji} **{stone_name}** to upgrade.\nYou have: **{stones_qty or 0}**",
+                    color=discord.Color.red()
                 )
+                await interaction.edit_original_response(embed=embed, view=None)
                 return
 
             # Deduct stones
@@ -5195,13 +5228,22 @@ class Shop(commands.Cog):
                     new_stat = round(current_stat * multiplier)
                     await conn.execute(f"UPDATE {table} SET bonus_value = $1 WHERE id = $2", new_stat, item_id)
 
-                message = f"✅ Upgrade successful! Your item is now **+{current_level+1}**."
+                embed = discord.Embed(
+                    title="✅ Upgrade Successful",
+                    description=f"Your item is now **+{current_level+1}**!",
+                    color=discord.Color.green()
+                )
             else:
-                message = f"❌ Upgrade failed! You lost **{required_stones}** stones, but the item remains at **+{current_level}**."
+                embed = discord.Embed(
+                    title="❌ Upgrade Failed",
+                    description=f"Lost **{required_stones}** stones. Item remains **+{current_level}**.",
+                    color=discord.Color.red()
+                )
 
-            await interaction.followup.send(message, ephemeral=True)
+            await interaction.edit_original_response(embed=embed, view=None)
 
-        # Refresh the item view
+        # Refresh the public item view (the message that contains the item details)
+        # This will edit the public message with updated stats.
         await self.handle_item_selection(interaction, item_type, item_id)
     # -------------------------------------------------------------------------
     # INTERACTION HANDLER
