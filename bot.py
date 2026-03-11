@@ -4119,6 +4119,14 @@ class InventoryView(discord.ui.View):
                 ORDER BY ua.equipped DESC, ua.purchased_at DESC
             """, user_id)
 
+            materials = await conn.fetch("""
+                SELECT um.material_id, si.name, um.quantity, si.description
+                FROM user_materials um
+                JOIN shop_items si ON um.material_id = si.item_id
+                WHERE um.user_id = $1 AND um.quantity > 0
+                ORDER BY si.name
+            """, user_id)
+
         balance = await currency_system.get_balance(user_id)
 
         self.inventory = {
@@ -4190,17 +4198,24 @@ class InventoryView(discord.ui.View):
             if interaction.user.id != int(self.user_id):
                 await interaction.response.send_message("Not your inventory!", ephemeral=True)
                 return
-            if not self.inventory['materials']:
+
+            # Use .get() to avoid KeyError if 'materials' missing
+            materials = self.inventory.get('materials', [])
+            if not materials:
                 await interaction.response.send_message("You have no materials!", ephemeral=True)
                 return
 
             embed = discord.Embed(title="📦 **Materials**", color=discord.Color.light_grey())
-            view = CategoryView(self.user_id, self.inventory['materials'], 'material', self)
+            view = CategoryView(self.user_id, materials, 'material', self)
             await interaction.edit_original_response(embed=embed, view=view)
         except Exception as e:
             print(f"Error in show_materials: {e}")
             traceback.print_exc()
-            await interaction.response.send_message("An error occurred.", ephemeral=True)
+            try:
+                # Use followup because interaction is already deferred
+                await interaction.followup.send("An error occurred.", ephemeral=True)
+            except:
+                pass
 
     async def back_to_main(self, interaction: discord.Interaction):
         try:
