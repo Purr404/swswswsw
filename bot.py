@@ -3964,16 +3964,12 @@ class CategoryView(discord.ui.View):
         self.items_per_page = 20
         self.max_page = (len(items) - 1) // self.items_per_page
 
-        # Add item buttons for current page
         start = self.page * self.items_per_page
-        end = start + self.items_per_page
-        for i, item in enumerate(items[start:end]):
-            row = i // 5
-            self.add_item(InventoryItemButton(item, item_type, row=row))
+        end = min(start + self.items_per_page, len(items))
+        page_items = items[start:end]
 
         if item_type == 'material':
             for i, item in enumerate(page_items):
-                # Get emoji from name (convert to key like 'sword_enhancement_stone')
                 emoji_key = item['name'].lower().replace(' ', '_')
                 emoji = CUSTOM_EMOJIS.get(emoji_key, '📦')
                 button = discord.ui.Button(
@@ -3990,20 +3986,20 @@ class CategoryView(discord.ui.View):
                 row = i // 5
                 self.add_item(InventoryItemButton(item, item_type, row=row, awakened=item.get('awakened', False)))
 
-        # Add pagination buttons with page number in custom_id
+        # Pagination buttons
         if self.max_page > 0:
             if self.page > 0:
                 self.add_item(discord.ui.Button(
                     label="◀",
                     style=discord.ButtonStyle.secondary,
-                    custom_id=f"category_prev_{self.item_type}_{self.page}",
+                    custom_id=f"category_prev_{item_type}_{self.page}",
                     row=4
                 ))
             if self.page < self.max_page:
                 self.add_item(discord.ui.Button(
                     label="▶",
                     style=discord.ButtonStyle.secondary,
-                    custom_id=f"category_next_{self.item_type}_{self.page}",
+                    custom_id=f"category_next_{item_type}_{self.page}",
                     row=4
                 ))
 
@@ -4014,8 +4010,6 @@ class CategoryView(discord.ui.View):
             custom_id="category_back",
             row=4
         ))
-
-
 
 
 
