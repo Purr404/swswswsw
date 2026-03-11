@@ -5655,21 +5655,7 @@ class Shop(commands.Cog):
                         embed.add_field(name=f"⏳ Set Bonus ({missing} more to go)", value=bonus_text, inline=False)
 
             
-            if current_level < 10:
-                multiplier = self.get_upgrade_multiplier(item_type)
-                if item_type == 'weapon':
-                    next_atk = round(item['attack'] * multiplier)
-                    embed.add_field(name="Next Upgrade", value=f"ATK: {next_atk}", inline=True)
-                elif item_type == 'armor':
-                    next_def = round(item['defense'] * multiplier)
-                    next_hp = round(item['hp_bonus'] * multiplier)
-                    embed.add_field(name="Next Upgrade", value=f"DEF: {next_def}, HP: +{next_hp}", inline=True)
-                elif item_type == 'accessory':
-                    next_val = round(item['bonus_value'] * multiplier)
-                    embed.add_field(name="Next Upgrade", value=f"{item['bonus_stat'].upper()}: +{next_val}", inline=True)
-
-                chance = self.upgrade_success_rate(current_level)
-                embed.add_field(name="Success Chance", value=f"{chance}%", inline=True)
+            
 
             # Create action view - ONLY show the relevant button
             view = discord.ui.View(timeout=60)
@@ -5694,7 +5680,7 @@ class Shop(commands.Cog):
             # Upgrade button (if not max level)
             if current_level < 10:
                 view.add_item(discord.ui.Button(
-                    label="*Upgrade*",
+                    label="Upgrade",
                     style=discord.ButtonStyle.primary,
                     custom_id=f"upgrade_confirm_{item_type}_{item_id}",
                     row=0
