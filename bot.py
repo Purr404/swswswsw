@@ -6185,9 +6185,9 @@ class Shop(commands.Cog):
         """Add enhancement stone items to the shop (admin only)."""
         async with self.bot.db_pool.acquire() as conn:
             stones = [
-                ('Sword Enhancement Stone', 'Use to upgrade weapons.', 0, 'material'),
-                ('Armor Enhancement Stone', 'Use to upgrade armor.', 0, 'material'),
-                ('Accessories Enhancement Stone', 'Use to upgrade accessories.', 0, 'material')
+                ('Sword Enhancement Stone', 'Use to upgrade weapons.', 1, 'material'),
+                ('Armor Enhancement Stone', 'Use to upgrade armor.', 1, 'material'),
+                ('Accessories Enhancement Stone', 'Use to upgrade accessories.', 1, 'material')
             ]
             for name, desc, price, typ in stones:
                 exists = await conn.fetchval("SELECT 1 FROM shop_items WHERE name = $1", name)
@@ -6197,7 +6197,6 @@ class Shop(commands.Cog):
                         VALUES ($1, $2, $3, $4)
                     """, name, desc, price, typ)
         await ctx.send("✅ Enhancement stones have been added to the shop database.")
-
 
     @commands.command(name='givestones')
     @commands.has_permissions(administrator=True)
