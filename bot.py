@@ -7656,54 +7656,114 @@ class CullingGame(commands.Cog):
             await asyncio.sleep(1)
 
 
-    @tasks.loop(minutes=30)  # Check every 30 minutes
+    @tasks.loop(minutes=30)
     async def check_max_mining(self):
-        """Automatically stop miners who have reached 12 hours."""
         async with self.bot.db_pool.acquire() as conn:
-            # Get all active miners
             miners = await conn.fetch("""
-                SELECT user_id, mining_start, stolen_gems 
+                SELECT user_id, mining_start, stolen_gems,
+                       stolen_sword_stones, stolen_armor_stones, stolen_acc_stones
                 FROM player_stats 
                 WHERE mining_start IS NOT NULL
             """)
-        
             now = datetime.utcnow()
             for miner in miners:
                 user_id = miner['user_id']
                 start = miner['mining_start']
                 if start.tzinfo is not None:
                     start = start.replace(tzinfo=None)
-            
-                hours_mined = (now - start).total_seconds() / 3600
-            
-                if hours_mined >= 12:
-                    # Calculate final reward
-                    intervals = 6  # 12 hours // 2 = 6 intervals
-                    gems_earned = intervals * 50  # 300 gems max
-                    stolen = miner['stolen_gems'] or 0
-                    final_gems = max(0, gems_earned - stolen)
-                
-                    # Add gems to user
-                    if final_gems > 0:
-                        await self.currency.add_gems(user_id, final_gems, "Mining completed (12h max)")
-                
-                    # Reset mining status
+                minutes_mined = int((now - start).total_seconds() / 60)
+                if minutes_mined >= 720:
+                    # Gems
+                    gems_earned = (minutes_mined * 5) // 6
+                    gems_earned = min(gems_earned, 600)
+                    stolen_gems = miner['stolen_gems'] or 0
+                    net_gems = max(0, gems_earned - stolen_gems)
+
+                    # Stones earned (total)
+                    total_stones = self.generate_stones_for_minutes(720)  # full 12h
+                    stolen_sword = miner['stolen_sword_stones'] or 0
+                    stolen_armor = miner['stolen_armor_stones'] or 0
+                    stolen_acc   = miner['stolen_acc_stones'] or 0
+
+                    net_sword = max(0, total_stones['sword'] - stolen_sword)
+                    net_armor = max(0, total_stones['armor'] - stolen_armor)
+                    net_acc   = max(0, total_stones['acc'] - stolen_acc)
+
+                    # Award gems
+                    if net_gems > 0:
+                        await self.currency.add_gems(user_id, net_gems, "Mining completed (12h max)")
+
+                    # Award stones
+                    stone_drops_final = {}
+                    stone_ids = {}
+                    for name, key in [('Sword Enhancement Stone','sword'), ('Armor Enhancement Stone','armor'), ('Accessories Enhancement Stone','acc')]:
+                        sid = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", name)
+                        stone_ids[key] = sid
+
+                    if net_sword > 0 and stone_ids['sword']:
+                        await conn.execute("""
+                            INSERT INTO user_materials (user_id, material_id, quantity)
+                            VALUES ($1, $2, $3)
+                            ON CONFLICT (user_id, material_id) DO UPDATE
+                            SET quantity = user_materials.quantity + $3
+                        """, user_id, stone_ids['sword'], net_sword)
+                        stone_drops_final['Sword Enhancement Stone'] = net_sword
+                    if net_armor > 0 and stone_ids['armor']:
+                        await conn.execute("""
+                            INSERT INTO user_materials (user_id, material_id, quantity)
+                            VALUES ($1, $2, $3)
+                            ON CONFLICT (user_id, material_id) DO UPDATE
+                            SET quantity = user_materials.quantity + $3
+                        """, user_id, stone_ids['armor'], net_armor)
+                        stone_drops_final['Armor Enhancement Stone'] = net_armor
+                    if net_acc > 0 and stone_ids['acc']:
+                        await conn.execute("""
+                            INSERT INTO user_materials (user_id, material_id, quantity)
+                            VALUES ($1, $2, $3)
+                            ON CONFLICT (user_id, material_id) DO UPDATE
+                            SET quantity = user_materials.quantity + $3
+                        """, user_id, stone_ids['acc'], net_acc)
+                        stone_drops_final['Accessories Enhancement Stone'] = net_acc
+
+                    # Reset mining
                     await conn.execute("""
                         UPDATE player_stats 
-                        SET mining_start = NULL, pending_reward = 0, stolen_gems = 0 
+                        SET mining_start = NULL, stolen_gems = 0,
+                            stolen_sword_stones = 0, stolen_armor_stones = 0, stolen_acc_stones = 0
                         WHERE user_id = $1
                     """, user_id)
-                
-                    # Send DM notification
-                    await self.send_mining_complete_dm(int(user_id), final_gems, stolen)
-                
-                    print(f"⏰ Auto-stopped mining for user {user_id} after 12 hours")
+
+                    # DM the user
+                    await self.send_mining_complete_dm(
+                        int(user_id),
+                        net_gems,
+                        stolen_gems,
+                        stone_drops_final,
+                        {'sword': stolen_sword, 'armor': stolen_armor, 'acc': stolen_acc}
+                    )
 
     @check_max_mining.before_loop
     async def before_check_max_mining(self):
         await self.bot.wait_until_ready()
         while self.bot.db_pool is None:
             await asyncio.sleep(1)
+
+
+    def generate_stones_for_minutes(self, minutes: int) -> dict:
+        """
+        Returns dict with keys 'sword', 'armor', 'acc' and total stones earned
+        for the given minutes (as if no theft occurred).
+        """
+        stone_names = ['Sword Enhancement Stone', 'Armor Enhancement Stone', 'Accessories Enhancement Stone']
+        stone_keys = ['sword', 'armor', 'acc']
+        total = {key: 0 for key in stone_keys}
+        intervals = minutes // 10
+        for _ in range(intervals):
+            if random.random() < 0.2:
+                idx = random.randint(0, 2)
+                qty = random.randint(1, 3)
+                total[stone_keys[idx]] += qty
+        return total
 
 
 
@@ -7734,29 +7794,49 @@ class CullingGame(commands.Cog):
 
 
 
-    async def send_mining_complete_dm(self, user_id: int, gems_earned: int, gems_stolen: int):
-        """Send DM notification when mining completes."""
+    async def send_mining_complete_dm(self, user_id: int, gems_earned: int, gems_stolen: int,
+                                      stone_drops: dict, stolen_stones: dict):
         user = self.bot.get_user(user_id)
         if not user:
             try:
                 user = await self.bot.fetch_user(user_id)
             except:
                 return
-    
+
         embed = discord.Embed(
             title="⛏️ Mining Complete!",
             description="You have reached the maximum mining time of 12 hours.",
             color=discord.Color.gold()
         )
-        embed.add_field(name="💰 Gems Earned", value=f"{gems_earned}", inline=True)
-        embed.add_field(name="😭 Gems Stolen", value=f"{gems_stolen}", inline=True)
-        embed.add_field(name="📊 Total", value=f"{gems_earned + gems_stolen} (before theft)", inline=False)
-    
+        embed.add_field(name="💰 Gems Earned", value=str(gems_earned), inline=True)
+        embed.add_field(name="😭 Gems Stolen", value=str(gems_stolen), inline=True)
+
+        if stone_drops:
+            stone_text = []
+            for name, qty in stone_drops.items():
+                if 'Sword' in name:
+                    emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+                elif 'Armor' in name:
+                    emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+                else:
+                    emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+                stone_text.append(f"{emoji} {name}: {qty}")
+            embed.add_field(name="💎 Stones Found", value="\n".join(stone_text), inline=False)
+
+        if any(v > 0 for v in stolen_stones.values()):
+            stolen_text = []
+            if stolen_stones.get('sword', 0) > 0:
+                stolen_text.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} Sword: {stolen_stones['sword']}")
+            if stolen_stones.get('armor', 0) > 0:
+                stolen_text.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} Armor: {stolen_stones['armor']}")
+            if stolen_stones.get('acc', 0) > 0:
+                stolen_text.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} Accessory: {stolen_stones['acc']}")
+            embed.add_field(name="😭 Stones Stolen", value="\n".join(stolen_text), inline=False)
+
         try:
             await user.send(embed=embed)
         except:
             print(f"❌ Could not send DM to user {user_id}")
-
 
 
     # ------------------------------------------------------------------
@@ -7859,10 +7939,14 @@ class CullingGame(commands.Cog):
             if existing:
                 return "❌ You are already mining! Use the **Stop Mining** button in the miners list to finish."
 
-            now = datetime.utcnow() 
+            now = datetime.utcnow()
             await conn.execute("""
                 UPDATE player_stats
-                SET mining_start = $1, pending_reward = 0
+                SET mining_start = $1,
+                    stolen_gems = 0,
+                    stolen_sword_stones = 0,
+                    stolen_armor_stones = 0,
+                    stolen_acc_stones = 0
                 WHERE user_id = $2
             """, now, user_id)
 
@@ -7870,7 +7954,11 @@ class CullingGame(commands.Cog):
 
     async def stop_mining_for_user(self, user_id: str) -> str:
         async with self.bot.db_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT mining_start, stolen_gems FROM player_stats WHERE user_id = $1", user_id)
+            row = await conn.fetchrow("""
+                SELECT mining_start, stolen_gems,
+                       stolen_sword_stones, stolen_armor_stones, stolen_acc_stones
+                FROM player_stats WHERE user_id = $1
+            """, user_id)
             if not row or not row['mining_start']:
                 return "❌ You are not mining."
 
@@ -7878,25 +7966,98 @@ class CullingGame(commands.Cog):
             if start.tzinfo is not None:
                 start = start.replace(tzinfo=None)
             now = datetime.utcnow()
-            hours_mined = (now - start).total_seconds() / 3600
-            hours_mined = min(hours_mined, 12)
-            intervals = int(hours_mined // 2)
-            gems_earned = intervals * 50
-            stolen = row['stolen_gems'] or 0
-            gems_earned = max(0, gems_earned - stolen)
+            minutes_mined = int((now - start).total_seconds() / 60)
+            minutes_mined = min(minutes_mined, 12 * 60)
 
-            if gems_earned > 0:
-                await self.currency.add_gems(user_id, gems_earned, "Mining reward")
+            # Gems
+            gems_earned = (minutes_mined * 5) // 6
+            stolen_gems = row['stolen_gems'] or 0
+            net_gems = max(0, gems_earned - stolen_gems)
 
+            # Stones earned total (no theft applied yet)
+            total_stones = self.generate_stones_for_minutes(minutes_mined)
+
+            # Stolen stones per type
+            stolen_sword = row['stolen_sword_stones'] or 0
+            stolen_armor = row['stolen_armor_stones'] or 0
+            stolen_acc   = row['stolen_acc_stones'] or 0
+
+            net_sword = max(0, total_stones['sword'] - stolen_sword)
+            net_armor = max(0, total_stones['armor'] - stolen_armor)
+            net_acc   = max(0, total_stones['acc'] - stolen_acc)
+
+            # Award gems
+            if net_gems > 0:
+                await self.currency.add_gems(user_id, net_gems, "Mining reward")
+
+            # Award stones – fetch item IDs once
+            stone_ids = {}
+            for name, key in [('Sword Enhancement Stone','sword'), ('Armor Enhancement Stone','armor'), ('Accessories Enhancement Stone','acc')]:
+                sid = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", name)
+                stone_ids[key] = sid
+
+            stone_drops_final = {}  # for result message
+            if net_sword > 0 and stone_ids['sword']:
+                await conn.execute("""
+                    INSERT INTO user_materials (user_id, material_id, quantity)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id, material_id) DO UPDATE
+                    SET quantity = user_materials.quantity + $3
+                """, user_id, stone_ids['sword'], net_sword)
+                stone_drops_final['Sword Enhancement Stone'] = net_sword
+            if net_armor > 0 and stone_ids['armor']:
+                await conn.execute("""
+                    INSERT INTO user_materials (user_id, material_id, quantity)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id, material_id) DO UPDATE
+                    SET quantity = user_materials.quantity + $3
+                """, user_id, stone_ids['armor'], net_armor)
+                stone_drops_final['Armor Enhancement Stone'] = net_armor
+            if net_acc > 0 and stone_ids['acc']:
+                await conn.execute("""
+                    INSERT INTO user_materials (user_id, material_id, quantity)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id, material_id) DO UPDATE
+                    SET quantity = user_materials.quantity + $3
+                """, user_id, stone_ids['acc'], net_acc)
+                stone_drops_final['Accessories Enhancement Stone'] = net_acc
+
+            # Reset mining state
             await conn.execute("""
                 UPDATE player_stats
-                SET mining_start = NULL, pending_reward = 0, stolen_gems = 0
+                SET mining_start = NULL, stolen_gems = 0,
+                    stolen_sword_stones = 0, stolen_armor_stones = 0, stolen_acc_stones = 0
                 WHERE user_id = $1
             """, user_id)
 
-        return f"✅ You mined for **{hours_mined:.1f} hours** and earned **{gems_earned} gems**."
+        # Build result message
+        result = f"✅ You mined for **{minutes_mined} minutes** and earned **{net_gems} gems**."
+        if stone_drops_final:
+            lines = []
+            for name, qty in stone_drops_final.items():
+                if 'Sword' in name:
+                    emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+                elif 'Armor' in name:
+                    emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+                else:
+                    emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+                lines.append(f"{emoji} {name}: {qty}")
+            result += "\n\nYou also found:\n" + "\n".join(lines)
+        if stolen_gems > 0:
+            result += f"\n\n😭 **Stolen:** {stolen_gems}"
+        if stolen_sword > 0 or stolen_armor > 0 or stolen_acc > 0:
+            stolen_lines = []
+            if stolen_sword > 0:
+            stolen_lines.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} Sword: {stolen_sword}")
+            if stolen_armor > 0:
+            stolen_lines.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} Armor: {stolen_armor}")
+            if stolen_acc > 0:
+            stolen_lines.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} Accessory: {stolen_acc}")
+            result += "\n\n😭 **Stolen Stones:**\n" + "\n".join(stolen_lines)
+        return result
 
-    async def plunder_user(self, attacker_id: str, defender_id: str) -> str:
+
+    async def plunder_user(self, attacker_id: str, defender_id: str, guild: discord.Guild = None) -> str:
         if attacker_id == defender_id:
             return "❌ You cannot plunder yourself."
 
@@ -7909,6 +8070,7 @@ class CullingGame(commands.Cog):
         await self.ensure_player_stats(defender_id)
 
         async with self.bot.db_pool.acquire() as conn:
+            # Attacker energy & daily limits
             today = datetime.utcnow().date()
             stats = await conn.fetchrow("""
                 SELECT energy, plunder_count, last_plunder_reset
@@ -7924,7 +8086,12 @@ class CullingGame(commands.Cog):
             if plunder_count >= 2:
                 return "❌ You have already used your 2 plunders today."
 
-            defender = await conn.fetchrow("SELECT mining_start FROM player_stats WHERE user_id = $1", defender_id)
+            # Defender mining info
+            defender = await conn.fetchrow("""
+                SELECT mining_start, stolen_gems,
+                       stolen_sword_stones, stolen_armor_stones, stolen_acc_stones
+                FROM player_stats WHERE user_id = $1
+            """, defender_id)
             if not defender or not defender['mining_start']:
                 return "❌ That user is not mining."
 
@@ -7932,26 +8099,153 @@ class CullingGame(commands.Cog):
             if start.tzinfo is not None:
                 start = start.replace(tzinfo=None)
             now = datetime.utcnow()
-            hours_mined = (now - start).total_seconds() / 3600
-            intervals = int(hours_mined // 2)
-            pending = intervals * 50
-            if pending == 0:
-                return "❌ That user hasn't mined enough yet (need at least 2 hours)."
+            minutes_mined = int((now - start).total_seconds() / 60)
 
-            steal = int(pending * 0.3)
-            await self.currency.add_gems(attacker_id, steal, f"Plundered from <@{defender_id}>")
+            # 2‑hour protection
+            if minutes_mined < 120:
+                return "❌ That user has been mining for less than 2 hours and is protected from plunder."
+
+            # Gems available
+            gems_earned = (minutes_mined * 5) // 6
+            stolen_gems = defender['stolen_gems'] or 0
+            gems_available = max(0, gems_earned - stolen_gems)
+            if gems_available <= 0:
+                gems_steal = 0
+            else:
+                gems_steal = int(gems_available * 0.3)
+                if gems_steal <= 0:
+                    gems_steal = 1
+
+            # Stones available (per type)
+            total_stones = self.generate_stones_for_minutes(minutes_mined)
+            stolen_sword = defender['stolen_sword_stones'] or 0
+            stolen_armor = defender['stolen_armor_stones'] or 0
+            stolen_acc   = defender['stolen_acc_stones'] or 0
+
+            sword_available = max(0, total_stones['sword'] - stolen_sword)
+            armor_available = max(0, total_stones['armor'] - stolen_armor)
+            acc_available   = max(0, total_stones['acc'] - stolen_acc)
+
+            stone_steals = {}
+            if sword_available > 0:
+                stone_steals['sword'] = max(1, int(sword_available * 0.3))
+            if armor_available > 0:
+                stone_steals['armor'] = max(1, int(armor_available * 0.3))
+            if acc_available > 0:
+                stone_steals['acc'] = max(1, int(acc_available * 0.3))
+
+            # If nothing to steal, abort
+            if gems_steal == 0 and not stone_steals:
+                return "❌ That user has nothing left to plunder."
+
+            # --- Update defender's stolen counters ---
+            new_stolen_gems = stolen_gems + gems_steal
+            new_stolen_sword = stolen_sword + stone_steals.get('sword', 0)
+            new_stolen_armor = stolen_armor + stone_steals.get('armor', 0)
+            new_stolen_acc   = stolen_acc   + stone_steals.get('acc', 0)
+
             await conn.execute("""
                 UPDATE player_stats
-                SET stolen_gems = stolen_gems + $1
-                WHERE user_id = $2
-            """, steal, defender_id)
+                SET stolen_gems = $1,
+                    stolen_sword_stones = $2,
+                    stolen_armor_stones = $3,
+                    stolen_acc_stones = $4
+                WHERE user_id = $5
+            """, new_stolen_gems, new_stolen_sword, new_stolen_armor, new_stolen_acc, defender_id)
+
+            # --- Give stolen gems to attacker ---
+            if gems_steal > 0:
+                await self.currency.add_gems(attacker_id, gems_steal, f"Plundered from <@{defender_id}>")
+
+            # --- Give stolen stones to attacker ---
+            stone_ids = {}
+            for name, key in [('Sword Enhancement Stone','sword'), ('Armor Enhancement Stone','armor'), ('Accessories Enhancement Stone','acc')]:
+                sid = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", name)
+                stone_ids[key] = sid
+
+            for key, qty in stone_steals.items():
+                if qty > 0 and stone_ids[key]:
+                    await conn.execute("""
+                        INSERT INTO user_materials (user_id, material_id, quantity)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (user_id, material_id) DO UPDATE
+                        SET quantity = user_materials.quantity + $3
+                    """, attacker_id, stone_ids[key], qty)
+
+            # --- Deduct energy and increment plunder count ---
             await conn.execute("""
                 UPDATE player_stats
                 SET energy = energy - 1, plunder_count = plunder_count + 1
                 WHERE user_id = $1
             """, attacker_id)
 
-        return f"💰 You plundered **{steal} gems** from <@{defender_id}>!"
+        # --- Notifications ---
+        attacker_name = (await self.bot.fetch_user(int(attacker_id))).name
+        defender_user = self.bot.get_user(int(defender_id))
+        if defender_user:
+            try:
+                embed = discord.Embed(
+                    title="😭 You've been plundered!",
+                    description=f"**{attacker_name}** plundered you.",
+                    color=discord.Color.red()
+                )
+                if gems_steal > 0:
+                    embed.add_field(name="💎 Stolen Gems", value=str(gems_steal), inline=True)
+                stone_text = []
+                if 'sword' in stone_steals:
+                    stone_text.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} Sword: {stone_steals['sword']}")
+                if 'armor' in stone_steals:
+                    stone_text.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} Armor: {stone_steals['armor']}")
+                if 'acc' in stone_steals:
+                    stone_text.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} Accessory: {stone_steals['acc']}")
+                if stone_text:
+                    embed.add_field(name="💎 Stolen Stones", value="\n".join(stone_text), inline=False)
+                await defender_user.send(embed=embed)
+            except:
+                pass
+
+        if guild:
+            channel = discord.utils.get(guild.text_channels, name="global-chat")
+            if not channel and self.mining_channel:
+                channel = guild.get_channel(self.mining_channel)
+            if channel:
+                attacker = guild.get_member(int(attacker_id))
+                defender = guild.get_member(int(defender_id))
+                if attacker and defender:
+                    message = f"⚔️ {attacker.mention} plundered {defender.mention} and stole"
+                    parts = []
+                    if gems_steal > 0:
+                        parts.append(f"**{gems_steal} gems**")
+                    if 'sword' in stone_steals:
+                        parts.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} **{stone_steals['sword']}** Sword Stones")
+                    if 'armor' in stone_steals:
+                        parts.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} **{stone_steals['armor']}** Armor Stones")
+                    if 'acc' in stone_steals:
+                        parts.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} **{stone_steals['acc']}** Accessory Stones")
+                    if parts:
+                        message += " " + ", ".join(parts) + "!"
+                    else:
+                        message += " nothing!"
+                    await channel.send(message)
+
+        # Return message to the attacker (ephemeral)
+        result = f"💰 You plundered"
+        parts = []
+        if gems_steal > 0:
+            parts.append(f"**{gems_steal} gems**")
+        if 'sword' in stone_steals:
+            parts.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} **{stone_steals['sword']}** Sword Stones")
+        if 'armor' in stone_steals:
+            parts.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} **{stone_steals['armor']}** Armor Stones")
+        if 'acc' in stone_steals:
+            parts.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} **{stone_steals['acc']}** Accessory Stones")
+        if parts:
+            result += " " + ", ".join(parts) + f" from <@{defender_id}>!"
+        else:
+            result = "❌ You stole nothing (shouldn't happen)."
+        return result
+
+
 
 
 
@@ -8695,7 +8989,7 @@ class PlunderButton(discord.ui.Button):
             if str(interaction.user.id) == self.target_id:
                 await interaction.followup.send("❌ You cannot plunder yourself.", ephemeral=True)
                 return
-            result = await self.cog.plunder_user(str(interaction.user.id), self.target_id)
+            result = await self.cog.plunder_user(str(interaction.user.id), self.target_id, interaction.guild)
             await interaction.followup.send(result, ephemeral=True)
         except Exception as e:
             print(f"Error in plunder button: {e}")
