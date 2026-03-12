@@ -8209,7 +8209,7 @@ class CullingGame(commands.Cog):
 
         # --- Public announcement (ONLY in #global-chat) ---
         if guild:
-            channel = discord.utils.get(guild.text_channels, name="global-chat")
+            channel = discord.utils.get(guild.text_channels, name="🌍global-chat")
             if channel:
                 attacker = guild.get_member(int(attacker_id))
                 defender = guild.get_member(int(defender_id))
