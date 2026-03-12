@@ -8207,10 +8207,9 @@ class CullingGame(commands.Cog):
             except:
                 pass
 
+        # --- Public announcement (ONLY in #global-chat) ---
         if guild:
             channel = discord.utils.get(guild.text_channels, name="global-chat")
-            if not channel and self.mining_channel:
-                channel = guild.get_channel(self.mining_channel)
             if channel:
                 attacker = guild.get_member(int(attacker_id))
                 defender = guild.get_member(int(defender_id))
@@ -8230,6 +8229,7 @@ class CullingGame(commands.Cog):
                     else:
                         message += " nothing!"
                     await channel.send(message)
+            # else: silently ignore – no global-chat channel exists
 
         # Return message to the attacker (ephemeral)
         result = f"💰 You plundered"
