@@ -8048,18 +8048,17 @@ class CullingGame(commands.Cog):
                 lines.append(f"{emoji} {name}: {qty}")
             result += "\n\nYou also found:\n" + "\n".join(lines)
         if stolen_gems > 0:
-            result += f"\n\n😭 **Stolen:** {stolen_gems}"
+            result += f"\n\n😭 **Stolen Gems:** {stolen_gems}"
         if stolen_sword > 0 or stolen_armor > 0 or stolen_acc > 0:
             stolen_lines = []
             if stolen_sword > 0:
-            stolen_lines.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} Sword: {stolen_sword}")
+                stolen_lines.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} Sword: {stolen_sword}")
             if stolen_armor > 0:
-            stolen_lines.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} Armor: {stolen_armor}")
+                stolen_lines.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} Armor: {stolen_armor}")
             if stolen_acc > 0:
-            stolen_lines.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} Accessory: {stolen_acc}")
+                stolen_lines.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} Accessory: {stolen_acc}")
             result += "\n\n😭 **Stolen Stones:**\n" + "\n".join(stolen_lines)
         return result
-
 
     async def plunder_user(self, attacker_id: str, defender_id: str, guild: discord.Guild = None) -> str:
         if attacker_id == defender_id:
