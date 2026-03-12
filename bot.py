@@ -8402,13 +8402,13 @@ async def get_player_stats(user_id: str):
         """, user_id)
 
         armor = await conn.fetch("""
-            SELECT defense, reflect_damage
+            SELECT defense, reflect_damage, set_name
             FROM user_armor
             WHERE user_id = $1 AND equipped = TRUE
         """, user_id)
-
+   
         accessories = await conn.fetch("""
-            SELECT at.bonus_stat, ua.bonus_value
+            SELECT at.bonus_stat, ua.bonus_value, at.set_name
             FROM user_accessories ua
             JOIN accessory_types at ON ua.accessory_id = at.accessory_id
             WHERE ua.user_id = $1 AND ua.equipped = TRUE
@@ -8443,6 +8443,38 @@ async def get_player_stats(user_id: str):
             crit_chance += val
         elif stat == 'bleed':
             bleed_damage += val
+
+    # --- Armor set bonuses ---
+    armor_sets = {}
+    for a in armor:
+        if a['set_name']:
+            armor_sets[a['set_name']] = armor_sets.get(a['set_name'], 0) + 1
+    for set_name, count in armor_sets.items():
+        if count >= 4:
+            sname = set_name.lower()
+            if sname in ('bilari', 'cryo', 'bane'):
+                crit_chance += 10
+                crit_damage += 25
+                defense = int(defense * 1.15)
+                reflect += 20
+
+    # --- Accessory set bonuses ---
+    accessory_sets = {}
+    for acc in accessories:
+        if acc['set_name']:
+            accessory_sets[acc['set_name']] = accessory_sets.get(acc['set_name'], 0) + 1
+    for set_name, count in accessory_sets.items():
+        if count >= 5:
+            sname = set_name.lower()
+            if sname == 'champion':
+                atk = int(atk * 1.20)
+                defense = int(defense * 1.15)
+            elif sname == 'defender':
+                defense = int(defense * 1.20)
+                reflect += 10
+            elif sname == 'angel':
+                crit_chance += 15
+                bleed_damage = int(bleed_damage * 1.20)
 
     # Apply active buffs/debuffs
     async with bot.db_pool.acquire() as conn:
