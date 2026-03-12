@@ -1281,6 +1281,10 @@ class DatabaseSystem:
                                         'random_gear_box', 'random_accessories_box', 'pickaxe', 'material'))
                     ''')
 
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_sword_stones INTEGER DEFAULT 0')
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_armor_stones INTEGER DEFAULT 0')
+                    await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_acc_stones INTEGER DEFAULT 0')
+
                     # Update armor_types slot constraint to include new slots
                     await conn.execute('ALTER TABLE armor_types DROP CONSTRAINT IF EXISTS armor_types_slot_check')
                     await conn.execute('''
