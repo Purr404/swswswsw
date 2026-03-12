@@ -8825,7 +8825,17 @@ class BossAttackView(discord.ui.View):
         message = f"✅ You used **{skill_name}** and dealt **{damage}** damage to the boss{crit_text}!\nAttempts left: {4 - attempts_used}."
         if stone_dropped:
             # Get the stone emoji from CUSTOM_EMOJIS using the stone name
-            stone_emoji = CUSTOM_EMOJIS.get(stone_name.lower().replace(' ', '_'), '💎')
+            # Determine stone emoji based on stone name
+            name_lower = stone_name.lower()
+            if 'sword' in name_lower:
+                stone_emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '⚔️')
+            elif 'armor' in name_lower:
+                stone_emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '🛡️')
+            elif 'accessories' in name_lower:
+                stone_emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💍')
+            else:
+                stone_emoji = '💎'
+
             message += f"\nYou also found **{stone_qty}** {stone_emoji} **{stone_name}**!"
 
         await interaction.followup.send(message, ephemeral=True)
