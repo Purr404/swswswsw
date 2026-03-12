@@ -7800,6 +7800,11 @@ class CullingGame(commands.Cog):
 
     async def send_mining_complete_dm(self, user_id: int, gems_earned: int, gems_stolen: int,
                                       stone_drops: dict, stolen_stones: dict):
+        """
+        Send a DM when mining reaches 12 hours.
+        - stone_drops: dict with keys 'sword', 'armor', 'acc' – net stones the user keeps.
+        - stolen_stones: dict with same keys – stones stolen from the user.
+        """
         user = self.bot.get_user(user_id)
         if not user:
             try:
@@ -7812,37 +7817,39 @@ class CullingGame(commands.Cog):
             description="You have reached the maximum mining time of 12 hours.",
             color=discord.Color.gold()
         )
-        embed.add_field(name="💰 Gems Earned", value=str(gems_earned), inline=True)
-        embed.add_field(name="😭 Gems Stolen", value=str(gems_stolen), inline=True)
 
-        if stone_drops:
-            stone_text = []
-            for name, qty in stone_drops.items():
-                if 'Sword' in name:
-                    emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
-                elif 'Armor' in name:
-                    emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
-                else:
-                    emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
-                stone_text.append(f"{emoji} {name}: {qty}")
-            embed.add_field(name="💎 Stones Found", value="\n".join(stone_text), inline=False)
+        # --- Resources Mined section ---
+        mined_lines = []
+        if gems_earned > 0:
+            mined_lines.append(f"{gems_earned} 💎")
+        if stone_drops.get('sword', 0) > 0:
+            mined_lines.append(f"{stone_drops['sword']} {CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')}")
+        if stone_drops.get('armor', 0) > 0:
+            mined_lines.append(f"{stone_drops['armor']} {CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')}")
+        if stone_drops.get('acc', 0) > 0:
+            mined_lines.append(f"{stone_drops['acc']} {CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')}")
 
-        if any(v > 0 for v in stolen_stones.values()):
-            stolen_text = []
-            if stolen_stones.get('sword', 0) > 0:
-                stolen_text.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} Sword: {stolen_stones['sword']}")
-            if stolen_stones.get('armor', 0) > 0:
-                stolen_text.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} Armor: {stolen_stones['armor']}")
-            if stolen_stones.get('acc', 0) > 0:
-                stolen_text.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} Accessory: {stolen_stones['acc']}")
-            embed.add_field(name="😭 Stones Stolen", value="\n".join(stolen_text), inline=False)
+        if mined_lines:
+            embed.add_field(name="**Resources Mined**", value="\n".join(mined_lines), inline=False)
+
+        # --- Resources Stolen section ---
+        stolen_lines = []
+        if gems_stolen > 0:
+            stolen_lines.append(f"{gems_stolen} 💎")
+        if stolen_stones.get('sword', 0) > 0:
+            stolen_lines.append(f"{stolen_stones['sword']} {CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')}")
+        if stolen_stones.get('armor', 0) > 0:
+            stolen_lines.append(f"{stolen_stones['armor']} {CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')}")
+        if stolen_stones.get('acc', 0) > 0:
+            stolen_lines.append(f"{stolen_stones['acc']} {CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')}")
+
+        if stolen_lines:
+            embed.add_field(name="**Resources Stolen**", value="\n".join(stolen_lines), inline=False)
 
         try:
             await user.send(embed=embed)
         except:
             print(f"❌ Could not send DM to user {user_id}")
-
-
     # ------------------------------------------------------------------
     # Admin: Set mining channel and send permanent message
     # ------------------------------------------------------------------
@@ -8192,17 +8199,21 @@ class CullingGame(commands.Cog):
                     description=f"**{attacker_name}** plundered you.",
                     color=discord.Color.red()
                 )
+                stolen_lines = []
                 if gems_steal > 0:
-                    embed.add_field(name="💎 Stolen Gems", value=str(gems_steal), inline=True)
-                stone_text = []
+                    stolen_lines.append(f"{gems_steal} 💎")
                 if 'sword' in stone_steals:
-                    stone_text.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} Sword: {stone_steals['sword']}")
+                    stolen_lines.append(f"{stone_steals['sword']} {CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')}")
                 if 'armor' in stone_steals:
-                    stone_text.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} Armor: {stone_steals['armor']}")
+                    stolen_lines.append(f"{stone_steals['armor']} {CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')}")
                 if 'acc' in stone_steals:
-                    stone_text.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} Accessory: {stone_steals['acc']}")
-                if stone_text:
-                    embed.add_field(name="💎 Stolen Stones", value="\n".join(stone_text), inline=False)
+                    stolen_lines.append(f"{stone_steals['acc']} {CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')}")
+
+                if stolen_lines:
+                    embed.add_field(name="**Stolen**", value="\n".join(stolen_lines), inline=False)
+                else:
+                    embed.add_field(name="**Stolen**", value="Nothing was stolen!", inline=False)
+
                 await defender_user.send(embed=embed)
             except:
                 pass
@@ -8214,40 +8225,44 @@ class CullingGame(commands.Cog):
                 attacker = guild.get_member(int(attacker_id))
                 defender = guild.get_member(int(defender_id))
                 if attacker and defender:
-                    message = f"⚔️ {attacker.mention} plundered {defender.mention} and stole"
-                    parts = []
+                    public_parts = []
                     if gems_steal > 0:
-                        parts.append(f"**{gems_steal} gems**")
+                        public_parts.append(f"{gems_steal} 💎")
                     if 'sword' in stone_steals:
-                        parts.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} **{stone_steals['sword']}** Sword Stones")
+                        sword_emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+                        public_parts.append(f"{stone_steals['sword']} {sword_emoji}")
                     if 'armor' in stone_steals:
-                        parts.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} **{stone_steals['armor']}** Armor Stones")
+                        armor_emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+                        public_parts.append(f"{stone_steals['armor']} {armor_emoji}")
                     if 'acc' in stone_steals:
-                        parts.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} **{stone_steals['acc']}** Accessory Stones")
-                    if parts:
-                        message += " " + ", ".join(parts) + "!"
+                        acc_emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+                        public_parts.append(f"{stone_steals['acc']} {acc_emoji}")
+
+                    if public_parts:
+                        message = f"{attacker.mention} plundered {defender.mention} and stole " + ", ".join(public_parts) + "!"
                     else:
-                        message += " nothing!"
+                        message = f"{attacker.mention} plundered {defender.mention} and stole nothing!"
                     await channel.send(message)
-            # else: silently ignore – no global-chat channel exists
 
         # Return message to the attacker (ephemeral)
-        result = f"💰 You plundered"
-        parts = []
+        result_parts = []
         if gems_steal > 0:
-            parts.append(f"**{gems_steal} gems**")
+            result_parts.append(f"{gems_steal} 💎")
         if 'sword' in stone_steals:
-            parts.append(f"{CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')} **{stone_steals['sword']}** Sword Stones")
+            sword_emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+            result_parts.append(f"{stone_steals['sword']} {sword_emoji}")
         if 'armor' in stone_steals:
-            parts.append(f"{CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')} **{stone_steals['armor']}** Armor Stones")
+            armor_emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+            result_parts.append(f"{stone_steals['armor']} {armor_emoji}")
         if 'acc' in stone_steals:
-            parts.append(f"{CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')} **{stone_steals['acc']}** Accessory Stones")
-        if parts:
-            result += " " + ", ".join(parts) + f" from <@{defender_id}>!"
+            acc_emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+            result_parts.append(f"{stone_steals['acc']} {acc_emoji}")
+
+        if result_parts:
+            result = f"You plundered " + ", ".join(result_parts) + f" from <@{defender_id}>!"
         else:
             result = "❌ You stole nothing (shouldn't happen)."
         return result
-
 
 
 
