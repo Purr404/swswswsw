@@ -7697,8 +7697,7 @@ class CullingGame(commands.Cog):
                     if net_gems > 0:
                         await self.currency.add_gems(user_id, net_gems, "Mining completed (12h max)")
 
-                    # Award stones
-                    stone_drops_final = {}
+                    # Award stones (only net stones)
                     stone_ids = {}
                     for name, key in [('Sword Enhancement Stone','sword'), ('Armor Enhancement Stone','armor'), ('Accessories Enhancement Stone','acc')]:
                         sid = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", name)
@@ -7711,7 +7710,6 @@ class CullingGame(commands.Cog):
                             ON CONFLICT (user_id, material_id) DO UPDATE
                             SET quantity = user_materials.quantity + $3
                         """, user_id, stone_ids['sword'], net_sword)
-                        stone_drops_final['Sword Enhancement Stone'] = net_sword
                     if net_armor > 0 and stone_ids['armor']:
                         await conn.execute("""
                             INSERT INTO user_materials (user_id, material_id, quantity)
@@ -7719,7 +7717,6 @@ class CullingGame(commands.Cog):
                             ON CONFLICT (user_id, material_id) DO UPDATE
                             SET quantity = user_materials.quantity + $3
                         """, user_id, stone_ids['armor'], net_armor)
-                        stone_drops_final['Armor Enhancement Stone'] = net_armor
                     if net_acc > 0 and stone_ids['acc']:
                         await conn.execute("""
                             INSERT INTO user_materials (user_id, material_id, quantity)
@@ -7727,7 +7724,6 @@ class CullingGame(commands.Cog):
                             ON CONFLICT (user_id, material_id) DO UPDATE
                             SET quantity = user_materials.quantity + $3
                         """, user_id, stone_ids['acc'], net_acc)
-                        stone_drops_final['Accessories Enhancement Stone'] = net_acc
 
                     # Reset mining
                     await conn.execute("""
@@ -7737,14 +7733,14 @@ class CullingGame(commands.Cog):
                         WHERE user_id = $1
                     """, user_id)
 
-                    # DM the user
+                    # DM the user – PASS TOTAL STONES, NOT NET
                     await self.send_mining_complete_dm(
                         int(user_id),
-                        net_gems,
-                        stolen_gems,
-                        stone_drops_final,
-                        {'sword': stolen_sword, 'armor': stolen_armor, 'acc': stolen_acc}
-                    )
+                        gems_earned,                    # total gems
+                        stolen_gems,                     # stolen gems
+                        total_stones,                     # total stones (dict)
+                        {'sword': stolen_sword, 'armor': stolen_armor, 'acc': stolen_acc}  # stolen stones
+
 
     @check_max_mining.before_loop
     async def before_check_max_mining(self):
@@ -8691,10 +8687,12 @@ class AttackView(discord.ui.View):
 #  END 
 
 async def get_player_stats(user_id: str):
-    """Return dict of player stats including respawn timer."""
+    """Return dict of player stats including dynamically recalculated max HP."""
     BASE_HP = 1000
     BASE_DEF = 500
+
     async with bot.db_pool.acquire() as conn:
+        # Get stored HP, energy, etc.
         row = await conn.fetchrow("""
             SELECT hp, max_hp, energy, max_energy, respawn_at
             FROM player_stats WHERE user_id = $1
@@ -8706,6 +8704,7 @@ async def get_player_stats(user_id: str):
             """, user_id, BASE_HP)
             row = {'hp': BASE_HP, 'max_hp': BASE_HP, 'energy': 3, 'max_energy': 3, 'respawn_at': None}
 
+        # Fetch equipped gear – note: armor now includes hp_bonus
         weapon = await conn.fetchrow("""
             SELECT attack, bleeding_chance, crit_chance, crit_damage
             FROM user_weapons
@@ -8714,11 +8713,11 @@ async def get_player_stats(user_id: str):
         """, user_id)
 
         armor = await conn.fetch("""
-            SELECT defense, reflect_damage, set_name
+            SELECT defense, reflect_damage, hp_bonus, set_name
             FROM user_armor
             WHERE user_id = $1 AND equipped = TRUE
         """, user_id)
-   
+
         accessories = await conn.fetch("""
             SELECT at.bonus_stat, ua.bonus_value, at.set_name
             FROM user_accessories ua
@@ -8726,6 +8725,7 @@ async def get_player_stats(user_id: str):
             WHERE ua.user_id = $1 AND ua.equipped = TRUE
         """, user_id)
 
+    # --- Base stats ---
     atk = 0
     defense = BASE_DEF
     crit_chance = 0.0
@@ -8733,6 +8733,7 @@ async def get_player_stats(user_id: str):
     bleed_chance = 0.0
     bleed_damage = 0.0
     reflect = 0
+    flat_hp = 0  # sum of flat HP bonuses from armor
 
     if weapon:
         atk += weapon['attack']
@@ -8743,6 +8744,7 @@ async def get_player_stats(user_id: str):
     for a in armor:
         defense += a['defense']
         reflect += a['reflect_damage'] or 0
+        flat_hp += a['hp_bonus'] or 0
 
     for acc in accessories:
         stat = acc['bonus_stat']
@@ -8769,6 +8771,7 @@ async def get_player_stats(user_id: str):
                 crit_damage += 25
                 defense = int(defense * 1.15)
                 reflect += 20
+                flat_hp += int(BASE_HP * 0.20)   # 20% of base HP
 
     # --- Accessory set bonuses ---
     accessory_sets = {}
@@ -8781,14 +8784,23 @@ async def get_player_stats(user_id: str):
             if sname == 'champion':
                 atk = int(atk * 1.20)
                 defense = int(defense * 1.15)
+                flat_hp += int(BASE_HP * 0.15)
             elif sname == 'defender':
                 defense = int(defense * 1.20)
                 reflect += 10
+                flat_hp += int(BASE_HP * 0.15)
             elif sname == 'angel':
                 crit_chance += 15
                 bleed_damage = int(bleed_damage * 1.20)
+                flat_hp += int(BASE_HP * 0.15)
 
-    # Apply active buffs/debuffs
+    # --- Compute max HP dynamically ---
+    max_hp = BASE_HP + flat_hp
+    current_hp = row['hp']
+    if current_hp > max_hp:
+        current_hp = max_hp   # Cap current HP to new max
+
+    # --- Apply active buffs/debuffs ---
     async with bot.db_pool.acquire() as conn:
         buffs = await conn.fetch("SELECT * FROM active_buffs WHERE target_id = $1", user_id)
     for buff in buffs:
@@ -8799,8 +8811,8 @@ async def get_player_stats(user_id: str):
         # Add other effect types if needed
 
     return {
-        'hp': row['hp'],
-        'max_hp': row['max_hp'],
+        'hp': current_hp,
+        'max_hp': max_hp,
         'energy': row['energy'],
         'max_energy': row['max_energy'],
         'respawn_at': row['respawn_at'],
@@ -8812,7 +8824,6 @@ async def get_player_stats(user_id: str):
         'bleed_damage': bleed_damage,
         'reflect': reflect
     }
-
 
 
 
