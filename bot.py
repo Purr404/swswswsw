@@ -3995,7 +3995,7 @@ class CategoryView(discord.ui.View):
                     emoji = CUSTOM_EMOJIS.get('hp_potion')
                 elif 'energy potion' in name_lower:
                     emoji = CUSTOM_EMOJIS.get('energy_potion')
-                if 'sword' in name_lower:
+                elif 'sword' in name_lower:
                     emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
                 elif 'armor' in name_lower:
                     emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
@@ -8771,7 +8771,7 @@ class AttackView(discord.ui.View):
 
 
     # --- Potion button (row 0, next to Attack) ---
-    @discord.ui.button(label="Potion", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Potion", style=discord.ButtonStyle.danger, row=0)
     async def use_potion_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         """Opens an ephemeral view to choose a potion."""
         view = self.PotionChoiceView(self, str(interaction.user.id))
