@@ -1312,13 +1312,17 @@ class DatabaseSystem:
                         ('Sword'), ('Axe'), ('Dagger')
                         ON CONFLICT DO NOTHING
                     ''')
+                    # Seed potions (if not already present)
                     await conn.execute("""
-                        INSERT INTO shop_items (name, description, price, type) VALUES
-                        ('HP Potion', 'Restores 50% of your max HP.', 50, 'potion'),
-                        ('Energy Potion', 'Restores 1 energy.', 30, 'potion')
-                        ON CONFLICT (name) DO NOTHING;
+                        INSERT INTO shop_items (name, description, price, type)
+                        SELECT 'HP Potion', 'Restores 50% of your max HP.', 50, 'potion'
+                        WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'HP Potion');
                     """)
-
+                    await conn.execute("""
+                        INSERT INTO shop_items (name, description, price, type)
+                        SELECT 'Energy Potion', 'Restores 1 energy.', 30, 'potion'
+                        WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Energy Potion');
+                    """)
 
                     # ========== CREATE INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
