@@ -196,6 +196,12 @@ CUSTOM_EMOJIS = {
 def get_item_emoji(item_name: str, item_type: str, awakened: bool = False) -> str:
     """Return the appropriate custom emoji based on item name and type."""
     item_lower = item_name.lower()
+
+    # Potions
+    if 'hp potion' in item_lower:
+        return CUSTOM_EMOJIS.get('hp_potion')
+    if 'energy potion' in item_lower:
+        return CUSTOM_EMOJIS.get('energy_potion')
     
     # Weapons (5 specific swords)
     if item_type == 'weapon':
