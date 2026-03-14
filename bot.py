@@ -1280,7 +1280,7 @@ class DatabaseSystem:
                     await conn.execute('''
                         ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check 
                         CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box', 
-                                        'random_gear_box', 'random_accessories_box', 'pickaxe', 'material'))
+                                        'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion'))
                     ''')
 
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_sword_stones INTEGER DEFAULT 0')
@@ -1312,6 +1312,13 @@ class DatabaseSystem:
                         ('Sword'), ('Axe'), ('Dagger')
                         ON CONFLICT DO NOTHING
                     ''')
+                    await conn.execute("""
+                        INSERT INTO shop_items (name, description, price, type) VALUES
+                        ('HP Potion', 'Restores 50% of your max HP.', 50, 'potion'),
+                        ('Energy Potion', 'Restores 1 energy.', 30, 'potion')
+                        ON CONFLICT (name) DO NOTHING;
+                    """)
+
 
                     # ========== CREATE INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
