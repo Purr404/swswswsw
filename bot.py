@@ -4004,7 +4004,7 @@ class CategoryView(discord.ui.View):
                 else:
                     emoji = '📦'
                 button = discord.ui.Button(
-                    label=f"{item['name']} x{item['quantity']}",
+                    label=f"x{item['quantity']}",
                     emoji=emoji,
                     style=discord.ButtonStyle.secondary,
                     custom_id=f"inv_material_{item['material_id']}",
