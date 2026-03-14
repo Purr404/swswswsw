@@ -6283,7 +6283,11 @@ class Shop(commands.Cog):
 
         # Determine emoji based on name
         name_lower = material['name'].lower()
-        if 'sword' in name_lower:
+        if 'hp potion' in name_lower:
+            emoji = CUSTOM_EMOJIS.get('hp_potion')
+        elif 'energy potion' in name_lower:
+            emoji = CUSTOM_EMOJIS.get('energy_potion')
+        elif 'sword' in name_lower:
             stone_emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
         elif 'armor' in name_lower:
             stone_emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
@@ -6446,47 +6450,105 @@ class Shop(commands.Cog):
         await ctx.send(f"✅ Added **{amount}** {stone_name} to your inventory.")
 
 
-    @commands.command(name='givepotion')
+    @commands.command(name='givepotions')
     @commands.has_permissions(administrator=True)
-    async def give_potion(self, ctx, target: Optional[discord.Member] = None, potion_type: str = None, amount: int = 1):
+    async def give_potion(self, ctx, *args):
         """
         Give potions to a user. Admins only.
-        Usage: !!givepotion @user hp 5
-               !!givepotion energy 3
-               !!givepotion hp
+        Usage: !!givepotion [@user] <hp|energy> <amount> [hp|energy amount ...]
+        Example: !!givepotion @purr404 hp 10 energy 20
         """
-        if potion_type is None:
-            await ctx.send("❌ Usage: `!!givepotion [@user] <hp|energy> [amount]`")
+        if not args:
+            await ctx.send("❌ Usage: `!!givepotion [@user] <hp|energy> <amount> [hp|energy amount ...]`")
             return
 
-        if target is None:
+        # Determine if first argument is a member
+        target = None
+        start_idx = 0
+        if len(args) >= 1 and isinstance(ctx.message.mentions, list) and ctx.message.mentions:
+            # If there's a mention, the first arg is the member
+            target = ctx.message.mentions[0]
+            start_idx = 1
+        else:
             target = ctx.author
+            start_idx = 0
+
+        # Parse remaining args as type‑amount pairs
+        pairs = []
+        i = start_idx
+        while i < len(args):
+            if i + 1 >= len(args):
+                await ctx.send("❌ Missing amount for potion type `{}`.".format(args[i]))
+                return
+            potion_type = args[i].lower()
+            try:
+                amount = int(args[i+1])
+            except ValueError:
+                await ctx.send(f"❌ Invalid amount for `{potion_type}`: must be a number.")
+                return
+            if potion_type not in ('hp', 'energy'):
+                await ctx.send(f"❌ Invalid potion type `{potion_type}`. Use `hp` or `energy`.")
+                return
+            if amount <= 0:
+                await ctx.send(f"❌ Amount must be positive for `{potion_type}`.")
+                return
+            pairs.append((potion_type, amount))
+            i += 2
+
+        if not pairs:
+            await ctx.send("❌ No valid potion types specified.")
+            return
 
         potion_map = {
-            'hp': 'HP Potion',
-            'energy': 'Energy Potion'
+            'hp': ('HP Potion', CUSTOM_EMOJIS.get('hp_potion', '💚')),
+            'energy': ('Energy Potion', CUSTOM_EMOJIS.get('energy_potion', '⚡'))
         }
-        if potion_type.lower() not in potion_map:
-            await ctx.send("❌ Invalid potion type. Use `hp` or `energy`.")
-            return
 
-        potion_name = potion_map[potion_type.lower()]
         user_id = str(target.id)
 
         async with self.bot.db_pool.acquire() as conn:
-            potion_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", potion_name)
-            if not potion_id:
-                await ctx.send("❌ Potion not found in shop. Run the SQL to add it first.")
-                return
+            for potion_type, amount in pairs:
+                potion_name, emoji = potion_map[potion_type]
+                potion_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", potion_name)
+                if not potion_id:
+                    await ctx.send(f"❌ {potion_name} not found in shop. Run the SQL to add it first.")
+                    return
 
-            await conn.execute("""
-                INSERT INTO user_materials (user_id, material_id, quantity)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (user_id, material_id) DO UPDATE
-                SET quantity = user_materials.quantity + $3
-            """, user_id, potion_id, amount)
+                await conn.execute("""
+                    INSERT INTO user_materials (user_id, material_id, quantity)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id, material_id) DO UPDATE
+                    SET quantity = user_materials.quantity + $3
+                """, user_id, potion_id, amount)
 
-        await ctx.send(f"✅ Added **{amount}** {potion_name} to {target.mention}'s inventory.")
+        # Build DM message
+        dm_lines = []
+        for potion_type, amount in pairs:
+            name, emoji = potion_map[potion_type]
+            dm_lines.append(f"{amount} {emoji} {name}")
+
+        dm_text = " and ".join(dm_lines)
+        dm_embed = discord.Embed(
+            title="🎁 You received an item!",
+            description=f"**{ctx.author.display_name}** sent you {dm_text}!",
+            color=discord.Color.green()
+        )
+
+        try:
+            await target.send(embed=dm_embed)
+        except discord.Forbidden:
+            print(f"Could not DM {target} about potion gift.")
+        except Exception as e:
+            print(f"Error sending DM to {target}: {e}")
+
+        # Build confirmation message
+        confirm_lines = []
+        for potion_type, amount in pairs:
+            name, emoji = potion_map[potion_type]
+            confirm_lines.append(f"{amount} {emoji} {name}")
+        confirm_text = ", ".join(confirm_lines)
+        await ctx.send(f"✅ Added {confirm_text} to {target.mention}'s inventory.")
+
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES (using PartialEmoji for custom emojis)
     # -------------------------------------------------------------------------
