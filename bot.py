@@ -5288,13 +5288,24 @@ class Shop(commands.Cog):
             elif main_cat == "tools":
                 await self.show_tools(interaction)
 
-            elif custom_id.startswith("secret_shop_"):
-                try:
-                    purchase_id = int(custom_id.split("_")[2])
-                except (ValueError, IndexError):
-                    await interaction.response.send_message("❌ Invalid ticket ID.", ephemeral=True)
-                    return
-                await self.secret_shop_button(interaction, purchase_id)
+        # ✅ Correct: secret_shop_ is at the same level as other top‑level elifs
+        elif custom_id.startswith("secret_shop_"):
+            # Log for debugging (visible in Railway logs)
+            print(f"[DEBUG] secret_shop button pressed with custom_id: {custom_id}")
+
+            try:
+                parts = custom_id.split("_")
+                if len(parts) < 3:
+                    raise ValueError("custom_id too short")
+                purchase_id = int(parts[2])
+            except (ValueError, IndexError) as e:
+                print(f"[ERROR] Failed to parse purchase_id: {e}")
+                # Send error message immediately (acknowledges the interaction)
+                await interaction.response.send_message("❌ Invalid ticket ID.", ephemeral=True)
+                return
+
+            # Call the handler – it will defer first
+            await self.secret_shop_button(interaction, purchase_id)
 
         elif custom_id == "shop_back_to_main":
             # Build the main categories embed and view
@@ -7084,14 +7095,18 @@ class Shop(commands.Cog):
     async def secret_shop_button(self, interaction: discord.Interaction, purchase_id: int):
         """Handle the Continue button after buying a Treasure Carriage."""
         try:
-            # Always defer first – prevents timeout and acknowledges interaction
+            print(f"[DEBUG] secret_shop_button called for purchase_id: {purchase_id}")
+
+            # 🔥 DEFER FIRST – ALWAYS
             await interaction.response.defer(ephemeral=True)
+            print("[DEBUG] Defer successful")
 
             # Validate purchase_id (should be int, but safeguard)
             if not isinstance(purchase_id, int):
                 await interaction.followup.send("❌ Invalid ticket ID.", ephemeral=True)
                 return
 
+            print("[DEBUG] Querying database for purchase...")
             async with self.bot.db_pool.acquire() as conn:
                 purchase = await conn.fetchrow(
                     "SELECT * FROM user_purchases WHERE purchase_id = $1 AND used = FALSE",
@@ -7099,15 +7114,18 @@ class Shop(commands.Cog):
                 )
 
             if not purchase:
+                print("[DEBUG] Purchase not found or already used")
                 await interaction.followup.send("❌ This ticket has already been used or does not exist.", ephemeral=True)
                 return
 
-            # Try to send DM
+            print("[DEBUG] Purchase found, attempting to send DM...")
             try:
                 await interaction.user.send(
                     "**Treasure Carriage Booking**\nPlease reply with your **in‑game name** (IGN)."
                 )
+                print("[DEBUG] DM sent successfully")
             except discord.Forbidden:
+                print("[DEBUG] Cannot DM user (Forbidden)")
                 await interaction.followup.send(
                     "❌ I can't DM you. Please enable DMs from server members and try again.",
                     ephemeral=True
@@ -7119,23 +7137,26 @@ class Shop(commands.Cog):
                 "purchase_id": purchase_id,
                 "step": "ign"
             }
+            print(f"[DEBUG] Session stored for user {interaction.user.id}")
 
             await interaction.followup.send("📨 Check your DM to continue.", ephemeral=True)
+            print("[DEBUG] Followup sent successfully")
 
         except Exception as e:
-            # Log the full error to console (visible in Railway logs)
+            # Log the full error
             import traceback
-            print(f"❌ Error in secret_shop_button: {e}")
+            print(f"❌❌❌ UNHANDLED EXCEPTION in secret_shop_button: {e}")
             traceback.print_exc()
 
-            # Attempt to notify the user (if interaction is still usable)
+            # Attempt to notify the user
             try:
-                await interaction.followup.send(
-                    "❌ An unexpected error occurred. Please contact an administrator.",
-                    ephemeral=True
-                )
-            except:
-                pass
+                # If interaction hasn't been responded to yet, send a message
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ An unexpected error occurred. Please contact an admin.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ An unexpected error occurred. Please contact an admin.", ephemeral=True)
+            except Exception as followup_error:
+                print(f"❌ Could not send followup: {followup_error}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
