@@ -7078,22 +7078,60 @@ class Shop(commands.Cog):
     # SECRET SHOP (Treasure Carriage booking)
     # -------------------------------------------------------------------------
     async def secret_shop_button(self, interaction: discord.Interaction, purchase_id: int):
-        async with self.bot.db_pool.acquire() as conn:
-            purchase = await conn.fetchrow(
-                "SELECT * FROM user_purchases WHERE purchase_id = $1 AND used = FALSE",
-                purchase_id
-            )
-        if not purchase:
-            await interaction.response.send_message("❌ Ticket already used.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
+        """Handle the Continue button after buying a Treasure Carriage."""
         try:
-            await interaction.user.send("**Treasure Carriage Booking**\nPlease reply with your **in‑game name** (IGN).")
-            self.booking_sessions[interaction.user.id] = {"purchase_id": purchase_id, "step": "ign"}
+            # Always defer first – prevents timeout and acknowledges interaction
+            await interaction.response.defer(ephemeral=True)
+
+            # Validate purchase_id (should be int, but safeguard)
+            if not isinstance(purchase_id, int):
+                await interaction.followup.send("❌ Invalid ticket ID.", ephemeral=True)
+                return
+
+            async with self.bot.db_pool.acquire() as conn:
+                purchase = await conn.fetchrow(
+                    "SELECT * FROM user_purchases WHERE purchase_id = $1 AND used = FALSE",
+                    purchase_id
+                )
+
+            if not purchase:
+                await interaction.followup.send("❌ This ticket has already been used or does not exist.", ephemeral=True)
+                return
+
+            # Try to send DM
+            try:
+                await interaction.user.send(
+                    "**Treasure Carriage Booking**\nPlease reply with your **in‑game name** (IGN)."
+                )
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "❌ I can't DM you. Please enable DMs from server members and try again.",
+                    ephemeral=True
+                )
+                return
+
+            # Store session
+            self.booking_sessions[interaction.user.id] = {
+                "purchase_id": purchase_id,
+                "step": "ign"
+            }
+
             await interaction.followup.send("📨 Check your DM to continue.", ephemeral=True)
-        except discord.Forbidden:
-            await interaction.followup.send("❌ I can't DM you. Enable DMs and try again.", ephemeral=True)
+
+        except Exception as e:
+            # Log the full error to console (visible in Railway logs)
+            import traceback
+            print(f"❌ Error in secret_shop_button: {e}")
+            traceback.print_exc()
+
+            # Attempt to notify the user (if interaction is still usable)
+            try:
+                await interaction.followup.send(
+                    "❌ An unexpected error occurred. Please contact an administrator.",
+                    ephemeral=True
+                )
+            except:
+                pass
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
