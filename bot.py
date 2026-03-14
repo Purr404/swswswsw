@@ -6297,7 +6297,7 @@ class Shop(commands.Cog):
             stone_emoji = '📦'
 
         embed = discord.Embed(
-            title=f"{stone_emoji} **{material['name']}**",
+            title=f"{emoji} **{material['name']}**",
             description=material['description'] or "No description available.",
             color=discord.Color.light_grey()
         )
