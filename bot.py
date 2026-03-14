@@ -6430,6 +6430,48 @@ class Shop(commands.Cog):
 
         await ctx.send(f"✅ Added **{amount}** {stone_name} to your inventory.")
 
+
+    @commands.command(name='givepotion')
+    @commands.has_permissions(administrator=True)
+    async def give_potion(self, ctx, target: Optional[discord.Member] = None, potion_type: str = None, amount: int = 1):
+        """
+        Give potions to a user. Admins only.
+        Usage: !!givepotion @user hp 5
+               !!givepotion energy 3
+               !!givepotion hp
+        """
+        if potion_type is None:
+            await ctx.send("❌ Usage: `!!givepotion [@user] <hp|energy> [amount]`")
+            return
+
+        if target is None:
+            target = ctx.author
+
+        potion_map = {
+            'hp': 'HP Potion',
+            'energy': 'Energy Potion'
+        }
+        if potion_type.lower() not in potion_map:
+            await ctx.send("❌ Invalid potion type. Use `hp` or `energy`.")
+            return
+
+        potion_name = potion_map[potion_type.lower()]
+        user_id = str(target.id)
+
+        async with self.bot.db_pool.acquire() as conn:
+            potion_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", potion_name)
+            if not potion_id:
+                await ctx.send("❌ Potion not found in shop. Run the SQL to add it first.")
+                return
+
+            await conn.execute("""
+                INSERT INTO user_materials (user_id, material_id, quantity)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id, material_id) DO UPDATE
+                SET quantity = user_materials.quantity + $3
+            """, user_id, potion_id, amount)
+
+        await ctx.send(f"✅ Added **{amount}** {potion_name} to {target.mention}'s inventory.")
     # -------------------------------------------------------------------------
     # SHOW MAIN CATEGORIES (using PartialEmoji for custom emojis)
     # -------------------------------------------------------------------------
@@ -8711,6 +8753,115 @@ class AttackView(discord.ui.View):
             tb = traceback.format_exc()
             await log_to_discord(bot, f"Error in attack_button: {e}", level="ERROR", error=e)
             await interaction.followup.send("❌ An error occurred. Check bot‑logs.", ephemeral=True)
+
+
+    # --- Potion button (row 0, next to Attack) ---
+    @discord.ui.button(label="Potion", style=discord.ButtonStyle.secondary, row=0)
+    async def use_potion_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        """Opens an ephemeral view to choose a potion."""
+        view = self.PotionChoiceView(self, str(interaction.user.id))
+        await interaction.response.send_message("Choose a potion to use:", view=view, ephemeral=True)
+
+    class PotionChoiceView(discord.ui.View):
+        """Ephemeral view with HP and Energy potion buttons."""
+        def __init__(self, parent_view, user_id):
+            super().__init__(timeout=60)
+            self.parent_view = parent_view
+            self.user_id = user_id
+
+        @discord.ui.button(label="HP Potion", emoji=CUSTOM_EMOJIS.get('hp_potion'), style=discord.ButtonStyle.success)
+        async def hp_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+            if str(interaction.user.id) != self.user_id:
+                await interaction.response.send_message("This is not your potion choice.", ephemeral=True)
+                return
+            await self.parent_view.use_potion(interaction, 'hp')
+
+        @discord.ui.button(label="Energy Potion", emoji=CUSTOM_EMOJIS.get('energy_potion'), style=discord.ButtonStyle.primary)
+        async def energy_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+            if str(interaction.user.id) != self.user_id:
+                await interaction.response.send_message("This is not your potion choice.", ephemeral=True)
+                return
+            await self.parent_view.use_potion(interaction, 'energy')
+
+    async def use_potion(self, interaction: discord.Interaction, potion_type: str):
+        """Consume the chosen potion and apply its effect, with full‑stat checks."""
+        await interaction.response.defer(ephemeral=True)
+        user_id = str(interaction.user.id)
+
+        # Fetch potion item IDs
+        async with bot.db_pool.acquire() as conn:
+            hp_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = 'HP Potion'")
+            energy_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = 'Energy Potion'")
+
+        if potion_type == 'hp':
+            potion_id = hp_id
+            potion_name = "HP Potion"
+            emoji = CUSTOM_EMOJIS.get('hp_potion')
+        else:
+            potion_id = energy_id
+            potion_name = "Energy Potion"
+            emoji = CUSTOM_EMOJIS.get('energy_potion')
+
+        if not potion_id:
+            await interaction.followup.send("❌ Potion not configured. Contact admin.", ephemeral=True)
+            return
+
+        # Check inventory and stats
+        async with bot.db_pool.acquire() as conn:
+            qty = await conn.fetchval("SELECT quantity FROM user_materials WHERE user_id = $1 AND material_id = $2", user_id, potion_id)
+            if not qty or qty < 1:
+                await interaction.followup.send(f"❌ You don't have any {potion_name}.", ephemeral=True)
+                return
+
+            if potion_type == 'hp':
+                stats = await conn.fetchrow("SELECT hp, max_hp FROM player_stats WHERE user_id = $1", user_id)
+                if not stats:
+                    await interaction.followup.send("❌ Could not retrieve your stats.", ephemeral=True)
+                    return
+                if stats['hp'] >= stats['max_hp']:
+                    await interaction.followup.send(f"Your HP is already full! ({stats['hp']}/{stats['max_hp']})", ephemeral=True)
+                    return
+                heal = max(1, int(stats['max_hp'] * 0.5))
+                new_hp = min(stats['hp'] + heal, stats['max_hp'])
+                effect = f"healed **{new_hp - stats['hp']}** HP"
+
+            else:  # energy
+                stats = await conn.fetchrow("SELECT energy, max_energy FROM player_stats WHERE user_id = $1", user_id)
+                if not stats:
+                    await interaction.followup.send("❌ Could not retrieve your stats.", ephemeral=True)
+                    return
+                if stats['energy'] >= stats['max_energy']:
+                    await interaction.followup.send(f"Your energy is already full! ({stats['energy']}/{stats['max_energy']})", ephemeral=True)
+                    return
+                new_energy = stats['energy'] + 1
+                effect = "restored **1** energy"
+
+            # Deduct potion and apply effect
+            await conn.execute("UPDATE user_materials SET quantity = quantity - 1 WHERE user_id = $1 AND material_id = $2", user_id, potion_id)
+
+            if potion_type == 'hp':
+                await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, user_id)
+            else:
+                await conn.execute("UPDATE player_stats SET energy = $1 WHERE user_id = $2", new_energy, user_id)
+
+        # Build action message for main duel embed
+        action_message = f"{interaction.user.display_name} used {emoji} **{potion_name}** and {effect}!"
+
+        # Update main duel embed
+        channel = bot.get_channel(self.channel_id)
+        try:
+            msg = await channel.fetch_message(self.message_id)
+        except:
+            await interaction.followup.send("Main duel message not found.", ephemeral=True)
+            return
+
+        new_embed = await self.build_duel_embed(action_message)
+        await msg.edit(embed=new_embed, view=self)
+
+        # Confirm to user
+        await interaction.followup.send(f"You used {emoji} **{potion_name}**.", ephemeral=True)
+
+
 
     async def build_duel_embed(self, action_text: str = None):
         """Build the duel embed with vertical stats, gear grids, and action result."""
