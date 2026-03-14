@@ -3406,7 +3406,9 @@ async def daily_reward(ctx):
 
     if potion_text:
         embed.add_field(
-            name="🧪 Bonus Potions",
+            field_icon = CUSTOM_EMOJIS.get('hp_potion')
+        embed.add_field(
+            name=f"{field_icon} Potions",
             value="\n".join(potion_text),
             inline=False
         )
