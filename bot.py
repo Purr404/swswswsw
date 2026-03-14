@@ -3360,31 +3360,70 @@ async def daily_reward(ctx):
     # Claim daily reward using currency_system
     result = await currency_system.claim_daily(user_id)
     
+    # --- Award potions ---
+    hp_potion_id = None
+    energy_potion_id = None
+    async with bot.db_pool.acquire() as conn:
+        hp_potion_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = 'HP Potion'")
+        energy_potion_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = 'Energy Potion'")
+
+        if hp_potion_id:
+            await conn.execute("""
+                INSERT INTO user_materials (user_id, material_id, quantity)
+                VALUES ($1, $2, 1)
+                ON CONFLICT (user_id, material_id) DO UPDATE
+                SET quantity = user_materials.quantity + 1
+            """, user_id, hp_potion_id)
+
+        if energy_potion_id:
+            await conn.execute("""
+                INSERT INTO user_materials (user_id, material_id, quantity)
+                VALUES ($1, $2, 1)
+                ON CONFLICT (user_id, material_id) DO UPDATE
+                SET quantity = user_materials.quantity + 1
+            """, user_id, energy_potion_id)
+
+    # Build embed
     embed = discord.Embed(
         title="🎁 **Daily Reward Claimed!**",
         description=f"Here's your daily reward, {ctx.author.mention}!",
         color=discord.Color.gold()
     )
-    
+
     embed.add_field(
         name="💎 Gems Earned",
         value=f"**+{result['gems']} gems**",
         inline=False
     )
-    
+
+    potion_text = []
+    if hp_potion_id:
+        hp_emoji = CUSTOM_EMOJIS.get('hp_potion', '💚')
+        potion_text.append(f"{hp_emoji} **1x HP Potion**")
+    if energy_potion_id:
+        energy_emoji = CUSTOM_EMOJIS.get('energy_potion', '⚡')
+        potion_text.append(f"{energy_emoji} **1x Energy Potion**")
+
+    if potion_text:
+        embed.add_field(
+            name="🧪 Bonus Potions",
+            value="\n".join(potion_text),
+            inline=False
+        )
+
     embed.add_field(
         name="🔥 Daily Streak",
         value=f"**{result['streak']} days**",
         inline=True
     )
-    
+
     embed.add_field(
-        name="💰 New Balance",
+        name="💰 New Gem Balance",
         value=f"**{result['balance']} gems**",
         inline=True
     )
-    
-    embed.set_footer(text="Come back tomorrow for more gems!")
+
+    embed.set_footer(text="Come back tomorrow for more rewards!")
     await ctx.send(embed=embed)
 
 # Add stats command
