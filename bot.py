@@ -8937,6 +8937,12 @@ class AttackView(discord.ui.View):
                 await interaction.followup.send(f"❌ You don't have any {potion_name}.", ephemeral=True)
                 return
 
+            # ❌ DEAD CHECK – block all potion use if dead
+            hp_check = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", user_id)
+            if hp_check <= 0:
+                await interaction.followup.send("❌ You are dead and cannot use any potions.", ephemeral=True)
+                return
+
             if potion_type == 'hp':
                 stats = await conn.fetchrow("SELECT hp, max_hp FROM player_stats WHERE user_id = $1", user_id)
                 if not stats:
