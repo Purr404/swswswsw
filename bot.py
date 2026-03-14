@@ -8447,30 +8447,40 @@ async def format_gear_grid(user_id: str) -> str:
 class AttackView(discord.ui.View):
     def __init__(self, attacker_id: str, defender_id: str, channel_id: int, message_id: int):
         super().__init__(timeout=300)
-        self.attacker_id = attacker_id
-        self.defender_id = defender_id
+        self.attacker_id = attacker_id   # original challenger
+        self.defender_id = defender_id   # original opponent
         self.channel_id = channel_id
         self.message_id = message_id
 
+    # ✅ CHANGED: allow either participant to press the button
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # Only the attacker can press the button
-        return str(interaction.user.id) == self.attacker_id
+        return str(interaction.user.id) in (self.attacker_id, self.defender_id)
 
     @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger)
     async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         try:
             await interaction.response.defer()
 
-            # Fetch fresh stats
-            a_stats = await get_player_stats(self.attacker_id)
-            d_stats = await get_player_stats(self.defender_id)
-            a_user = bot.get_user(int(self.attacker_id))
-            d_user = bot.get_user(int(self.defender_id))
+            # ✅ NEW: determine who is the attacker this turn
+            if str(interaction.user.id) == self.attacker_id:
+                current_attacker_id = self.attacker_id
+                current_defender_id = self.defender_id
+                attacker_user = interaction.user
+                defender_user = bot.get_user(int(self.defender_id)) or await bot.fetch_user(int(self.defender_id))
+            else:
+                current_attacker_id = self.defender_id
+                current_defender_id = self.attacker_id
+                attacker_user = interaction.user
+                defender_user = bot.get_user(int(self.attacker_id)) or await bot.fetch_user(int(self.attacker_id))
+
+            # Fetch fresh stats for both (using the determined IDs)
+            a_stats = await get_player_stats(current_attacker_id)
+            d_stats = await get_player_stats(current_defender_id)
 
             # --- Attacker dead check (with countdown) ---
             if a_stats['hp'] <= 0:
                 async with bot.db_pool.acquire() as conn:
-                    db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", self.attacker_id)
+                    db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", current_attacker_id)
                 if db_respawn:
                     if db_respawn.tzinfo is None:
                         db_respawn = db_respawn.replace(tzinfo=timezone.utc)
@@ -8494,7 +8504,7 @@ class AttackView(discord.ui.View):
             # --- Defender dead check (with countdown) ---
             if d_stats['hp'] <= 0:
                 async with bot.db_pool.acquire() as conn:
-                    db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", self.defender_id)
+                    db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", current_defender_id)
                 if db_respawn:
                     if db_respawn.tzinfo is None:
                         db_respawn = db_respawn.replace(tzinfo=timezone.utc)
@@ -8515,12 +8525,12 @@ class AttackView(discord.ui.View):
                 await interaction.followup.send(msg, ephemeral=True)
                 return
 
-            # --- Energy check ---
+            # --- Energy check (attacker) ---
             if a_stats['energy'] < 1:
                 await interaction.followup.send("Not enough energy!", ephemeral=True)
                 return
 
-            # --- Get equipped weapon ---
+            # --- Get equipped weapon of the attacker ---
             async with bot.db_pool.acquire() as conn:
                 weapon = await conn.fetchrow("""
                     SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
@@ -8528,7 +8538,7 @@ class AttackView(discord.ui.View):
                     LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
                     WHERE uw.user_id = $1 AND uw.equipped = TRUE
                     LIMIT 1
-                """, self.attacker_id)
+                """, current_attacker_id)
 
             if not weapon:
                 await interaction.followup.send("You don't have a weapon equipped!", ephemeral=True)
@@ -8568,8 +8578,9 @@ class AttackView(discord.ui.View):
             if is_crit:
                 damage = int(damage * (1 + effective_crit_damage / 100))
 
+            # Apply damage to defender
             new_defender_hp = max(0, d_stats['hp'] - damage)
-            await update_player_hp(self.defender_id, new_defender_hp)
+            await update_player_hp(current_defender_id, new_defender_hp)
             # If defender died, set respawn timer
             if new_defender_hp == 0:
                 async with bot.db_pool.acquire() as conn:
@@ -8577,22 +8588,22 @@ class AttackView(discord.ui.View):
                         UPDATE player_stats
                         SET respawn_at = NOW() + INTERVAL '2 hours'
                         WHERE user_id = $1 AND respawn_at IS NULL
-                    """, self.defender_id)
+                    """, current_defender_id)
 
-            # --- Reflect ---
+            # --- Reflect damage ---
             reflect_damage = 0
             if d_stats['reflect'] > 0:
                 reflect_damage = int(damage * d_stats['reflect'] / 100)
                 if reflect_damage > 0:
                     new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
-                    await update_player_hp(self.attacker_id, new_attacker_hp)
+                    await update_player_hp(current_attacker_id, new_attacker_hp)
                     if new_attacker_hp == 0:
                         async with bot.db_pool.acquire() as conn:
                             await conn.execute("""
                                 UPDATE player_stats
                                 SET respawn_at = NOW() + INTERVAL '2 hours'
                                 WHERE user_id = $1 AND respawn_at IS NULL
-                            """, self.attacker_id)
+                            """, current_attacker_id)
 
             # --- Bleed ---
             bleed_applied = False
@@ -8605,7 +8616,7 @@ class AttackView(discord.ui.View):
                         await conn.execute("""
                             INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
                             VALUES ($1, 'bleed', $2, 3)
-                        """, self.defender_id, bleed_tick)
+                        """, current_defender_id, bleed_tick)
 
             # --- Burn (Dawn Breaker) ---
             burn_applied = False
@@ -8621,7 +8632,7 @@ class AttackView(discord.ui.View):
                             await conn.execute("""
                                 INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
                                 VALUES ($1, 'burn', $2, 3)
-                            """, self.defender_id, burn_tick)
+                            """, current_defender_id, burn_tick)
 
             # --- Buffs/Debuffs ---
             buff_applied = None
@@ -8630,31 +8641,32 @@ class AttackView(discord.ui.View):
                     await conn.execute("""
                         INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
                         VALUES ($1, 'atk_mult', 1.5, 2)
-                    """, self.attacker_id)
-                buff_applied = f"{a_user.display_name} gains 50% ATK boost for 2 turns!"
+                    """, current_attacker_id)
+                buff_applied = f"{attacker_user.display_name} gains 50% ATK boost for 2 turns!"
 
             if skill['name'] == "Abyssal Strike" and random.random() < 0.30:
                 async with bot.db_pool.acquire() as conn:
                     await conn.execute("""
                         INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
                         VALUES ($1, 'def_mult', 0.85, 3)
-                    """, self.defender_id)
-                buff_applied = f"{d_user.display_name}'s DEF reduced by 15% for 3 turns!"
+                    """, current_defender_id)
+                buff_applied = f"{defender_user.display_name}'s DEF reduced by 15% for 3 turns!"
 
+            # Deduct energy from attacker
             new_energy = a_stats['energy'] - 1
-            await update_player_energy(self.attacker_id, new_energy)
+            await update_player_energy(current_attacker_id, new_energy)
 
-            # --- Decrement buff turns ---
+            # --- Decrement buff turns for both participants ---
             async with bot.db_pool.acquire() as conn:
                 await conn.execute("""
                     UPDATE active_buffs SET remaining_turns = remaining_turns - 1
                     WHERE target_id IN ($1, $2) AND remaining_turns > 0
-                """, self.attacker_id, self.defender_id)
+                """, current_attacker_id, current_defender_id)
                 await conn.execute("DELETE FROM active_buffs WHERE remaining_turns <= 0")
 
             # --- Build action text ---
-            attacker_name = a_user.display_name
-            defender_name = d_user.display_name
+            attacker_name = attacker_user.display_name
+            defender_name = defender_user.display_name
             skill_name = skill['name']
             action_lines = []
             base_line = f"{attacker_name} uses {skill_name} and deals **{damage}** damage to {defender_name}"
@@ -8702,7 +8714,7 @@ class AttackView(discord.ui.View):
 
         embed = discord.Embed(title=f"{a_user.display_name} vs {d_user.display_name}", color=discord.Color.red())
         embed.set_thumbnail(url=a_user.display_avatar.url)
-        
+
         def hp_bar(current, max_hp):
             if current <= 0:
                 return "⬛" * 10 + " DEAD!"
