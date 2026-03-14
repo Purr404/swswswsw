@@ -3990,6 +3990,11 @@ class CategoryView(discord.ui.View):
         if item_type == 'material':
             for i, item in enumerate(page_items):
                 name_lower = item['name'].lower()
+                # Potions
+                if 'hp potion' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('hp_potion')
+                elif 'energy potion' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('energy_potion')
                 if 'sword' in name_lower:
                     emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
                 elif 'armor' in name_lower:
