@@ -177,7 +177,7 @@ CUSTOM_EMOJIS = {
     'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
     'shadow': '<:shadow:1477258013256454339>',
     'energy_potion': '<:energy_potion:1481365820566409236>',
-    'hp_potion': '<hp_potion:1482023718023598190>',
+    'hp_potion': '<:hp_potion:1482023718023598190>',
     'reflect': '<:reflect_dmg:1477608402564808765>',
     'treasure_carriage': '<:treasure_carriage:1477354550502625601>',
     'pet_book': '<:pet_book:1480800927777820762>',
