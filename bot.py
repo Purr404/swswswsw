@@ -5289,7 +5289,11 @@ class Shop(commands.Cog):
                 await self.show_tools(interaction)
 
             elif custom_id.startswith("secret_shop_"):
-                purchase_id = int(custom_id.split("_")[2])
+                try:
+                    purchase_id = int(custom_id.split("_")[2])
+                except (ValueError, IndexError):
+                    await interaction.response.send_message("❌ Invalid ticket ID.", ephemeral=True)
+                    return
                 await self.secret_shop_button(interaction, purchase_id)
 
         elif custom_id == "shop_back_to_main":
