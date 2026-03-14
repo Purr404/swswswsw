@@ -7925,7 +7925,14 @@ class CullingGame(commands.Cog):
                     """, user_id)
 
                     # DM the user – PASS TOTAL STONES, NOT NET
-                    await self.send_mining_complete_dm(int(user_id), gems_earned, stolen_gems, total_stones, {'sword': stolen_sword, 'armor': stolen_armor, 'acc': stolen_acc})
+                    await self.send_mining_complete_dm(
+                        int(user_id),
+                        net_gems,
+                        stolen_gems,
+                        {'sword': net_sword, 'armor': net_armor, 'acc': net_acc},
+                        {'sword': stolen_sword, 'armor': stolen_armor, 'acc': stolen_acc}
+                    )
+
 
     @check_max_mining.before_loop
     async def before_check_max_mining(self):
