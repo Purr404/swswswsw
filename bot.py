@@ -965,6 +965,8 @@ class DatabaseSystem:
                         )
                     ''')
 
+                    await conn.execute('ALTER TABLE rarities ADD CONSTRAINT IF NOT EXISTS rarities_name_key UNIQUE (name);')
+
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS weapon_variants (
                             variant_id SERIAL PRIMARY KEY,
@@ -1068,6 +1070,7 @@ class DatabaseSystem:
                             energy_bonus INT DEFAULT 0
                         )
                     ''')
+                    await conn.execute('ALTER TABLE pet_types ADD CONSTRAINT IF NOT EXISTS pet_types_name_key UNIQUE (name);')
 
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_pets (
@@ -1080,7 +1083,7 @@ class DatabaseSystem:
                         )
                     ''')
                     # ========== PET BONUS COLUMNS (ensure they exist) ==========
-                    # (These are safe even if already added by the CREATE TABLE)
+                    # (These are safe even if already added by the CREATE TABLE)                   
                     await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS atk_percent INT DEFAULT 0;')
                     await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS def_percent INT DEFAULT 0;')
                     await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS hp_percent INT DEFAULT 0;')
