@@ -3863,28 +3863,6 @@ async def respawn_task():
 @bot.event
 async def on_ready():
     print(f"\n✅ {bot.user} is online!")
-    
-    # Try to connect to database
-    print("\n🔌 Attempting database connection...")
-    connected = await db.smart_connect()
-
-    if connected:
-        print("🎉 DATABASE CONNECTED SUCCESSFULLY!")
-        await load_active_bags()
-        await load_shop_persistence(bot)
-        await load_mining_persistence(bot)
-        print("✅ Your data will persist across redeploys")
-        
-        # Start background tasks that need the database
-        clean_old_trades.start()
-        process_effects.start()
-        respawn_task.start()
-        boss_reset_task.start()
-        await load_boss_persistence()
-    else:
-        print("⚠️ Database not connected – some features will not work.")
-        # Optionally start tasks that don't need DB? Not recommended.
-
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
@@ -3939,7 +3917,31 @@ async def load_active_bags():
                         bag.message_id
                     )
 
-bot.setup_hook = lambda: bot.loop.create_task(load_active_bags())
+async def setup_hook():
+    """Set up the bot before it connects to Discord."""
+    # 1. Connect to PostgreSQL
+    connected = await db.smart_connect()
+    if not connected:
+        print("⚠️ Database connection failed – some features will not work.")
+    else:
+        # 2. Load persistent data from the database
+        await load_active_bags()
+        await load_shop_persistence(bot)
+        await load_mining_persistence(bot)
+        await load_boss_persistence()
+
+        # 3. Start global background tasks (they need the database pool)
+        clean_old_trades.start()
+        process_effects.start()
+        respawn_task.start()
+        boss_reset_task.start()
+
+    # 4. Add cogs – await because add_cog is a coroutine
+    await bot.add_cog(Shop(bot))
+    await bot.add_cog(CullingGame(bot, currency_system))
+
+# Assign the async function to bot.setup_hook
+bot.setup_hook = setup_hook
 
 # END ------
 
@@ -10188,8 +10190,6 @@ async def load_boss_persistence():
 
 
 
-# Add the shop cog to the bot
-bot.add_cog(Shop(bot))
 
 
 async def load_shop_persistence(bot):
@@ -10206,7 +10206,6 @@ async def load_mining_persistence(bot):
         await cog.load_mining_messages(guild.id)
 
 
-bot.add_cog(CullingGame(bot, currency_system))
 
 
 # === RUN BOT ===
