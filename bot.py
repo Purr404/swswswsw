@@ -9856,6 +9856,7 @@ class MinersListView(discord.ui.View):
 
 class StopMiningButton(discord.ui.Button):
     def __init__(self, target_id, cog, **kwargs):
+        custom_id = f"stop_mining_{target_id}"
         super().__init__(**kwargs)
         self.target_id = target_id
         self.cog = cog
@@ -9875,6 +9876,7 @@ class StopMiningButton(discord.ui.Button):
 
 class PlunderButton(discord.ui.Button):
     def __init__(self, target_id, cog, **kwargs):
+        custom_id = f"plunder_{target_id}"
         super().__init__(**kwargs)
         self.target_id = target_id
         self.cog = cog
