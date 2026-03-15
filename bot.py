@@ -172,10 +172,12 @@ CUSTOM_EMOJIS = {
     'baby_fox': '<:baby_fox:1480154975069016205>',  # Replace with actual ID
     'baby_tiger': '<:baby_tiger:1480155125493399656>',  # Replace with actual ID
     'baby_purr': '<:baby_purr:1480158366516121660>',  # Replace with actual ID
+    'lilia_maid': '<:lilia_maid:1482627569651286056>',  # Replace with actual ID
     
     # Tools/Misc
     'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
     'shadow': '<:shadow:1477258013256454339>',
+    'paw': '<:paw:1482627374066565170>',
     'energy_potion': '<:energy_potion:1481365820566409236>',
     'hp_potion': '<:hp_potion:1482023718023598190>',
     'reflect': '<:reflect_dmg:1477608402564808765>',
