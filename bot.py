@@ -5378,12 +5378,12 @@ class Shop(commands.Cog):
             self.stone_emoji = stone_emoji
 
         @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
-        async def yes_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        async def yes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             await interaction.response.defer(ephemeral=True)
             await self.cog.handle_upgrade(interaction, self.item_type, self.item_id)
 
         @discord.ui.button(label="No", style=discord.ButtonStyle.secondary)
-        async def no_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        async def no_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             await interaction.response.defer(ephemeral=True)
             embed = discord.Embed(
                 title="❌ Upgrade Cancelled",
