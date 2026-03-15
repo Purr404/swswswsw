@@ -1375,29 +1375,28 @@ class DatabaseSystem:
                         WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Energy Potion');
                     """)
                     # ========== SHOP ITEMS FOR PETS ==========
-                    # First, drop the constraint so we can safely delete any offending rows
+                    # First, drop the constraint so we can safely modify the table
                     await conn.execute("ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check;")
 
-                    # Delete any rows that would violate the new constraint (like previously inserted Pet Boxes or other invalid types)
-                    # We'll delete all rows with type not in the final allowed list (including random_pet_box, which we'll add back later)
+                    # Delete any rows that are not in the final allowed type list (including any stray rows)
                     await conn.execute("""
                         DELETE FROM shop_items
                         WHERE type NOT IN ('role', 'color', 'weapon', 'random_weapon_box',
                                            'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion', 'random_pet_box')
                     """)
 
-                    # Then add the new constraint
-                    await conn.execute("""
-                        ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check
-                        CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box',
-                                        'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion', 'random_pet_box'));
-                    """)
-
-                    # Then add Pet Box (if not already present)
+                    # Insert the Pet Box (if not already present)
                     await conn.execute("""
                         INSERT INTO shop_items (name, description, price, type)
                         SELECT 'Pet Box', 'Contains a random pet! Open to receive one of: Baby Fox, Baby Tiger, or Baby Purr.', 5000, 'random_pet_box'
                         WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Pet Box');
+                    """)
+
+                    # Re‑add the constraint with the updated type list
+                    await conn.execute("""
+                        ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check
+                        CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box',
+                                        'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion', 'random_pet_box'));
                     """)
                     # ========== CREATE INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
