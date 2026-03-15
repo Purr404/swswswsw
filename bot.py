@@ -1289,7 +1289,7 @@ class DatabaseSystem:
                     WHERE slot = 'pendant'
                     """)  
 # 3. Add the new constraint
-                    
+
                     # Update bonus_stat constraint for accessory_types
                     await conn.execute('ALTER TABLE accessory_types DROP CONSTRAINT IF EXISTS accessory_types_bonus_stat_check')
                     await conn.execute('''
@@ -1343,7 +1343,7 @@ class DatabaseSystem:
                         ALTER TABLE armor_types ADD CONSTRAINT armor_types_slot_check 
                         CHECK (slot IN ('helm', 'suit', 'gauntlets', 'boots'))
                     ''')
-                    
+
                     # ========== SEED DATA ==========
                     # Seed rarities
                     await conn.execute('''
@@ -1375,8 +1375,18 @@ class DatabaseSystem:
                         WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Energy Potion');
                     """)
                     # ========== SHOP ITEMS FOR PETS ==========
-                    await conn.execute("DELETE FROM shop_items WHERE type = 'random_pet_box';")
+                    # First, drop the constraint so we can safely delete any offending rows
                     await conn.execute("ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check;")
+
+                    # Delete any rows that would violate the new constraint (like previously inserted Pet Boxes or other invalid types)
+                    # We'll delete all rows with type not in the final allowed list (including random_pet_box, which we'll add back later)
+                    await conn.execute("""
+                        DELETE FROM shop_items
+                        WHERE type NOT IN ('role', 'color', 'weapon', 'random_weapon_box',
+                                           'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion', 'random_pet_box')
+                    """)
+
+                    # Then add the new constraint
                     await conn.execute("""
                         ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check
                         CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box',
