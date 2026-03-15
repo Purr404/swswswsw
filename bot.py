@@ -1375,6 +1375,7 @@ class DatabaseSystem:
                         WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Energy Potion');
                     """)
                     # ========== SHOP ITEMS FOR PETS ==========
+                    await conn.execute("DELETE FROM shop_items WHERE type = 'random_pet_box';")
                     await conn.execute("ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check;")
                     await conn.execute("""
                         ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check
