@@ -4556,6 +4556,8 @@ async def get_item_name(item_type: str, item_id: int) -> str:
             return row['name'] if row else "Unknown Material"
     return "Unknown"
 
+
+
 class TradeView(discord.ui.View):
     def __init__(self, trade_id: int, initiator_id: str, receiver_id: str, message_id: int):
         super().__init__(timeout=300)
@@ -4568,18 +4570,15 @@ class TradeView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return str(interaction.user.id) in (self.initiator_id, self.receiver_id)
 
-
     @discord.ui.button(label="➕", style=discord.ButtonStyle.primary, row=0)
-    async def add_item_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def add_item_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = str(interaction.user.id)
-        # Show category selection
         view = CategorySelectView(self, user_id)
         await interaction.response.send_message("Choose an item category:", view=view, ephemeral=True)
 
     @discord.ui.button(label="💎", style=discord.ButtonStyle.primary, row=0)
-    async def add_gems_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def add_gems_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = str(interaction.user.id)
-        # Register pending input
         pending_gem_inputs[user_id] = {
             "trade_id": self.trade_id,
             "message_id": self.message_id,
@@ -4592,7 +4591,7 @@ class TradeView(discord.ui.View):
         )
 
     @discord.ui.button(label="🔒", style=discord.ButtonStyle.success, row=1)
-    async def lock_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def lock_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = str(interaction.user.id)
         async with bot.db_pool.acquire() as conn:
             if user_id == self.initiator_id:
@@ -4607,7 +4606,7 @@ class TradeView(discord.ui.View):
         await interaction.response.defer()
 
     @discord.ui.button(label="❌", style=discord.ButtonStyle.danger, row=1)
-    async def cancel_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with bot.db_pool.acquire() as conn:
             await conn.execute("UPDATE active_trades SET status = 'cancelled' WHERE trade_id = $1", self.trade_id)
             await conn.execute("DELETE FROM trade_items WHERE trade_id = $1", self.trade_id)
@@ -5015,7 +5014,7 @@ async def build_profile_embed(user_id: str, member: discord.Member):
                 hp_mult *= 1.15
             elif sname == 'angel':
                 crit_chance_add += 15
-                total_bleed_damage = int(total_bleed_damage * 1.20)
+                total_bleed_damage += 20 
                 hp_mult *= 1.15
 
     # Apply set multipliers
@@ -9690,7 +9689,7 @@ async def get_player_stats(user_id: str):
                 hp_mult *= 1.15
             elif sname == 'angel':
                 crit_chance_add += 15
-                bleed_damage = int(bleed_damage * 1.20)
+                bleed_damage += 20  
                 hp_mult *= 1.15
 
     # Apply multipliers to flat stats
