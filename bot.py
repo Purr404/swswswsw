@@ -3871,6 +3871,15 @@ async def respawn_task():
 @bot.event
 async def on_ready():
     print(f"\n✅ {bot.user} is online!")
+    # Load persistent guild data only once
+    if not hasattr(bot, '_loaded_persistence'):
+        print("🔄 Loading persistent guild data...")
+        await load_active_bags()               # fortune bags
+        await load_shop_persistence(bot)        # shop messages
+        await load_mining_persistence(bot)      # mining views
+        await load_boss_persistence()           # boss views
+        bot._loaded_persistence = True
+        print("✅ Persistent guild data loaded.")
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.watching,
@@ -3927,30 +3936,28 @@ async def load_active_bags():
 
 async def setup_hook():
     """Set up the bot before it connects to Discord."""
+    print("🔄 setup_hook: started")
     # 1. Connect to PostgreSQL
     connected = await db.smart_connect()
     if not connected:
         print("⚠️ Database connection failed – some features will not work.")
-        # Still add cogs
+        # Still add cogs (they may work partially)
         await bot.add_cog(Shop(bot))
         await bot.add_cog(CullingGame(bot, currency_system))
+        print("✅ setup_hook: cogs added (no DB)")
         return
 
-    # 2. Add cogs first
+    # 2. Add cogs first (they don't need guilds)
     await bot.add_cog(Shop(bot))
     await bot.add_cog(CullingGame(bot, currency_system))
+    print("✅ setup_hook: cogs added")
 
-    # 3. Load persistent data (now cogs exist)
-    await load_active_bags()
-    await load_shop_persistence(bot)
-    await load_mining_persistence(bot)
-    await load_boss_persistence()
-
-    # 4. Start global background tasks
+    # 3. Start global background tasks (they don't need guilds either)
     clean_old_trades.start()
     process_effects.start()
     respawn_task.start()
     boss_reset_task.start()
+    print("✅ setup_hook: background tasks started")
 
 bot.setup_hook = setup_hook
 
