@@ -5019,9 +5019,12 @@ async def my_profile(ctx):
 class Shop(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=6992e102&is=69918f82&hm=8a7bf535085e1dd0af98d977c5cc9766ecf463b73dbb5330444ff739b62c3571&"
-        self.check_expired_purchases.start()
+        self.SHOP_IMAGE_URL = "https://cdn.discordapp.com/attachments/1470664051242700800/1471797792262455306/d4387e84d53fd24697a4218a9f6924a5.png?ex=6992e102&is=69918f82&hm=8a7bf535085e1dd0af98d977c5cc9766ecf463b73dbb5330444ff739b62c3571&"       
         self.booking_sessions = {}
+
+    async def cog_load(self):
+        """Called when the cog is loaded – safe to start tasks."""
+        self.check_expired_purchases.start()
 
     def cog_unload(self):
         self.check_expired_purchases.cancel()
@@ -8132,8 +8135,13 @@ class CullingGame(commands.Cog):
         self.currency = currency_system
         self.mining_channel = None
         self.mining_message = None
+
+
+    async def cog_load(self):
+        """Start background tasks after the cog is loaded."""
         self.energy_regen.start()
         self.check_max_mining.start()
+
 
     async def load_mining_messages(self, guild_id: int):
         """Reattach the mining view after restart."""
