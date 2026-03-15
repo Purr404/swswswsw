@@ -10339,7 +10339,6 @@ async def before_boss_reset():
 
 
 async def load_boss_persistence():
-    """Re‑attach boss views after bot restart."""
     async with bot.db_pool.acquire() as conn:
         rows = await conn.fetch("SELECT guild_id, channel_id, message_id FROM boss_config WHERE message_id IS NOT NULL")
     for row in rows:
@@ -10356,7 +10355,7 @@ async def load_boss_persistence():
             print(f"✅ Reattached boss view in #{channel.name}")
         except Exception as e:
             print(f"⚠️ Failed to reattach boss view: {e}")
-
+            traceback.print_exc()
 
 
 
@@ -10373,8 +10372,11 @@ async def load_mining_persistence(bot):
         print("❌ CullingGame cog not found.")
         return
     for guild in bot.guilds:
-        await cog.load_mining_messages(guild.id)
-
+        try:
+            await cog.load_mining_messages(guild.id)
+        except Exception as e:
+            print(f"❌ Failed to load mining messages for guild {guild.id}: {e}")
+            traceback.print_exc()
 
 
 
