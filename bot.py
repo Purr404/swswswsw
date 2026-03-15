@@ -4857,7 +4857,15 @@ async def build_profile_embed(user_id: str, member: discord.Member):
         """, user_id)
         acc_dict = {a['slot']: a for a in accessories}
 
-    # ===== COMPUTE TOTAL STATS =====
+        # Fetch equipped pet (if any)
+        pet = await conn.fetchrow("""
+            SELECT pt.name
+            FROM user_pets up
+            JOIN pet_types pt ON up.pet_id = pt.pet_id
+            WHERE up.user_id = $1 AND up.equipped = TRUE
+        """, user_id)
+
+    # --- Flat stats from gear ---
     total_atk = 0
     total_def = BASE_DEF
     total_crit_chance = 0.0
@@ -4865,7 +4873,7 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     total_bleed_chance = 0.0
     total_bleed_damage = 0.0
     total_reflect = 0
-    total_hp_bonus = 0
+    hp_from_gear = BASE_HP
 
     if weapon:
         total_atk += weapon['attack']
@@ -4876,7 +4884,7 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     for armor in armor_pieces:
         total_def += armor['defense']
         total_reflect += armor['reflect_damage'] or 0
-        total_hp_bonus += armor['hp_bonus'] or 0
+        hp_from_gear += armor['hp_bonus'] or 0
 
     for acc in accessories:
         stat = acc['bonus_stat']
@@ -4885,12 +4893,22 @@ async def build_profile_embed(user_id: str, member: discord.Member):
             total_atk += val
         elif stat == 'def':
             total_def += val
+        elif stat == 'hp':
+            hp_from_gear += val
         elif stat == 'crit':
             total_crit_chance += val
         elif stat == 'bleed':
             total_bleed_damage += val
 
-    # Armor set bonuses
+    # --- Multipliers from sets ---
+    atk_mult = 1.0
+    def_mult = 1.0
+    hp_mult = 1.0
+    reflect_add = 0
+    crit_chance_add = 0
+    crit_damage_add = 0
+
+    # Armor set
     armor_sets = {}
     for armor in armor_pieces:
         if armor['set_name']:
@@ -4899,13 +4917,13 @@ async def build_profile_embed(user_id: str, member: discord.Member):
         if count >= 4:
             sname = set_name.lower()
             if sname in ('bilari', 'cryo', 'bane'):
-                total_crit_chance += 10
-                total_crit_damage += 25
-                total_def = int(total_def * 1.15)
-                total_reflect += 20
-                total_hp_bonus += int(BASE_HP * 0.20)
+                crit_chance_add += 10
+                crit_damage_add += 25
+                def_mult *= 1.15
+                reflect_add += 20
+                hp_mult *= 1.20
 
-    # Accessory set bonuses
+    # Accessory set
     accessory_sets = {}
     for acc in accessories:
         if acc['set_name']:
@@ -4914,56 +4932,76 @@ async def build_profile_embed(user_id: str, member: discord.Member):
         if count >= 5:
             sname = set_name.lower()
             if sname == 'champion':
-                total_atk = int(total_atk * 1.20)
-                total_def = int(total_def * 1.15)
-                total_hp_bonus += int(BASE_HP * 0.15)
+                atk_mult *= 1.20
+                def_mult *= 1.15
+                hp_mult *= 1.15
             elif sname == 'defender':
-                total_def = int(total_def * 1.20)
-                total_reflect += 10
-                total_hp_bonus += int(BASE_HP * 0.15)
+                def_mult *= 1.20
+                reflect_add += 10
+                hp_mult *= 1.15
             elif sname == 'angel':
-                total_crit_chance += 15
+                crit_chance_add += 15
                 total_bleed_damage = int(total_bleed_damage * 1.20)
-                total_hp_bonus += int(BASE_HP * 0.15)
+                hp_mult *= 1.15
 
-    # ===== PET BONUSES (if equipped) =====
+    # Apply set multipliers
+    total_atk = int(total_atk * atk_mult)
+    total_def = int(total_def * def_mult)
+    max_hp_no_pet = int(hp_from_gear * hp_mult)
+    total_reflect += reflect_add
+    total_crit_chance += crit_chance_add
+    total_crit_damage += crit_damage_add
+
+    # --- Pet bonuses ---
+    pet_energy_bonus = 0
     pet_dodge = 0
-    async with bot.db_pool.acquire() as conn:
-        pet = await conn.fetchrow("""
-            SELECT pt.atk_percent, pt.def_percent, pt.hp_percent,
-                   pt.dodge_percent, pt.bleed_flat, pt.burn_flat, pt.energy_bonus
-            FROM user_pets up
-            JOIN pet_types pt ON up.pet_id = pt.pet_id
-            WHERE up.user_id = $1 AND up.equipped = TRUE
-        """, user_id)
+    pet_hp_mult = 1.0
+    pet_atk_mult = 1.0
+    pet_def_mult = 1.0
     if pet:
-        # Apply percent bonuses
-        total_atk = int(total_atk * (1 + pet['atk_percent'] / 100))
-        total_def = int(total_def * (1 + pet['def_percent'] / 100))
-        total_hp_bonus += int(BASE_HP * pet['hp_percent'] / 100)
-        pet_dodge = pet['dodge_percent']
-        # Energy bonus is applied to max_energy (shown in energy bar, not here)
-        # Bleed flat bonuses are used in combat but not displayed in profile (optional)
+        async with bot.db_pool.acquire() as conn:
+            pet_stats = await conn.fetchrow("""
+                SELECT atk_percent, def_percent, hp_percent,
+                       dodge_percent, bleed_flat, burn_flat, energy_bonus
+                FROM pet_types WHERE name = $1
+            """, pet['name'])
+        if pet_stats:
+            pet_atk_mult = 1 + pet_stats['atk_percent'] / 100
+            pet_def_mult = 1 + pet_stats['def_percent'] / 100
+            pet_hp_mult = 1 + pet_stats['hp_percent'] / 100
+            pet_energy_bonus = pet_stats['energy_bonus']
+            pet_dodge = pet_stats['dodge_percent']
 
-    total_max_hp = BASE_HP + total_hp_bonus
-    current_hp = player['hp'] if player['hp'] <= total_max_hp else total_max_hp
+    # Apply pet multipliers
+    total_atk = int(total_atk * pet_atk_mult)
+    total_def = int(total_def * pet_def_mult)
+    max_hp = int(max_hp_no_pet * pet_hp_mult)
+
+    current_hp = player['hp']
+    if current_hp > max_hp:
+        current_hp = max_hp
+
+    max_energy = player['max_energy'] + pet_energy_bonus
+    current_energy = player['energy']
+    if current_energy > max_energy:
+        current_energy = max_energy
 
     # ===== BUILD EMBED =====
     embed = discord.Embed(title=f"**{member.display_name}'s Profile**", color=discord.Color.gold())
     embed.set_thumbnail(url=member.display_avatar.url)
 
-    hp_percent = (current_hp / total_max_hp) * 10
+    hp_percent = (current_hp / max_hp) * 10
     hp_bar = "🟥" * int(hp_percent) + "⬛" * (10 - int(hp_percent))
 
-    energy_percent = (player['energy'] / player['max_energy']) * 10
+    energy_percent = (current_energy / max_energy) * 10
     energy_bar = "🟨" * int(energy_percent) + "⬛" * (10 - int(energy_percent))
 
-    def_bar = "🟦" * 10  # decorative full bar
+    def_bar = "🟦" * 10
 
     vitals_text = (
-        f"{hp_bar} `{current_hp}/{total_max_hp} HP`\n"
+        f"{hp_bar} `{current_hp}/{max_hp} HP`\n"
         f"{def_bar} `{total_def} DEF`\n"
-        f"{energy_bar} `{player['energy']}/{player['max_energy']} Energy`"
+        f"{energy_bar} `{current_energy}/{max_energy} Energy`"
     )
     embed.description = vitals_text
 
@@ -4989,6 +5027,8 @@ async def build_profile_embed(user_id: str, member: discord.Member):
                 return get_item_emoji(item['name'], 'accessory')
         return "*none*"
 
+    pet_emoji = get_pet_emoji(pet['name']) if pet else "🐾"
+
     row1 = (
         f"{slot_emoji('helm', armor_dict.get('helm'))} "
         f"{slot_emoji('suit', armor_dict.get('suit'))} "
@@ -4997,7 +5037,7 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     row2 = (
         f"{slot_emoji('gauntlets', armor_dict.get('gauntlets'))} "
         f"{slot_emoji('boots', armor_dict.get('boots'))} "
-        f"🐾"
+        f"{pet_emoji}"
     )
     row3 = (
         f"{slot_emoji('ring1', acc_dict.get('ring1'))} "
@@ -5009,7 +5049,6 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     embed.add_field(name="**Equipped Gears**", value=f"{row1}\n{row2}\n{row3}", inline=False)
 
     return embed
-
 
 
 @bot.command(name='myprofile')
@@ -9019,7 +9058,6 @@ class AttackView(discord.ui.View):
         self.channel_id = channel_id
         self.message_id = message_id
 
-    # ✅ CHANGED: allow either participant to press the button
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return str(interaction.user.id) in (self.attacker_id, self.defender_id)
 
@@ -9028,7 +9066,7 @@ class AttackView(discord.ui.View):
         try:
             await interaction.response.defer()
 
-            # ✅ NEW: determine who is the attacker this turn
+            # Determine who is the attacker this turn
             if str(interaction.user.id) == self.attacker_id:
                 current_attacker_id = self.attacker_id
                 current_defender_id = self.defender_id
@@ -9040,11 +9078,11 @@ class AttackView(discord.ui.View):
                 attacker_user = interaction.user
                 defender_user = bot.get_user(int(self.attacker_id)) or await bot.fetch_user(int(self.attacker_id))
 
-            # Fetch fresh stats for both (using the determined IDs)
+            # Fetch fresh stats
             a_stats = await get_player_stats(current_attacker_id)
             d_stats = await get_player_stats(current_defender_id)
 
-            # --- Attacker dead check (with countdown) ---
+            # --- Attacker dead check ---
             if a_stats['hp'] <= 0:
                 async with bot.db_pool.acquire() as conn:
                     db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", current_attacker_id)
@@ -9058,17 +9096,14 @@ class AttackView(discord.ui.View):
                     else:
                         hours = int(remaining.total_seconds() // 3600)
                         minutes = int((remaining.total_seconds() % 3600) // 60)
-                        if hours > 0:
-                            time_str = f"{hours}h {minutes}m"
-                        else:
-                            time_str = f"{minutes}m"
+                        time_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
                         msg = f"You are dead and cannot attack! Revives in {time_str}."
                 else:
                     msg = "You are dead and cannot attack! (no respawn time set)"
                 await interaction.followup.send(msg, ephemeral=True)
                 return
 
-            # --- Defender dead check (with countdown) ---
+            # --- Defender dead check ---
             if d_stats['hp'] <= 0:
                 async with bot.db_pool.acquire() as conn:
                     db_respawn = await conn.fetchval("SELECT respawn_at FROM player_stats WHERE user_id = $1", current_defender_id)
@@ -9082,22 +9117,19 @@ class AttackView(discord.ui.View):
                     else:
                         hours = int(remaining.total_seconds() // 3600)
                         minutes = int((remaining.total_seconds() % 3600) // 60)
-                        if hours > 0:
-                            time_str = f"{hours}h {minutes}m"
-                        else:
-                            time_str = f"{minutes}m"
+                        time_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
                         msg = f"Target is already dead! Revives in {time_str}."
                 else:
                     msg = "Target is already dead!"
                 await interaction.followup.send(msg, ephemeral=True)
                 return
 
-            # --- Energy check (attacker) ---
+            # --- Energy check ---
             if a_stats['energy'] < 1:
                 await interaction.followup.send("Not enough energy!", ephemeral=True)
                 return
 
-            # --- Get equipped weapon of the attacker ---
+            # --- Get equipped weapon ---
             async with bot.db_pool.acquire() as conn:
                 weapon = await conn.fetchrow("""
                     SELECT uw.id, COALESCE(si.name, uw.generated_name) as name, uw.skill_level
@@ -9137,89 +9169,102 @@ class AttackView(discord.ui.View):
             effective_crit_damage = a_stats['crit_damage'] + crit_damage_bonus
             effective_bleed_chance = a_stats['bleed_chance'] + bleed_chance_bonus
 
+            # --- Dodge check ---
+            dodged = False
+            if random.random() < d_stats['dodge'] / 100:
+                dodged = True
+
             # --- Damage calculation ---
-            base_damage = a_stats['atk'] * multiplier
-            damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
+            if not dodged:
+                base_damage = a_stats['atk'] * multiplier
+                damage = int(max(base_damage - d_stats['def'] * 0.5, a_stats['atk'] * 0.2))
 
-            is_crit = random.random() < effective_crit_chance / 100
-            if is_crit:
-                damage = int(damage * (1 + effective_crit_damage / 100))
+                is_crit = random.random() < effective_crit_chance / 100
+                if is_crit:
+                    damage = int(damage * (1 + effective_crit_damage / 100))
 
-            # Apply damage to defender
-            new_defender_hp = max(0, d_stats['hp'] - damage)
-            await update_player_hp(current_defender_id, new_defender_hp)
-            # If defender died, set respawn timer
-            if new_defender_hp == 0:
-                async with bot.db_pool.acquire() as conn:
-                    await conn.execute("""
-                        UPDATE player_stats
-                        SET respawn_at = NOW() + INTERVAL '2 hours'
-                        WHERE user_id = $1 AND respawn_at IS NULL
-                    """, current_defender_id)
-
-            # --- Reflect damage ---
-            reflect_damage = 0
-            if d_stats['reflect'] > 0:
-                reflect_damage = int(damage * d_stats['reflect'] / 100)
-                if reflect_damage > 0:
-                    new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
-                    await update_player_hp(current_attacker_id, new_attacker_hp)
-                    if new_attacker_hp == 0:
-                        async with bot.db_pool.acquire() as conn:
-                            await conn.execute("""
-                                UPDATE player_stats
-                                SET respawn_at = NOW() + INTERVAL '2 hours'
-                                WHERE user_id = $1 AND respawn_at IS NULL
-                            """, current_attacker_id)
-
-            # --- Bleed ---
-            bleed_applied = False
-            bleed_tick = 0
-            if random.random() < effective_bleed_chance / 100:
-                bleed_tick = int(a_stats['atk'] * (a_stats['bleed_damage'] * bleed_damage_mult / 100))
-                if bleed_tick > 0:
-                    bleed_applied = True
+                # Apply damage to defender
+                new_defender_hp = max(0, d_stats['hp'] - damage)
+                await update_player_hp(current_defender_id, new_defender_hp)
+                if new_defender_hp == 0:
                     async with bot.db_pool.acquire() as conn:
                         await conn.execute("""
-                            INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
-                            VALUES ($1, 'bleed', $2, 3)
-                        """, current_defender_id, bleed_tick)
+                            UPDATE player_stats
+                            SET respawn_at = NOW() + INTERVAL '2 hours'
+                            WHERE user_id = $1 AND respawn_at IS NULL
+                        """, current_defender_id)
 
-            # --- Burn (Dawn Breaker) ---
-            burn_applied = False
-            burn_tick = 0
-            if skill['name'] == "Dawn's Wrath":
-                burn_chance = 25
-                burn_damage_percent = 20
-                if random.random() < burn_chance / 100:
-                    burn_tick = int(damage * burn_damage_percent / 100)
-                    if burn_tick > 0:
-                        burn_applied = True
+                # Reflect damage
+                reflect_damage = 0
+                if d_stats['reflect'] > 0:
+                    reflect_damage = int(damage * d_stats['reflect'] / 100)
+                    if reflect_damage > 0:
+                        new_attacker_hp = max(0, a_stats['hp'] - reflect_damage)
+                        await update_player_hp(current_attacker_id, new_attacker_hp)
+                        if new_attacker_hp == 0:
+                            async with bot.db_pool.acquire() as conn:
+                                await conn.execute("""
+                                    UPDATE player_stats
+                                    SET respawn_at = NOW() + INTERVAL '2 hours'
+                                    WHERE user_id = $1 AND respawn_at IS NULL
+                                """, current_attacker_id)
+
+                # Bleed
+                bleed_applied = False
+                bleed_tick = 0
+                if random.random() < effective_bleed_chance / 100:
+                    bleed_tick = int(a_stats['atk'] * (a_stats['bleed_damage'] * bleed_damage_mult / 100)) + a_stats.get('bleed_flat_bonus', 0)
+                    if bleed_tick > 0:
+                        bleed_applied = True
                         async with bot.db_pool.acquire() as conn:
                             await conn.execute("""
                                 INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
-                                VALUES ($1, 'burn', $2, 3)
-                            """, current_defender_id, burn_tick)
+                                VALUES ($1, 'bleed', $2, 3)
+                            """, current_defender_id, bleed_tick)
 
-            # --- Buffs/Debuffs ---
-            buff_applied = None
-            if skill['name'] == "Zenith Slash" and random.random() < 0.20:
-                async with bot.db_pool.acquire() as conn:
-                    await conn.execute("""
-                        INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
-                        VALUES ($1, 'atk_mult', 1.5, 2)
-                    """, current_attacker_id)
-                buff_applied = f"{attacker_user.display_name} gains 50% ATK boost for 2 turns!"
+                # Burn (Dawn Breaker)
+                burn_applied = False
+                burn_tick = 0
+                if skill['name'] == "Dawn's Wrath":
+                    burn_chance = 25
+                    burn_damage_percent = 20
+                    if random.random() < burn_chance / 100:
+                        burn_tick = int(damage * burn_damage_percent / 100) + a_stats.get('burn_flat_bonus', 0)
+                        if burn_tick > 0:
+                            burn_applied = True
+                            async with bot.db_pool.acquire() as conn:
+                                await conn.execute("""
+                                    INSERT INTO active_effects (target_id, effect_type, value, remaining_ticks)
+                                    VALUES ($1, 'burn', $2, 3)
+                                """, current_defender_id, burn_tick)
 
-            if skill['name'] == "Abyssal Strike" and random.random() < 0.30:
-                async with bot.db_pool.acquire() as conn:
-                    await conn.execute("""
-                        INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
-                        VALUES ($1, 'def_mult', 0.85, 3)
-                    """, current_defender_id)
-                buff_applied = f"{defender_user.display_name}'s DEF reduced by 15% for 3 turns!"
+                # Buffs/Debuffs
+                buff_applied = None
+                if skill['name'] == "Zenith Slash" and random.random() < 0.20:
+                    async with bot.db_pool.acquire() as conn:
+                        await conn.execute("""
+                            INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
+                            VALUES ($1, 'atk_mult', 1.5, 2)
+                        """, current_attacker_id)
+                    buff_applied = f"{attacker_user.display_name} gains 50% ATK boost for 2 turns!"
 
-            # Deduct energy from attacker
+                if skill['name'] == "Abyssal Strike" and random.random() < 0.30:
+                    async with bot.db_pool.acquire() as conn:
+                        await conn.execute("""
+                            INSERT INTO active_buffs (target_id, effect_type, value, remaining_turns)
+                            VALUES ($1, 'def_mult', 0.85, 3)
+                        """, current_defender_id)
+                    buff_applied = f"{defender_user.display_name}'s DEF reduced by 15% for 3 turns!"
+
+            else:  # dodged
+                damage = 0
+                is_crit = False
+                reflect_damage = 0
+                bleed_applied = False
+                burn_applied = False
+                buff_applied = None
+
+            # Deduct energy from attacker (always)
             new_energy = a_stats['energy'] - 1
             await update_player_energy(current_attacker_id, new_energy)
 
@@ -9236,22 +9281,25 @@ class AttackView(discord.ui.View):
             defender_name = defender_user.display_name
             skill_name = skill['name']
             action_lines = []
-            base_line = f"{attacker_name} uses {skill_name} and deals **{damage}** damage to {defender_name}"
-            if is_crit:
-                base_line += " 💥 CRITICAL!"
-            action_lines.append(base_line)
+            if dodged:
+                action_lines.append(f"{defender_name} dodged the attack!")
+            else:
+                base_line = f"{attacker_name} uses {skill_name} and deals **{damage}** damage to {defender_name}"
+                if is_crit:
+                    base_line += " 💥 CRITICAL!"
+                action_lines.append(base_line)
 
-            if reflect_damage > 0:
-                action_lines.append(f"{defender_name} reflected **{reflect_damage}** damage to {attacker_name}")
+                if reflect_damage > 0:
+                    action_lines.append(f"{defender_name} reflected **{reflect_damage}** damage to {attacker_name}")
 
-            if bleed_applied:
-                action_lines.append(f"{defender_name} is bleeding, taking {bleed_tick} damage per second for 3s")
+                if bleed_applied:
+                    action_lines.append(f"{defender_name} is bleeding, taking {bleed_tick} damage per second for 3s")
 
-            if burn_applied:
-                action_lines.append(f"{defender_name} is burning, taking {burn_tick} damage per second for 3s")
+                if burn_applied:
+                    action_lines.append(f"{defender_name} is burning, taking {burn_tick} damage per second for 3s")
 
-            if buff_applied:
-                action_lines.append(buff_applied)
+                if buff_applied:
+                    action_lines.append(buff_applied)
 
             action_text = "\n".join(action_lines)
 
@@ -9271,7 +9319,6 @@ class AttackView(discord.ui.View):
             tb = traceback.format_exc()
             await log_to_discord(bot, f"Error in attack_button: {e}", level="ERROR", error=e)
             await interaction.followup.send("❌ An error occurred. Check bot‑logs.", ephemeral=True)
-
 
     # --- Potion button (row 0, next to Attack) ---
     @discord.ui.button(label="Potion", style=discord.ButtonStyle.danger, row=0)
@@ -9445,7 +9492,6 @@ async def get_player_stats(user_id: str):
     BASE_DEF = 500
 
     async with bot.db_pool.acquire() as conn:
-        # Get stored HP, energy, etc.
         row = await conn.fetchrow("""
             SELECT hp, max_hp, energy, max_energy, respawn_at
             FROM player_stats WHERE user_id = $1
@@ -9457,7 +9503,6 @@ async def get_player_stats(user_id: str):
             """, user_id, BASE_HP)
             row = {'hp': BASE_HP, 'max_hp': BASE_HP, 'energy': 3, 'max_energy': 3, 'respawn_at': None}
 
-        # Fetch equipped gear
         weapon = await conn.fetchrow("""
             SELECT attack, bleeding_chance, crit_chance, crit_damage
             FROM user_weapons
@@ -9478,7 +9523,7 @@ async def get_player_stats(user_id: str):
             WHERE ua.user_id = $1 AND ua.equipped = TRUE
         """, user_id)
 
-    # --- Base stats ---
+    # --- Base stats from gear (flat) ---
     atk = 0
     defense = BASE_DEF
     crit_chance = 0.0
@@ -9486,7 +9531,7 @@ async def get_player_stats(user_id: str):
     bleed_chance = 0.0
     bleed_damage = 0.0
     reflect = 0
-    flat_hp = 0
+    hp_from_gear = BASE_HP  # start with base HP, then add flat bonuses
 
     if weapon:
         atk += weapon['attack']
@@ -9497,7 +9542,7 @@ async def get_player_stats(user_id: str):
     for a in armor:
         defense += a['defense']
         reflect += a['reflect_damage'] or 0
-        flat_hp += a['hp_bonus'] or 0
+        hp_from_gear += a['hp_bonus'] or 0
 
     for acc in accessories:
         stat = acc['bonus_stat']
@@ -9506,12 +9551,22 @@ async def get_player_stats(user_id: str):
             atk += val
         elif stat == 'def':
             defense += val
+        elif stat == 'hp':
+            hp_from_gear += val
         elif stat == 'crit':
             crit_chance += val
         elif stat == 'bleed':
             bleed_damage += val
 
-    # --- Armor set bonuses ---
+    # --- Multipliers from sets ---
+    atk_mult = 1.0
+    def_mult = 1.0
+    hp_mult = 1.0
+    reflect_add = 0  # reflect from armor set is flat addition
+    crit_chance_add = 0
+    crit_damage_add = 0
+
+    # Armor set bonuses
     armor_sets = {}
     for a in armor:
         if a['set_name']:
@@ -9520,13 +9575,13 @@ async def get_player_stats(user_id: str):
         if count >= 4:
             sname = set_name.lower()
             if sname in ('bilari', 'cryo', 'bane'):
-                crit_chance += 10
-                crit_damage += 25
-                defense = int(defense * 1.15)
-                reflect += 20
-                flat_hp += int(BASE_HP * 0.20)
+                crit_chance_add += 10
+                crit_damage_add += 25
+                def_mult *= 1.15
+                reflect_add += 20
+                hp_mult *= 1.20   # 20% HP multiplier
 
-    # --- Accessory set bonuses ---
+    # Accessory set bonuses
     accessory_sets = {}
     for acc in accessories:
         if acc['set_name']:
@@ -9535,23 +9590,36 @@ async def get_player_stats(user_id: str):
         if count >= 5:
             sname = set_name.lower()
             if sname == 'champion':
-                atk = int(atk * 1.20)
-                defense = int(defense * 1.15)
-                flat_hp += int(BASE_HP * 0.15)
+                atk_mult *= 1.20
+                def_mult *= 1.15
+                hp_mult *= 1.15
             elif sname == 'defender':
-                defense = int(defense * 1.20)
-                reflect += 10
-                flat_hp += int(BASE_HP * 0.15)
+                def_mult *= 1.20
+                reflect_add += 10
+                hp_mult *= 1.15
             elif sname == 'angel':
-                crit_chance += 15
+                crit_chance_add += 15
                 bleed_damage = int(bleed_damage * 1.20)
-                flat_hp += int(BASE_HP * 0.15)
+                hp_mult *= 1.15
 
-    # ========== 🐾 PET BONUSES (if equipped) ==========
+    # Apply multipliers to flat stats
+    atk = int(atk * atk_mult)
+    defense = int(defense * def_mult)
+    # HP multiplier applies to the total gear HP (including base)
+    max_hp_no_pet = int(hp_from_gear * hp_mult)
+    # Add the flat reflect and crit bonuses
+    reflect += reflect_add
+    crit_chance += crit_chance_add
+    crit_damage += crit_damage_add
+
+    # ========== PET BONUSES ==========
     energy_bonus = 0
     dodge = 0
     bleed_flat_bonus = 0
     burn_flat_bonus = 0
+    pet_atk_mult = 1.0
+    pet_def_mult = 1.0
+    pet_hp_mult = 1.0
 
     async with bot.db_pool.acquire() as conn:
         pet = await conn.fetchrow("""
@@ -9562,27 +9630,30 @@ async def get_player_stats(user_id: str):
             WHERE up.user_id = $1 AND up.equipped = TRUE
         """, user_id)
     if pet:
-        atk = int(atk * (1 + pet['atk_percent'] / 100))
-        defense = int(defense * (1 + pet['def_percent'] / 100))
-        flat_hp += int(BASE_HP * pet['hp_percent'] / 100)
+        pet_atk_mult = 1 + pet['atk_percent'] / 100
+        pet_def_mult = 1 + pet['def_percent'] / 100
+        pet_hp_mult = 1 + pet['hp_percent'] / 100
         energy_bonus = pet['energy_bonus']
         dodge = pet['dodge_percent']
         bleed_flat_bonus = pet['bleed_flat']
         burn_flat_bonus = pet['burn_flat']
 
-    # --- Compute max HP dynamically ---
-    max_hp = BASE_HP + flat_hp
+    # Apply pet multipliers (after sets)
+    atk = int(atk * pet_atk_mult)
+    defense = int(defense * pet_def_mult)
+    max_hp = int(max_hp_no_pet * pet_hp_mult)
+
+    # --- Current HP and energy ---
     current_hp = row['hp']
     if current_hp > max_hp:
         current_hp = max_hp
 
-    # --- Adjust max energy with pet bonus ---
     max_energy = row['max_energy'] + energy_bonus
     current_energy = row['energy']
     if current_energy > max_energy:
         current_energy = max_energy
 
-    # --- Apply active buffs/debuffs ---
+    # --- Active buffs ---
     async with bot.db_pool.acquire() as conn:
         buffs = await conn.fetch("SELECT * FROM active_buffs WHERE target_id = $1", user_id)
     for buff in buffs:
@@ -9608,7 +9679,6 @@ async def get_player_stats(user_id: str):
         'bleed_flat_bonus': bleed_flat_bonus,
         'burn_flat_bonus': burn_flat_bonus,
     }
-
 
 
 async def update_player_hp(user_id: str, new_hp: int):
