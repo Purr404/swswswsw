@@ -5109,8 +5109,8 @@ class Shop(commands.Cog):
 
         view.add_item(button_custom)
         view.add_item(button_equip)
-        view.add_item(button_tools)
         view.add_item(button_pets)
+        view.add_item(button_tools)
 
         return embed, view
 
@@ -5480,6 +5480,8 @@ class Shop(commands.Cog):
                 await self.show_customization(interaction)
             elif main_cat == "equipment":
                 await self.show_equipment(interaction)
+            elif main_cat == "pets":                
+                await self.show_pets(interaction)
             elif main_cat == "tools":
                 await self.show_tools(interaction)
 
