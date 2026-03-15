@@ -8266,30 +8266,33 @@ class CullingGame(commands.Cog):
 
     async def load_mining_messages(self, guild_id: int):
         """Reattach the mining view after restart."""
+        print(f"🔄 load_mining_messages for guild {guild_id}: started")
         async with self.bot.db_pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT channel_id, message_id FROM mining_config WHERE guild_id = $1",
-                guild_id   
+                guild_id
             )
-            if not row:
-                print(f"ℹ️ No mining config found for guild {guild_id}.")
-                return
-            channel = self.bot.get_channel(row['channel_id'])
-            if not channel:
-                print(f"❌ Mining channel not found for guild {guild_id}.")
-                return
-            try:
-                msg = await channel.fetch_message(row['message_id'])
-                self.mining_channel = channel.id
-                self.mining_message = msg
-                view = MiningMainView(self.bot, self)
-                await msg.edit(view=view)
-                print(f"✅ Reattached mining view in #{channel.name} (guild {guild_id})")
-            except Exception as e:
-                print(f"❌ Failed to reattach mining view for guild {guild_id}: {e}")
-                traceback.print_exc()
-                async with self.bot.db_pool.acquire() as conn2:
-                    await conn2.execute("DELETE FROM mining_config WHERE guild_id = $1", guild_id)
+        if not row:
+            print(f"ℹ️ No mining config found for guild {guild_id}.")
+            return
+        channel = self.bot.get_channel(row['channel_id'])
+        if not channel:
+            print(f"❌ Mining channel not found for guild {guild_id}.")
+            return
+        print(f"🔄 Found channel #{channel.name}, fetching message {row['message_id']}")
+        try:
+            msg = await channel.fetch_message(row['message_id'])
+            self.mining_channel = channel.id
+            self.mining_message = msg
+            view = MiningMainView(self.bot, self)
+            await msg.edit(view=view)
+            print(f"✅ Reattached mining view in #{channel.name} (guild {guild_id})")
+        except Exception as e:
+            print(f"❌ Failed to reattach mining view for guild {guild_id}: {e}")
+            traceback.print_exc()
+            async with self.bot.db_pool.acquire() as conn2:
+                await conn2.execute("DELETE FROM mining_config WHERE guild_id = $1", guild_id)
+                print(f"🧹 Deleted mining config for guild {guild_id}")
 
     def cog_unload(self):
         self.energy_regen.cancel()
@@ -10341,25 +10344,29 @@ async def before_boss_reset():
 
 
 async def load_boss_persistence():
+    print("🔄 load_boss_persistence: started")
     async with bot.db_pool.acquire() as conn:
         rows = await conn.fetch("SELECT guild_id, channel_id, message_id FROM boss_config WHERE message_id IS NOT NULL")
+    print(f"🔄 load_boss_persistence: found {len(rows)} boss messages")
     for row in rows:
         guild = bot.get_guild(row['guild_id'])
         if not guild:
+            print(f"⚠️ load_boss_persistence: guild {row['guild_id']} not found")
             continue
         channel = guild.get_channel(row['channel_id'])
         if not channel:
+            print(f"⚠️ load_boss_persistence: channel {row['channel_id']} not found in guild {guild.id}")
             continue
+        print(f"  -> Attempting to reattach boss view in #{channel.name} (message {row['message_id']})")
         try:
             msg = await channel.fetch_message(row['message_id'])
             view = BossAttackView(row['guild_id'])
             await msg.edit(view=view)
-            print(f"✅ Reattached boss view in #{channel.name}")
+            print(f"  ✅ Reattached boss view in #{channel.name}")
         except Exception as e:
-            print(f"⚠️ Failed to reattach boss view: {e}")
+            print(f"  ❌ Failed to reattach boss view: {e}")
             traceback.print_exc()
-
-
+    print("✅ load_boss_persistence: finished")
 
 
 
@@ -10369,16 +10376,20 @@ async def load_shop_persistence(bot):
         await shop_cog.load_shop_messages()
 
 async def load_mining_persistence(bot):
+    print("🔄 load_mining_persistence: started")
     cog = bot.get_cog('CullingGame')
     if not cog:
-        print("❌ CullingGame cog not found.")
+        print("❌ load_mining_persistence: CullingGame cog not found!")
         return
+    print(f"🔄 load_mining_persistence: found cog, iterating over {len(bot.guilds)} guilds")
     for guild in bot.guilds:
+        print(f"  -> Processing guild {guild.id} ({guild.name})")
         try:
             await cog.load_mining_messages(guild.id)
         except Exception as e:
-            print(f"❌ Failed to load mining messages for guild {guild.id}: {e}")
+            print(f"❌ Error in load_mining_messages for guild {guild.id}: {e}")
             traceback.print_exc()
+    print("✅ load_mining_persistence: finished")
 
 
 
