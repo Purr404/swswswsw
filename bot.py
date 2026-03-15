@@ -5502,7 +5502,7 @@ class Shop(commands.Cog):
             await self.handle_inventory_action(interaction, "accessories") 
    
         elif custom_id == "inventory_pets":
-    await self.handle_inventory_action(interaction, "pets")
+            await self.handle_inventory_action(interaction, "pets")
 
         elif custom_id == "inventory_back":
             await self.handle_inventory_action(interaction, "back")
