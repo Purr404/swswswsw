@@ -9925,7 +9925,7 @@ class BossAttackView(discord.ui.View):
         self.guild_id = guild_id
 
     @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, custom_id="boss_attack")
-    async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         # 1. Fetch boss config
@@ -10077,7 +10077,7 @@ class BossAttackView(discord.ui.View):
         await interaction.followup.send(message, ephemeral=True)
 
     @discord.ui.button(label="🏆 Rankings", style=discord.ButtonStyle.secondary, custom_id="boss_rankings")
-    async def rankings_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def rankings_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         reset_date = self.get_reset_date()
         async with bot.db_pool.acquire() as conn:
             rows = await conn.fetch("""
