@@ -1325,13 +1325,8 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE user_weapons ADD COLUMN IF NOT EXISTS upgrade_level INTEGER DEFAULT 0')
                     await conn.execute('ALTER TABLE user_armor ADD COLUMN IF NOT EXISTS upgrade_level INTEGER DEFAULT 0')
                     await conn.execute('ALTER TABLE user_accessories ADD COLUMN IF NOT EXISTS upgrade_level INTEGER DEFAULT 0')
-                    # Update shop_items type constraint
-                    await conn.execute('ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check')
-                    await conn.execute('''
-                        ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check 
-                        CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box', 
-                                        'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion'))
-                    ''')
+
+                    
 
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_sword_stones INTEGER DEFAULT 0')
                     await conn.execute('ALTER TABLE player_stats ADD COLUMN IF NOT EXISTS stolen_armor_stones INTEGER DEFAULT 0')
@@ -1375,7 +1370,7 @@ class DatabaseSystem:
                         WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Energy Potion');
                     """)
                     # ========== SHOP ITEMS FOR PETS ==========
-                    # First, drop the constraint so we can safely modify the table
+                    # First, drop any existing constraint (safe)
                     await conn.execute("ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check;")
 
                     # Delete any rows that are not in the final allowed type list (including any stray rows)
