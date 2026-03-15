@@ -1079,6 +1079,25 @@ class DatabaseSystem:
                             FOREIGN KEY (user_id) REFERENCES user_gems(user_id) ON DELETE CASCADE
                         )
                     ''')
+                    # ========== PET BONUS COLUMNS (ensure they exist) ==========
+                    # (These are safe even if already added by the CREATE TABLE)
+                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS atk_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS def_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS hp_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS dodge_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS bleed_flat INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS burn_flat INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS energy_bonus INT DEFAULT 0;')
+
+                    # ========== SEED PETS ==========
+                    await conn.execute("""
+                        INSERT INTO pet_types (name, atk_percent, def_percent, hp_percent, dodge_percent, bleed_flat, burn_flat, energy_bonus, description) VALUES
+                        ('Baby Fox', 5, 15, 30, 8, 0, 0, 1, 'A cunning fox that boosts your stats and grants dodge chance.'),
+                        ('Baby Tiger', 5, 15, 30, 0, 1000, 0, 1, 'A fierce tiger that enhances your bleed damage.'),
+                        ('Baby Purr', 5, 15, 30, 0, 0, 1000, 1, 'A mystical cat that adds burn damage to your attacks.')
+                        ON CONFLICT (name) DO NOTHING;
+                    """)
+
                     # ========== PLAYER STATS ==========
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS player_stats (
@@ -1321,16 +1340,7 @@ class DatabaseSystem:
                         ALTER TABLE armor_types ADD CONSTRAINT armor_types_slot_check 
                         CHECK (slot IN ('helm', 'suit', 'gauntlets', 'boots'))
                     ''')
-                    # ========== PET BONUS COLUMNS (if pet_types already existed) ==========
-                    # Ensure all pet bonus columns exist (safe to run even if already added)
-                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS atk_percent INT DEFAULT 0;')
-                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS def_percent INT DEFAULT 0;')
-                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS hp_percent INT DEFAULT 0;')
-                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS dodge_percent INT DEFAULT 0;')
-                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS bleed_flat INT DEFAULT 0;')
-                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS burn_flat INT DEFAULT 0;')
-                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS energy_bonus INT DEFAULT 0;')
-
+                    
                     # ========== SEED DATA ==========
                     # Seed rarities
                     await conn.execute('''
@@ -1360,15 +1370,6 @@ class DatabaseSystem:
                         SELECT 'Energy Potion', 'Restores 1 energy.', 30, 'potion'
                         WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Energy Potion');
                     """)
-                    # ========== SEED PETS ==========
-                    await conn.execute("""
-                        INSERT INTO pet_types (name, atk_percent, def_percent, hp_percent, dodge_percent, bleed_flat, burn_flat, energy_bonus, description) VALUES
-                        ('Baby Fox', 5, 15, 30, 8, 0, 0, 1, 'A cunning fox that boosts your stats and grants dodge chance.'),
-                        ('Baby Tiger', 5, 15, 30, 0, 1000, 0, 1, 'A fierce tiger that enhances your bleed damage.'),
-                        ('Baby Purr', 5, 15, 30, 0, 0, 1000, 1, 'A mystical cat that adds burn damage to your attacks.')
-                        ON CONFLICT (name) DO NOTHING;
-                    """)
-
                     # ========== SHOP ITEMS FOR PETS ==========
                     # Add Pet Box (if not already present)
                     await conn.execute("""
@@ -1384,7 +1385,6 @@ class DatabaseSystem:
                         CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box',
                                         'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion', 'random_pet_box'));
                     """)
-
                     # ========== CREATE INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_weapons_user ON user_weapons(user_id)')
