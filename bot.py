@@ -3931,16 +3931,16 @@ async def setup_hook():
     connected = await db.smart_connect()
     if not connected:
         print("⚠️ Database connection failed – some features will not work.")
-        # Still add cogs (they may work partially)
+        # Still add cogs
         await bot.add_cog(Shop(bot))
         await bot.add_cog(CullingGame(bot, currency_system))
         return
 
-    # 2. Add cogs first so they are available for loading
+    # 2. Add cogs first
     await bot.add_cog(Shop(bot))
     await bot.add_cog(CullingGame(bot, currency_system))
 
-    # 3. Load persistent data from the database (now cogs exist)
+    # 3. Load persistent data (now cogs exist)
     await load_active_bags()
     await load_shop_persistence(bot)
     await load_mining_persistence(bot)
@@ -3951,6 +3951,8 @@ async def setup_hook():
     process_effects.start()
     respawn_task.start()
     boss_reset_task.start()
+
+bot.setup_hook = setup_hook
 
 # END ------
 
