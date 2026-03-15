@@ -196,97 +196,159 @@ CUSTOM_EMOJIS = {
 # ============================================================
 # EMOJIS HELPER FUNCTIONS 
 def get_item_emoji(item_name: str, item_type: str, awakened: bool = False) -> str:
-    """Return the appropriate custom emoji based on item name and type."""
+    """
+    Return the appropriate custom emoji based on the exact item name.
+    Uses a mapping of known item names to their emoji keys.
+    """
+    # Exact name → emoji key mapping
+    EXACT_MAP = {
+        # Swords
+        "Zenith Sword": "zenith_sword",
+        "Abyssal Blade": "abyssal_blade",
+        "Dawn Breaker": "dawn_breaker",
+        "Bloodmoon Edge": "bloodmoon_edge",
+        "Shadowbane": "shadowbane",
+
+        # Bilari Set
+        "Bilari Helm": "bilari_helm",
+        "Bilari Suit": "bilari_armor",
+        "Bilari Gauntlets": "bilari_gloves",
+        "Bilari Boots": "bilari_boots",
+
+        # Cryo Set
+        "Cryo Helm": "cryo_helm",
+        "Cryo Suit": "cryo_armor",
+        "Cryo Gauntlets": "cryo_gloves",
+        "Cryo Boots": "cryo_boots",
+
+        # Bane Set
+        "Bane Helm": "bane_helm",
+        "Bane Suit": "bane_armor",
+        "Bane Gauntlets": "bane_gloves",
+        "Bane Boots": "bane_boots",
+
+        # Champion Set
+        "Champion Ring": "champ_ring",
+        "Champion Earring": "champ_earring",
+        "Champion Pendant": "champ_pen",
+
+        # Defender Set
+        "Defender Ring": "def_ring",
+        "Defender Earring": "def_earring",
+        "Defender Pendant": "def_pen",
+
+        # Angel Set
+        "Angel Ring": "wing_ring",
+        "Angel Earring": "harp_earring",
+        "Angel Pendant": "angel_pen",
+
+        # Pets
+        "Baby Fox": "baby_fox",
+        "Baby Tiger": "baby_tiger",
+        "Baby Purr": "baby_purr",
+
+        # Potions
+        "HP Potion": "hp_potion",
+        "Energy Potion": "energy_potion",
+    }
+
+    # 1. Try exact match first
+    if item_name in EXACT_MAP:
+        key = EXACT_MAP[item_name]
+        emoji = CUSTOM_EMOJIS.get(key)
+        if emoji:
+            return emoji
+        # If key exists but emoji missing, fall through to type‑based logic
+
+    # 2. Fallback to type‑based detection (for any items not in the exact map)
     item_lower = item_name.lower()
 
-    # Potions
+    # Potions (already covered by exact map, but keep for safety)
     if 'hp potion' in item_lower:
-        return CUSTOM_EMOJIS.get('hp_potion')
+        return CUSTOM_EMOJIS.get('hp_potion', '💚')
     if 'energy potion' in item_lower:
-        return CUSTOM_EMOJIS.get('energy_potion')
-    
-    # Weapons (5 specific swords)
+        return CUSTOM_EMOJIS.get('energy_potion', '⚡')
+
+    # Weapons
     if item_type == 'weapon':
         if 'zenith' in item_lower:
-            return CUSTOM_EMOJIS['zenith_sword']
+            return CUSTOM_EMOJIS.get('zenith_sword', '⚔️')
         elif 'abyssal' in item_lower:
-            return CUSTOM_EMOJIS['abyssal_blade']
+            return CUSTOM_EMOJIS.get('abyssal_blade', '⚔️')
         elif 'dawn' in item_lower or 'breaker' in item_lower:
-            return CUSTOM_EMOJIS['dawn_breaker']
+            return CUSTOM_EMOJIS.get('dawn_breaker', '⚔️')
         elif 'bloodmoon' in item_lower or 'edge' in item_lower:
-            return CUSTOM_EMOJIS['bloodmoon_edge']
+            return CUSTOM_EMOJIS.get('bloodmoon_edge', '⚔️')
         elif 'shadowbane' in item_lower:
-            return CUSTOM_EMOJIS['shadowbane']
-        return CUSTOM_EMOJIS['zenith_sword']
-    
-    # Armor Sets
+            return CUSTOM_EMOJIS.get('shadowbane', '⚔️')
+        return '⚔️'
+
+    # Armor – exact map already handled the known sets
     elif item_type == 'armor':
-        # Bilari Set
+        # Try to guess by set name (in case of slight name variations)
         if 'bilari' in item_lower:
-            if 'helm' in item_lower:
-                return CUSTOM_EMOJIS['bilari_helm']
-            elif 'suit' in item_lower or 'armor' in item_lower:
-                return CUSTOM_EMOJIS['bilari_armor']
+            if 'helm' in item_lower or 'helmet' in item_lower:
+                return CUSTOM_EMOJIS.get('bilari_helm', '🛡️')
+            elif 'suit' in item_lower or 'armor' in item_lower or 'chest' in item_lower:
+                return CUSTOM_EMOJIS.get('bilari_armor', '🛡️')
             elif 'gauntlet' in item_lower or 'glove' in item_lower:
-                return CUSTOM_EMOJIS['bilari_gloves']
+                return CUSTOM_EMOJIS.get('bilari_gloves', '🛡️')
             elif 'boot' in item_lower:
-                return CUSTOM_EMOJIS['bilari_boots']
-        
-        # Cryo Set
+                return CUSTOM_EMOJIS.get('bilari_boots', '🛡️')
         elif 'cryo' in item_lower:
-            if 'helm' in item_lower:
-                return CUSTOM_EMOJIS['cryo_helm']
-            elif 'suit' in item_lower or 'armor' in item_lower:
-                return CUSTOM_EMOJIS['cryo_armor']
+            if 'helm' in item_lower or 'helmet' in item_lower:
+                return CUSTOM_EMOJIS.get('cryo_helm', '🛡️')
+            elif 'suit' in item_lower or 'armor' in item_lower or 'chest' in item_lower:
+                return CUSTOM_EMOJIS.get('cryo_armor', '🛡️')
             elif 'gauntlet' in item_lower or 'glove' in item_lower:
-                return CUSTOM_EMOJIS['cryo_gloves']
+                return CUSTOM_EMOJIS.get('cryo_gloves', '🛡️')
             elif 'boot' in item_lower:
-                return CUSTOM_EMOJIS['cryo_boots']
-        
-        # Bane Set
+                return CUSTOM_EMOJIS.get('cryo_boots', '🛡️')
         elif 'bane' in item_lower:
-            if 'helm' in item_lower:
-                return CUSTOM_EMOJIS['bane_helm']
-            elif 'suit' in item_lower or 'armor' in item_lower:
-                return CUSTOM_EMOJIS['bane_armor']
+            if 'helm' in item_lower or 'helmet' in item_lower:
+                return CUSTOM_EMOJIS.get('bane_helm', '🛡️')
+            elif 'suit' in item_lower or 'armor' in item_lower or 'chest' in item_lower:
+                return CUSTOM_EMOJIS.get('bane_armor', '🛡️')
             elif 'gauntlet' in item_lower or 'glove' in item_lower:
-                return CUSTOM_EMOJIS['bane_gloves']
+                return CUSTOM_EMOJIS.get('bane_gloves', '🛡️')
             elif 'boot' in item_lower:
-                return CUSTOM_EMOJIS['bane_boots']
-        
-        return CUSTOM_EMOJIS['bilari_armor']
-    
-    # Accessories
+                return CUSTOM_EMOJIS.get('bane_boots', '🛡️')
+        # Fallback generic armor emoji (can be replaced with a custom default)
+        return CUSTOM_EMOJIS.get('bilari_armor', '🛡️')
+
+    # Accessories – exact map already handled the known sets
     elif item_type == 'accessory':
-        # Champion Set
+        # Try to guess by set name
         if 'champion' in item_lower or 'champ' in item_lower:
-            if 'earring' in item_lower:                     # check earring first
-                return CUSTOM_EMOJIS['champ_earring']
+            if 'earring' in item_lower:
+                return CUSTOM_EMOJIS.get('champ_earring', '💍')
             elif 'pendant' in item_lower or 'pen' in item_lower:
-                return CUSTOM_EMOJIS['champ_pen']
-            elif 'ring' in item_lower:
-                return CUSTOM_EMOJIS['champ_ring']
-        
-        # Defender Set
+                return CUSTOM_EMOJIS.get('champ_pen', '💍')
+            else:
+                return CUSTOM_EMOJIS.get('champ_ring', '💍')
         elif 'defender' in item_lower or 'def' in item_lower:
-            if 'earring' in item_lower:                      
-                return CUSTOM_EMOJIS['def_earring']
+            if 'earring' in item_lower:
+                return CUSTOM_EMOJIS.get('def_earring', '💍')
             elif 'pendant' in item_lower or 'pen' in item_lower:
-                return CUSTOM_EMOJIS['def_pen']
-            elif 'ring' in item_lower:
-                return CUSTOM_EMOJIS['def_ring']
-        
-        # Angel Set
+                return CUSTOM_EMOJIS.get('def_pen', '💍')
+            else:
+                return CUSTOM_EMOJIS.get('def_ring', '💍')
         elif 'angel' in item_lower:
             if 'earring' in item_lower:
-                return CUSTOM_EMOJIS['harp_earring']
+                return CUSTOM_EMOJIS.get('harp_earring', '💍')
             elif 'pendant' in item_lower or 'pen' in item_lower:
-                return CUSTOM_EMOJIS['angel_pen']
-            elif 'ring' in item_lower:
-                return CUSTOM_EMOJIS['wing_ring']
-        
-        return CUSTOM_EMOJIS['champ_ring']
-    
+                return CUSTOM_EMOJIS.get('angel_pen', '💍')
+            else:
+                return CUSTOM_EMOJIS.get('wing_ring', '💍')
+        # If still not matched, return a generic accessory emoji (optional)
+        if 'ring' in item_lower:
+            return '💍'
+        elif 'earring' in item_lower:
+            return '📿'
+        elif 'pendant' in item_lower or 'pen' in item_lower:
+            return '🔮'
+        return '💍'
+
     # Pets
     elif item_type == 'pet':
         if 'fox' in item_lower:
@@ -295,8 +357,10 @@ def get_item_emoji(item_name: str, item_type: str, awakened: bool = False) -> st
             return CUSTOM_EMOJIS.get('baby_tiger', '🐯')
         elif 'purr' in item_lower:
             return CUSTOM_EMOJIS.get('baby_purr', '😺')
-        # fallback for other pets
         return '🐾'
+
+    # Default fallback
+    return '📦'
 
 def get_pet_emoji(pet_name: str) -> str:
     """Return the custom emoji for a pet name, with fallback."""
