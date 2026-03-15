@@ -1354,11 +1354,12 @@ class DatabaseSystem:
                     ''')
 
                     # Seed weapon types
-                    await conn.execute('''
-                        INSERT INTO weapon_types (name_base) VALUES
-                        ('Sword'), ('Axe'), ('Dagger')
-                        ON CONFLICT DO NOTHING
-                    ''')
+                    for name in ('Sword', 'Axe', 'Dagger'):
+                        await conn.execute("""
+                            INSERT INTO weapon_types (name_base)
+                            SELECT $1
+                            WHERE NOT EXISTS (SELECT 1 FROM weapon_types WHERE name_base = $1)
+                        """, name)
                     # Seed potions (if not already present)
                     await conn.execute("""
                         INSERT INTO shop_items (name, description, price, type)
@@ -1373,11 +1374,10 @@ class DatabaseSystem:
                     # ========== SHOP ITEMS FOR PETS ==========
                     # Add Pet Box (if not already present)
                     await conn.execute("""
-                        INSERT INTO shop_items (name, description, price, type) VALUES
-                        ('Pet Box', 'Contains a random pet! Open to receive one of: Baby Fox, Baby Tiger, or Baby Purr.', 5000, 'random_pet_box')
-                        ON CONFLICT (name) DO NOTHING;
+                        INSERT INTO shop_items (name, description, price, type)
+                        SELECT 'Pet Box', 'Contains a random pet! Open to receive one of: Baby Fox, Baby Tiger, or Baby Purr.', 5000, 'random_pet_box'
+                        WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Pet Box');
                     """)
-
                     # Update shop_items type check to include 'random_pet_box'
                     await conn.execute("ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check;")
                     await conn.execute("""
