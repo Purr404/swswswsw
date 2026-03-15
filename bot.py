@@ -9446,6 +9446,29 @@ async def get_player_stats(user_id: str):
                 bleed_damage = int(bleed_damage * 1.20)
                 flat_hp += int(BASE_HP * 0.15)
 
+    # ========== 🐾 PET BONUSES (if equipped) ==========
+    energy_bonus = 0
+    dodge = 0
+    bleed_flat_bonus = 0
+    burn_flat_bonus = 0
+
+    async with bot.db_pool.acquire() as conn:
+        pet = await conn.fetchrow("""
+            SELECT pt.atk_percent, pt.def_percent, pt.hp_percent,
+                   pt.dodge_percent, pt.bleed_flat, pt.burn_flat, pt.energy_bonus
+            FROM user_pets up
+            JOIN pet_types pt ON up.pet_id = pt.pet_id
+            WHERE up.user_id = $1 AND up.equipped = TRUE
+        """, user_id)
+    if pet:
+        atk = int(atk * (1 + pet['atk_percent'] / 100))
+        defense = int(defense * (1 + pet['def_percent'] / 100))
+        flat_hp += int(BASE_HP * pet['hp_percent'] / 100)
+        energy_bonus = pet['energy_bonus']
+        dodge = pet['dodge_percent']
+        bleed_flat_bonus = pet['bleed_flat']
+        burn_flat_bonus = pet['burn_flat']
+
     # --- Compute max HP dynamically ---
     max_hp = BASE_HP + flat_hp
     current_hp = row['hp']
