@@ -4926,6 +4926,25 @@ async def build_profile_embed(user_id: str, member: discord.Member):
                 total_bleed_damage = int(total_bleed_damage * 1.20)
                 total_hp_bonus += int(BASE_HP * 0.15)
 
+    # ===== PET BONUSES (if equipped) =====
+    pet_dodge = 0
+    async with bot.db_pool.acquire() as conn:
+        pet = await conn.fetchrow("""
+            SELECT pt.atk_percent, pt.def_percent, pt.hp_percent,
+                   pt.dodge_percent, pt.bleed_flat, pt.burn_flat, pt.energy_bonus
+            FROM user_pets up
+            JOIN pet_types pt ON up.pet_id = pt.pet_id
+            WHERE up.user_id = $1 AND up.equipped = TRUE
+        """, user_id)
+    if pet:
+        # Apply percent bonuses
+        total_atk = int(total_atk * (1 + pet['atk_percent'] / 100))
+        total_def = int(total_def * (1 + pet['def_percent'] / 100))
+        total_hp_bonus += int(BASE_HP * pet['hp_percent'] / 100)
+        pet_dodge = pet['dodge_percent']
+        # Energy bonus is applied to max_energy (shown in energy bar, not here)
+        # Bleed flat bonuses are used in combat but not displayed in profile (optional)
+
     total_max_hp = BASE_HP + total_hp_bonus
     current_hp = player['hp'] if player['hp'] <= total_max_hp else total_max_hp
 
@@ -4954,8 +4973,10 @@ async def build_profile_embed(user_id: str, member: discord.Member):
         f"**Crit Damage:** {total_crit_damage:.1f}%",
         f"**Bleed Chance:** {total_bleed_chance:.1f}%",
         f"**Bleed Damage:** {total_bleed_damage:.1f}%",
-        f"**Reflect Damage:** {total_reflect}%"
+        f"**Reflect Damage:** {total_reflect}%",
     ]
+    if pet_dodge > 0:
+        stats_lines.append(f"**Dodge:** {pet_dodge}%")
     embed.add_field(name="**STATS**", value="\n".join(stats_lines), inline=False)
 
     def slot_emoji(slot, item=None):
@@ -4988,6 +5009,8 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     embed.add_field(name="**Equipped Gears**", value=f"{row1}\n{row2}\n{row3}", inline=False)
 
     return embed
+
+
 
 @bot.command(name='myprofile')
 async def my_profile(ctx):
@@ -5859,6 +5882,7 @@ class Shop(commands.Cog):
                         WHERE ua.id = $1 AND ua.user_id = $2
                     """, item_id, user_id)
 
+                # ===== NEW: PET BRANCH =====
                 elif item_type == 'pet':
                     item = await conn.fetchrow("""
                         SELECT up.id, pt.name, up.equipped,
@@ -5869,7 +5893,6 @@ class Shop(commands.Cog):
                         JOIN pet_types pt ON up.pet_id = pt.pet_id
                         WHERE up.id = $1 AND up.user_id = $2
                     """, item_id, user_id)
-
 
             if not item:           
                 await interaction.followup.send("Item not found.", ephemeral=True)
@@ -5937,16 +5960,15 @@ class Shop(commands.Cog):
                 if item['hp_percent']:
                     stats_lines.append(f"❤️ **HP +{item['hp_percent']}%**")
                 if item['dodge_percent']:
-                    stats_lines.append(f"**Dodge +{item['dodge_percent']}%**")
+                    stats_lines.append(f"💨 **Dodge +{item['dodge_percent']}%**")
                 if item['bleed_flat']:
                     stats_lines.append(f"🩸 **Bleed +{item['bleed_flat']}**")
                 if item['burn_flat']:
                     stats_lines.append(f"🔥 **Burn +{item['burn_flat']}**")
                 if item['energy_bonus']:
-                    stats_lines.append(f"**Energy +{item['energy_bonus']}**")
+                    stats_lines.append(f"⚡ **Energy +{item['energy_bonus']}**")
                 embed.description = "\n".join(stats_lines) if stats_lines else "No special stats."
                 embed.add_field(name="Description", value=item['description'] or "No description.", inline=False)
-
 
             # For non-pet items, we already built stats in a list; add them as description
             if item_type != 'pet':
@@ -6029,9 +6051,6 @@ class Shop(commands.Cog):
                         bonus_text = set_bonuses.get(item['set_name'].lower(), "Complete set for bonus!")
                         embed.add_field(name=f"⏳ Set Bonus ({missing} more to go)", value=bonus_text, inline=False)
 
-            
-            
-
             # Create action view - ONLY show the relevant button
             view = discord.ui.View(timeout=60)
         
@@ -6052,8 +6071,8 @@ class Shop(commands.Cog):
                     custom_id=f"equip_{item_type}_{item_id}", 
                     row=0
                 ))
-            # Upgrade button (if not max level)
-            if current_level < 10:
+            # Upgrade button (if not max level) – only for weapons/armor/accessories
+            if item_type in ('weapon', 'armor', 'accessory') and current_level < 10:
                 view.add_item(discord.ui.Button(
                     label="Upgrade",
                     style=discord.ButtonStyle.primary,
@@ -9421,7 +9440,7 @@ class AttackView(discord.ui.View):
 #  END 
 
 async def get_player_stats(user_id: str):
-    """Return dict of player stats including dynamically recalculated max HP."""
+    """Return dict of player stats including dynamically recalculated max HP and pet bonuses."""
     BASE_HP = 1000
     BASE_DEF = 500
 
@@ -9438,7 +9457,7 @@ async def get_player_stats(user_id: str):
             """, user_id, BASE_HP)
             row = {'hp': BASE_HP, 'max_hp': BASE_HP, 'energy': 3, 'max_energy': 3, 'respawn_at': None}
 
-        # Fetch equipped gear – note: armor now includes hp_bonus
+        # Fetch equipped gear
         weapon = await conn.fetchrow("""
             SELECT attack, bleeding_chance, crit_chance, crit_damage
             FROM user_weapons
@@ -9467,7 +9486,7 @@ async def get_player_stats(user_id: str):
     bleed_chance = 0.0
     bleed_damage = 0.0
     reflect = 0
-    flat_hp = 0  # sum of flat HP bonuses from armor
+    flat_hp = 0
 
     if weapon:
         atk += weapon['attack']
@@ -9505,7 +9524,7 @@ async def get_player_stats(user_id: str):
                 crit_damage += 25
                 defense = int(defense * 1.15)
                 reflect += 20
-                flat_hp += int(BASE_HP * 0.20)   # 20% of base HP
+                flat_hp += int(BASE_HP * 0.20)
 
     # --- Accessory set bonuses ---
     accessory_sets = {}
@@ -9555,7 +9574,13 @@ async def get_player_stats(user_id: str):
     max_hp = BASE_HP + flat_hp
     current_hp = row['hp']
     if current_hp > max_hp:
-        current_hp = max_hp   # Cap current HP to new max
+        current_hp = max_hp
+
+    # --- Adjust max energy with pet bonus ---
+    max_energy = row['max_energy'] + energy_bonus
+    current_energy = row['energy']
+    if current_energy > max_energy:
+        current_energy = max_energy
 
     # --- Apply active buffs/debuffs ---
     async with bot.db_pool.acquire() as conn:
@@ -9565,13 +9590,12 @@ async def get_player_stats(user_id: str):
             atk = int(atk * buff['value'])
         elif buff['effect_type'] == 'def_mult':
             defense = int(defense * buff['value'])
-        # Add other effect types if needed
 
     return {
         'hp': current_hp,
         'max_hp': max_hp,
-        'energy': row['energy'],
-        'max_energy': row['max_energy'],
+        'energy': current_energy,
+        'max_energy': max_energy,
         'respawn_at': row['respawn_at'],
         'atk': atk,
         'def': defense,
@@ -9579,9 +9603,11 @@ async def get_player_stats(user_id: str):
         'crit_damage': crit_damage,
         'bleed_chance': bleed_chance,
         'bleed_damage': bleed_damage,
-        'reflect': reflect
+        'reflect': reflect,
+        'dodge': dodge,
+        'bleed_flat_bonus': bleed_flat_bonus,
+        'burn_flat_bonus': burn_flat_bonus,
     }
-
 
 
 
