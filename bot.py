@@ -6462,33 +6462,102 @@ class Shop(commands.Cog):
 
     @commands.command(name='givestones')
     @commands.has_permissions(administrator=True)
-    async def give_stones(self, ctx, stone_type: str, amount: int = 100):
-        """Give yourself enhancement stones (admin only). Types: sword, armor, acc"""
-        stone_map = {
-            'sword': 'Sword Enhancement Stone',
-            'armor': 'Armor Enhancement Stone',
-            'acc': 'Accessories Enhancement Stone'
-        }
-        if stone_type.lower() not in stone_map:
-            return await ctx.send("❌ Invalid stone type. Use `sword`, `armor`, or `acc`.")
+    async def give_stones(self, ctx, *args):
+        """
+        Give enhancement stones to a user. Admins only.
+        Usage: !!givestones [@user] <sword|armor|acc> <amount> [type amount ...]
+        Example: !!givestones @purr404 sword 10 armor 5 acc 3
+        """
+        if not args:
+            await ctx.send("❌ Usage: `!!givestones [@user] <sword|armor|acc> <amount> [type amount ...]`")
+            return
 
-        stone_name = stone_map[stone_type.lower()]
-        user_id = str(ctx.author.id)
+        # Determine if first argument is a member
+        target = None
+        start_idx = 0
+        if len(args) >= 1 and ctx.message.mentions:
+            target = ctx.message.mentions[0]
+            start_idx = 1
+        else:
+            target = ctx.author
+            start_idx = 0
+
+        # Parse remaining args as type‑amount pairs
+        pairs = []
+        i = start_idx
+        while i < len(args):
+            if i + 1 >= len(args):
+                await ctx.send("❌ Missing amount for stone type `{}`.".format(args[i]))
+                return
+            stone_type = args[i].lower()
+            try:
+                amount = int(args[i+1])
+            except ValueError:
+                await ctx.send(f"❌ Invalid amount for `{stone_type}`: must be a number.")
+                return
+            if stone_type not in ('sword', 'armor', 'acc'):
+                await ctx.send(f"❌ Invalid stone type `{stone_type}`. Use `sword`, `armor`, or `acc`.")
+                return
+            if amount <= 0:
+                await ctx.send(f"❌ Amount must be positive for `{stone_type}`.")
+                return
+            pairs.append((stone_type, amount))
+            i += 2
+
+        if not pairs:
+            await ctx.send("❌ No valid stone types specified.")
+            return
+
+        stone_map = {
+            'sword': ('Sword Enhancement Stone', CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')),
+            'armor': ('Armor Enhancement Stone', CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')),
+            'acc': ('Accessories Enhancement Stone', CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎'))
+        }
+
+        user_id = str(target.id)
 
         async with self.bot.db_pool.acquire() as conn:
-            stone_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", stone_name)
-            if not stone_id:
-                return await ctx.send("❌ Stone not found. Run `!!addstones` first.")
+            for stone_type, amount in pairs:
+                stone_name, emoji = stone_map[stone_type]
+                stone_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = $1", stone_name)
+                if not stone_id:
+                    await ctx.send(f"❌ {stone_name} not found in shop. Run the SQL to add it first.")
+                    return
 
-            await conn.execute("""
-                INSERT INTO user_materials (user_id, material_id, quantity)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (user_id, material_id) DO UPDATE
-                SET quantity = user_materials.quantity + $3
-            """, user_id, stone_id, amount)
+                await conn.execute("""
+                    INSERT INTO user_materials (user_id, material_id, quantity)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (user_id, material_id) DO UPDATE
+                    SET quantity = user_materials.quantity + $3
+                """, user_id, stone_id, amount)
 
-        await ctx.send(f"✅ Added **{amount}** {stone_name} to your inventory.")
+        # Build DM message
+        dm_lines = []
+        for stone_type, amount in pairs:
+            name, emoji = stone_map[stone_type]
+            dm_lines.append(f"{amount} {emoji} {name}")
 
+        dm_text = " and ".join(dm_lines)
+        dm_embed = discord.Embed(
+            title="🎁 You received an item!",
+            description=f"**{ctx.author.display_name}** gave you {dm_text}!",
+            color=discord.Color.blue()
+        )
+
+        try:
+            await target.send(embed=dm_embed)
+        except discord.Forbidden:
+            print(f"Could not DM {target} about stone gift.")
+        except Exception as e:
+            print(f"Error sending DM to {target}: {e}")
+
+        # Build confirmation message
+        confirm_lines = []
+        for stone_type, amount in pairs:
+            name, emoji = stone_map[stone_type]
+            confirm_lines.append(f"{amount} {emoji} {name}")
+        confirm_text = ", ".join(confirm_lines)
+        await ctx.send(f"✅ Added {confirm_text} to {target.mention}'s inventory.")
 
     @commands.command(name='givepotions')
     @commands.has_permissions(administrator=True)
