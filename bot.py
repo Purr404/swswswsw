@@ -289,16 +289,29 @@ def get_item_emoji(item_name: str, item_type: str, awakened: bool = False) -> st
     
     # Pets
     elif item_type == 'pet':
-        if 'dragon' in item_lower:
-            return CUSTOM_EMOJIS['pet_dragon']
-        elif 'griffin' in item_lower:
-            return CUSTOM_EMOJIS['pet_griffin']
-        elif 'lion' in item_lower:
-            return CUSTOM_EMOJIS['pet_lion']
-        return CUSTOM_EMOJIS['pet_dragon']
-    
-    # Default fallback
-    return '📦'
+        if 'fox' in item_lower:
+            return CUSTOM_EMOJIS.get('baby_fox', '🦊')
+        elif 'tiger' in item_lower:
+            return CUSTOM_EMOJIS.get('baby_tiger', '🐯')
+        elif 'purr' in item_lower:
+            return CUSTOM_EMOJIS.get('baby_purr', '😺')
+        # fallback for other pets
+        return '🐾'
+
+def get_pet_emoji(pet_name: str) -> str:
+    """Return the custom emoji for a pet name, with fallback."""
+    pet_lower = pet_name.lower()
+    if 'fox' in pet_lower:
+        return CUSTOM_EMOJIS.get('baby_fox', '🦊')
+    elif 'tiger' in pet_lower:
+        return CUSTOM_EMOJIS.get('baby_tiger', '🐯')
+    elif 'purr' in pet_lower:
+        return CUSTOM_EMOJIS.get('baby_purr', '😺')
+    # For future exclusive pet
+    elif 'lilia' in pet_lower or 'maid' in pet_lower:
+        return '✨'
+    return '🐾'
+
 # ============================================================
 
 async def debug_log(self, message: str):
@@ -1331,6 +1344,34 @@ class DatabaseSystem:
                         SELECT 'Energy Potion', 'Restores 1 energy.', 30, 'potion'
                         WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Energy Potion');
                     """)
+                    # 🔽 ADD PET SYSTEM SEEDING HERE 🔽
+                    # Add energy bonus column to pet_types (safe if already exists)
+                    await conn.execute('ALTER TABLE pet_types ADD COLUMN IF NOT EXISTS energy_bonus INT DEFAULT 0;')
+
+                    # Insert the three pets
+                    await conn.execute("""
+                        INSERT INTO pet_types (name, atk_percent, def_percent, hp_percent, dodge_percent, bleed_flat, burn_flat, energy_bonus, description) VALUES
+                        ('Baby Fox', 5, 15, 30, 8, 0, 0, 1, 'A cunning fox that boosts your stats and grants dodge chance.'),
+                        ('Baby Tiger', 5, 15, 30, 0, 1000, 0, 1, 'A fierce tiger that enhances your bleed damage.'),
+                        ('Baby Purr', 5, 15, 30, 0, 0, 1000, 1, 'A mystical cat that adds burn damage to your attacks.')
+                        ON CONFLICT (name) DO NOTHING;
+                    """)
+
+                    # Add Pet Box to shop_items
+                    await conn.execute("""
+                        INSERT INTO shop_items (name, description, price, type) VALUES
+                        ('Pet Box', 'Contains a random pet! Open to receive one of: Baby Fox, Baby Tiger, or Baby Purr.', 5000, 'random_pet_box')
+                        ON CONFLICT (name) DO NOTHING;
+                    """)
+
+                    # Update shop_items type check to include 'random_pet_box'
+                    await conn.execute("ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check;")
+                    await conn.execute("""
+                        ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check
+                        CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box', 'random_gear_box',
+                                        'random_accessories_box', 'pickaxe', 'material', 'potion', 'random_pet_box'));
+                    """)
+                    # 🔼 END OF PET SEEDING
 
                     # ========== CREATE INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
@@ -4113,6 +4154,12 @@ class InventoryView(discord.ui.View):
             row=0
         ))
         self.add_item(discord.ui.Button(
+            label="🐾 Pets",
+            style=discord.ButtonStyle.primary,
+            custom_id="inventory_pets",
+            row=0
+        ))
+        self.add_item(discord.ui.Button(
             label="📦 Materials", 
             style=discord.ButtonStyle.primary, 
             custom_id="inventory_materials", 
@@ -4264,6 +4311,58 @@ class InventoryView(discord.ui.View):
                 await interaction.followup.send("An error occurred.", ephemeral=True)
             except:
                 pass
+
+    async def show_pets(self, interaction: discord.Interaction):
+        try:
+            if interaction.user.id != int(self.user_id):
+                await interaction.followup.send("Not your inventory!", ephemeral=True)
+                return
+            async with self.cog.bot.db_pool.acquire() as conn:
+                pets = await conn.fetch("""
+                    SELECT up.id, pt.name, up.equipped,
+                           pt.atk_percent, pt.def_percent, pt.hp_percent,
+                           pt.dodge_percent, pt.bleed_flat, pt.burn_flat, pt.energy_bonus
+                    FROM user_pets up
+                    JOIN pet_types pt ON up.pet_id = pt.pet_id
+                    WHERE up.user_id = $1
+                    ORDER BY up.equipped DESC, up.purchased_at DESC
+                """, self.user_id)
+            if not pets:
+                await interaction.followup.send("You have no pets!", ephemeral=True)
+                return
+
+            embed = discord.Embed(title="🐾 **Pets**", color=discord.Color.purple())
+            lines = []
+            for pet in pets:
+                emoji = get_pet_emoji(pet['name'])
+                status = "✅" if pet['equipped'] else "❌"
+                # Build stats string
+                stats = []
+                if pet['atk_percent']:
+                    stats.append(f"ATK+{pet['atk_percent']}%")
+                if pet['def_percent']:
+                    stats.append(f"DEF+{pet['def_percent']}%")
+                if pet['hp_percent']:
+                    stats.append(f"HP+{pet['hp_percent']}%")
+                if pet['dodge_percent']:
+                    stats.append(f"Dodge+{pet['dodge_percent']}%")
+                if pet['bleed_flat']:
+                    stats.append(f"Bleed+{pet['bleed_flat']}")
+                if pet['burn_flat']:
+                    stats.append(f"Burn+{pet['burn_flat']}")
+                if pet['energy_bonus']:
+                    stats.append(f"Energy+{pet['energy_bonus']}")
+                stats_str = " | ".join(stats) if stats else "No stats"
+                lines.append(f"{emoji} **{pet['name']}** {status}\n└ {stats_str}")
+
+            embed.description = "\n\n".join(lines)
+            view = discord.ui.View()
+            view.add_item(discord.ui.Button(label="🔙", style=discord.ButtonStyle.secondary, custom_id="inventory_back"))
+            await interaction.edit_original_response(embed=embed, view=view)
+        except Exception as e:
+            print(f"Error in show_pets: {e}")
+            traceback.print_exc()
+            await interaction.followup.send("An error occurred.", ephemeral=True)
 
     async def show_materials(self, interaction: discord.Interaction):
         try:
@@ -4958,6 +5057,7 @@ class Shop(commands.Cog):
 
         customization_emoji = discord.PartialEmoji(name="shadow", id=1477258013256454339)
         equipment_emoji = discord.PartialEmoji(name="zenith_sword", id=1477018808068866150)
+        paw_emoji = discord.PartialEmoji(name="paw", id=1482627374066565170)
         tools_emoji = discord.PartialEmoji(name="pickaxe", id=1477024057382666383)
 
         button_custom = discord.ui.Button(
@@ -4972,6 +5072,12 @@ class Shop(commands.Cog):
             style=discord.ButtonStyle.secondary,
             custom_id="shop_maincat_equipment"
         )
+        button_pets = discord.ui.Button(
+            label="Pets",
+            emoji=paw_emoji,
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_maincat_pets"
+        )
         button_tools = discord.ui.Button(
             label="Tools",
             emoji=tools_emoji,
@@ -4982,6 +5088,7 @@ class Shop(commands.Cog):
         view.add_item(button_custom)
         view.add_item(button_equip)
         view.add_item(button_tools)
+        view.add_item(button_pets)
 
         return embed, view
 
@@ -5392,8 +5499,11 @@ class Shop(commands.Cog):
             await self.handle_inventory_action(interaction, "armor")
         
         elif custom_id == "inventory_accessories":
-            await self.handle_inventory_action(interaction, "accessories")    
-        
+            await self.handle_inventory_action(interaction, "accessories") 
+   
+        elif custom_id == "inventory_pets":
+    await self.handle_inventory_action(interaction, "pets")
+
         elif custom_id == "inventory_back":
             await self.handle_inventory_action(interaction, "back")
 
@@ -5660,6 +5770,8 @@ class Shop(commands.Cog):
                 await temp_view.show_armor(interaction)
             elif action == "accessories":
                 await temp_view.show_accessories(interaction)
+            elif action == "pets":
+                await temp_view.show_pets(interaction)
             elif action == "materials":
                 await temp_view.show_materials(interaction)
             elif action == "back":
@@ -6842,6 +6954,44 @@ class Shop(commands.Cog):
 
         await interaction.response.edit_message(embed=embed, view=view)
 
+    async def show_pets(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title=f"{CUSTOM_EMOJIS.get('paw', '🐾')} Pets",
+            description="Purchase a Pet Box to receive a random companion! Each pet grants unique bonuses and **+1 Energy** when equipped.",
+            color=discord.Color.purple()
+        )
+        view = discord.ui.View(timeout=300)
+
+        async with self.bot.db_pool.acquire() as conn:
+            pet_boxes = await conn.fetch("""
+                SELECT item_id, name, description, price
+                FROM shop_items
+                WHERE type = 'random_pet_box'
+                ORDER BY price ASC
+            """)
+
+        if pet_boxes:
+            for box in pet_boxes:
+                button = discord.ui.Button(
+                    label=f"{box['name']} – {box['price']}g",
+                    emoji=CUSTOM_EMOJIS.get('pet_box', '📦'),
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"shop_buy_{box['item_id']}"
+                )
+                view.add_item(button)
+        else:
+            embed.description = "No pet boxes available yet."
+
+        back = discord.ui.Button(
+            label="◀ Back",
+            style=discord.ButtonStyle.secondary,
+            custom_id="shop_back_to_main"
+        )
+        view.add_item(back)
+
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
     # -------------------------------------------------------------------------
     # PURCHASE ITEM HANDLER (includes all box types)
     # -------------------------------------------------------------------------
@@ -7143,6 +7293,78 @@ class Shop(commands.Cog):
             
             await interaction.followup.send(embed=acc_embed, ephemeral=True)
 
+            await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
+            return
+
+        # ========== RANDOM PET BOX ==========
+        if item['type'] == 'random_pet_box':
+            balance = await currency_system.get_balance(user_id)
+            if balance['gems'] < item['price']:
+                embed = discord.Embed(
+                    title="❌ Insufficient Gems",
+                    description=f"You need **{item['price']} gems** to buy **{item['name']}**.",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+
+            success = await currency_system.deduct_gems(user_id, item['price'], f"🛒 Purchased {item['name']}")
+            if not success:
+                await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
+                return
+
+            # Fetch all pet types (excluding Lilia Maid for now)
+            async with self.bot.db_pool.acquire() as conn:
+                pets = await conn.fetch("""
+                    SELECT pet_id, name FROM pet_types
+                    WHERE name IN ('Baby Fox', 'Baby Tiger', 'Baby Purr')
+                """)
+                if not pets:
+                    await interaction.followup.send("❌ No pets available in database.", ephemeral=True)
+                    return
+                chosen = random.choice(pets)
+                pet_id = chosen['pet_id']
+                pet_name = chosen['name']
+
+                # Insert into user_pets (unequipped by default)
+                await conn.execute("""
+                    INSERT INTO user_pets (user_id, pet_id, equipped)
+                    VALUES ($1, $2, FALSE)
+                """, user_id, pet_id)
+
+            # Get pet emoji
+            pet_emoji = get_pet_emoji(pet_name)
+
+            # Build result embed
+            embed = discord.Embed(
+                title="📦 Pet Box Opened!",
+                description=f"You received {pet_emoji} **{pet_name}**!",
+                color=discord.Color.purple()
+            )
+            # Add pet stats to the embed
+            async with self.bot.db_pool.acquire() as conn:
+                pet_stats = await conn.fetchrow("""
+                    SELECT atk_percent, def_percent, hp_percent, dodge_percent,
+                           bleed_flat, burn_flat, energy_bonus
+                    FROM pet_types WHERE pet_id = $1
+                """, pet_id)
+            if pet_stats:
+                stats_lines = [
+                    f"⚔️ ATK +{pet_stats['atk_percent']}%",
+                    f"🛡️ DEF +{pet_stats['def_percent']}%",
+                    f"❤️ HP +{pet_stats['hp_percent']}%",
+                ]
+                if pet_stats['dodge_percent']:
+                    stats_lines.append(f"Dodge +{pet_stats['dodge_percent']}%")
+                if pet_stats['bleed_flat']:
+                    stats_lines.append(f"🩸 Bleed +{pet_stats['bleed_flat']}")
+                if pet_stats['burn_flat']:
+                    stats_lines.append(f"🔥 Burn +{pet_stats['burn_flat']}")
+                if pet_stats['energy_bonus']:
+                    stats_lines.append(f"Energy +{pet_stats['energy_bonus']}")
+                embed.add_field(name="Stats", value="\n".join(stats_lines), inline=False)
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
             await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], balance['gems'] - item['price'])
             return
 
