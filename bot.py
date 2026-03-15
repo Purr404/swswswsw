@@ -965,7 +965,7 @@ class DatabaseSystem:
                         )
                     ''')
 
-                    await conn.execute('ALTER TABLE rarities ADD CONSTRAINT IF NOT EXISTS rarities_name_key UNIQUE (name);')
+                    await conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS rarities_name_key ON rarities (name);')
 
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS weapon_variants (
@@ -1070,7 +1070,7 @@ class DatabaseSystem:
                             energy_bonus INT DEFAULT 0
                         )
                     ''')
-                    await conn.execute('ALTER TABLE pet_types ADD CONSTRAINT IF NOT EXISTS pet_types_name_key UNIQUE (name);')
+                    await conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS pet_types_name_key ON pet_types (name);')
 
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_pets (
