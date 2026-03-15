@@ -8999,7 +8999,7 @@ async def attack(ctx, target: discord.Member):
 
 
 async def format_gear_grid(user_id: str) -> str:
-    """Return a formatted string of the user's equipped gear (3 lines)."""
+    """Return a formatted string of the user's equipped gear (3 lines) including pet."""
     async with bot.db_pool.acquire() as conn:
         weapon_name = await conn.fetchval("""
             SELECT COALESCE(si.name, uw.generated_name)
@@ -9020,11 +9020,23 @@ async def format_gear_grid(user_id: str) -> str:
             JOIN accessory_types at ON ua.accessory_id = at.accessory_id
             WHERE ua.user_id = $1 AND ua.equipped = TRUE
         """, user_id)
+        # Fetch equipped pet
+        pet_name = await conn.fetchval("""
+            SELECT pt.name
+            FROM user_pets up
+            JOIN pet_types pt ON up.pet_id = pt.pet_id
+            WHERE up.user_id = $1 AND up.equipped = TRUE
+        """, user_id)
 
     def slot_emoji(slot_type, item_name=None):
         if item_name:
-            return get_item_emoji(item_name, slot_type)
-        return '*none*'   # or '⬛' if you prefer
+            if slot_type == 'weapon':
+                return get_item_emoji(item_name, 'weapon')
+            elif slot_type in ('helm', 'suit', 'gauntlets', 'boots'):
+                return get_item_emoji(item_name, 'armor')
+            else:
+                return get_item_emoji(item_name, 'accessory')
+        return '*none*'
 
     armor_dict = {a['slot']: a['name'] for a in armor}
     acc_dict = {a['slot']: a['name'] for a in acc}
@@ -9040,12 +9052,13 @@ async def format_gear_grid(user_id: str) -> str:
     earring2 = slot_emoji('accessory', acc_dict.get('earring2'))
     pendant = slot_emoji('accessory', acc_dict.get('pendant'))
 
-    # Build three lines
+    # Pet emoji – use actual pet emoji if equipped, otherwise default paw
+    pet_emoji = get_pet_emoji(pet_name) if pet_name else "🐾"
+
     line1 = f"{weapon_emoji}"
-    line2 = f"{helm} {suit} {gauntlets} {boots} 🐾"   # pet placeholder
+    line2 = f"{helm} {suit} {gauntlets} {boots} {pet_emoji}"
     line3 = f"{ring1} {earring1} {pendant} {earring2} {ring2}"
     return f"{line1}\n{line2}\n{line3}"
-
 
 
 #    ATTACKVIEW----------
@@ -9353,6 +9366,17 @@ class AttackView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         user_id = str(interaction.user.id)
 
+        # Fetch dynamic player stats (includes pet bonuses)
+        stats = await get_player_stats(user_id)
+        if not stats:
+            await interaction.followup.send("❌ Could not retrieve your stats.", ephemeral=True)
+            return
+
+        current_hp = stats['hp']
+        max_hp = stats['max_hp']
+        current_energy = stats['energy']
+        max_energy = stats['max_energy']
+
         # Fetch potion item IDs
         async with bot.db_pool.acquire() as conn:
             hp_id = await conn.fetchval("SELECT item_id FROM shop_items WHERE name = 'HP Potion'")
@@ -9385,26 +9409,18 @@ class AttackView(discord.ui.View):
                 return
 
             if potion_type == 'hp':
-                stats = await conn.fetchrow("SELECT hp, max_hp FROM player_stats WHERE user_id = $1", user_id)
-                if not stats:
-                    await interaction.followup.send("❌ Could not retrieve your stats.", ephemeral=True)
+                if current_hp >= max_hp:
+                    await interaction.followup.send(f"Your HP is already full! ({current_hp}/{max_hp})", ephemeral=True)
                     return
-                if stats['hp'] >= stats['max_hp']:
-                    await interaction.followup.send(f"Your HP is already full! ({stats['hp']}/{stats['max_hp']})", ephemeral=True)
-                    return
-                heal = max(1, int(stats['max_hp'] * 0.5))
-                new_hp = min(stats['hp'] + heal, stats['max_hp'])
-                effect = f"healed **{new_hp - stats['hp']}** HP"
+                heal = max(1, int(max_hp * 0.5))
+                new_hp = min(current_hp + heal, max_hp)
+                effect = f"healed **{new_hp - current_hp}** HP"
 
             else:  # energy
-                stats = await conn.fetchrow("SELECT energy, max_energy FROM player_stats WHERE user_id = $1", user_id)
-                if not stats:
-                    await interaction.followup.send("❌ Could not retrieve your stats.", ephemeral=True)
+                if current_energy >= max_energy:
+                    await interaction.followup.send(f"Your energy is already full! ({current_energy}/{max_energy})", ephemeral=True)
                     return
-                if stats['energy'] >= stats['max_energy']:
-                    await interaction.followup.send(f"Your energy is already full! ({stats['energy']}/{stats['max_energy']})", ephemeral=True)
-                    return
-                new_energy = stats['energy'] + 1
+                new_energy = current_energy + 1
                 effect = "restored **1** energy"
 
             # Deduct potion and apply effect
