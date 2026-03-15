@@ -1375,18 +1375,18 @@ class DatabaseSystem:
                         WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Energy Potion');
                     """)
                     # ========== SHOP ITEMS FOR PETS ==========
-                    # Add Pet Box (if not already present)
-                    await conn.execute("""
-                        INSERT INTO shop_items (name, description, price, type)
-                        SELECT 'Pet Box', 'Contains a random pet! Open to receive one of: Baby Fox, Baby Tiger, or Baby Purr.', 5000, 'random_pet_box'
-                        WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Pet Box');
-                    """)
-                    # Update shop_items type check to include 'random_pet_box'
                     await conn.execute("ALTER TABLE shop_items DROP CONSTRAINT IF EXISTS shop_items_type_check;")
                     await conn.execute("""
                         ALTER TABLE shop_items ADD CONSTRAINT shop_items_type_check
                         CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box',
                                         'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion', 'random_pet_box'));
+                    """)
+
+                    # Then add Pet Box (if not already present)
+                    await conn.execute("""
+                        INSERT INTO shop_items (name, description, price, type)
+                        SELECT 'Pet Box', 'Contains a random pet! Open to receive one of: Baby Fox, Baby Tiger, or Baby Purr.', 5000, 'random_pet_box'
+                        WHERE NOT EXISTS (SELECT 1 FROM shop_items WHERE name = 'Pet Box');
                     """)
                     # ========== CREATE INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
