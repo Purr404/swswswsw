@@ -9062,7 +9062,7 @@ class AttackView(discord.ui.View):
         return str(interaction.user.id) in (self.attacker_id, self.defender_id)
 
     @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger)
-    async def attack_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             await interaction.response.defer()
 
@@ -9322,7 +9322,7 @@ class AttackView(discord.ui.View):
 
     # --- Potion button (row 0, next to Attack) ---
     @discord.ui.button(label="Potion", style=discord.ButtonStyle.danger, row=0)
-    async def use_potion_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def use_potion_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Opens an ephemeral view to choose a potion."""
         view = self.PotionChoiceView(self, str(interaction.user.id))
         await interaction.response.send_message("Choose a potion to use:", view=view, ephemeral=True)
@@ -9335,14 +9335,14 @@ class AttackView(discord.ui.View):
             self.user_id = user_id
 
         @discord.ui.button(label="HP Potion", emoji=CUSTOM_EMOJIS.get('hp_potion'), style=discord.ButtonStyle.success)
-        async def hp_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        async def hp_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if str(interaction.user.id) != self.user_id:
                 await interaction.response.send_message("This is not your potion choice.", ephemeral=True)
                 return
             await self.parent_view.use_potion(interaction, 'hp')
 
         @discord.ui.button(label="Energy Potion", emoji=CUSTOM_EMOJIS.get('energy_potion'), style=discord.ButtonStyle.primary)
-        async def energy_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+        async def energy_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if str(interaction.user.id) != self.user_id:
                 await interaction.response.send_message("This is not your potion choice.", ephemeral=True)
                 return
@@ -9431,8 +9431,6 @@ class AttackView(discord.ui.View):
 
         # Confirm to user
         await interaction.followup.send(f"You used {emoji} **{potion_name}**.", ephemeral=True)
-
-
 
     async def build_duel_embed(self, action_text: str = None):
         """Build the duel embed with vertical stats, gear grids, and action result."""
