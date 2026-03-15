@@ -4053,7 +4053,10 @@ class InventoryItemButton(discord.ui.Button):
     def __init__(self, item_data, item_type, row=None, awakened=False):
         self.item_data = item_data
         self.item_type = item_type
-        item_emoji = get_item_emoji(item_data['name'], item_type, awakened=awakened)
+        if item_type == 'pet':
+            item_emoji = get_pet_emoji(item_data['name'])
+        else:
+            item_emoji = get_item_emoji(item_data['name'], item_type, awakened=awakened)
         style = discord.ButtonStyle.success if item_data.get('equipped') else discord.ButtonStyle.secondary
         custom_id = f"inv_{item_type}_{item_data['id']}"
         super().__init__(label="", emoji=item_emoji, style=style, custom_id=custom_id, row=row)
@@ -4076,7 +4079,6 @@ class InventoryItemButton(discord.ui.Button):
                     await interaction.followup.send("An error occurred.", ephemeral=True)
                 except:
                     pass
-
 
 class CategoryView(discord.ui.View):
     def __init__(self, user_id, items, item_type, parent_view, page=0):
@@ -4355,33 +4357,11 @@ class InventoryView(discord.ui.View):
                 await interaction.followup.send("You have no pets!", ephemeral=True)
                 return
 
+            # Convert to list of dicts with required keys for CategoryView
+            pet_list = [dict(pet) for pet in pets]
+            # Create CategoryView with item_type='pet'
             embed = discord.Embed(title="🐾 **Pets**", color=discord.Color.purple())
-            lines = []
-            for pet in pets:
-                emoji = get_pet_emoji(pet['name'])
-                status = "✅" if pet['equipped'] else "❌"
-                # Build stats string
-                stats = []
-                if pet['atk_percent']:
-                    stats.append(f"ATK+{pet['atk_percent']}%")
-                if pet['def_percent']:
-                    stats.append(f"DEF+{pet['def_percent']}%")
-                if pet['hp_percent']:
-                    stats.append(f"HP+{pet['hp_percent']}%")
-                if pet['dodge_percent']:
-                    stats.append(f"Dodge+{pet['dodge_percent']}%")
-                if pet['bleed_flat']:
-                    stats.append(f"Bleed+{pet['bleed_flat']}")
-                if pet['burn_flat']:
-                    stats.append(f"Burn+{pet['burn_flat']}")
-                if pet['energy_bonus']:
-                    stats.append(f"Energy+{pet['energy_bonus']}")
-                stats_str = " | ".join(stats) if stats else "No stats"
-                lines.append(f"{emoji} **{pet['name']}** {status}\n└ {stats_str}")
-
-            embed.description = "\n\n".join(lines)
-            view = discord.ui.View()
-            view.add_item(discord.ui.Button(label="🔙", style=discord.ButtonStyle.secondary, custom_id="inventory_back"))
+            view = CategoryView(self.user_id, pet_list, 'pet', self)
             await interaction.edit_original_response(embed=embed, view=view)
         except Exception as e:
             print(f"Error in show_pets: {e}")
@@ -5879,6 +5859,18 @@ class Shop(commands.Cog):
                         WHERE ua.id = $1 AND ua.user_id = $2
                     """, item_id, user_id)
 
+                elif item_type == 'pet':
+                    item = await conn.fetchrow("""
+                        SELECT up.id, pt.name, up.equipped,
+                               pt.atk_percent, pt.def_percent, pt.hp_percent,
+                               pt.dodge_percent, pt.bleed_flat, pt.burn_flat, pt.energy_bonus,
+                               pt.description
+                        FROM user_pets up
+                        JOIN pet_types pt ON up.pet_id = pt.pet_id
+                        WHERE up.id = $1 AND up.user_id = $2
+                    """, item_id, user_id)
+
+
             if not item:           
                 await interaction.followup.send("Item not found.", ephemeral=True)
                 return
@@ -5886,7 +5878,10 @@ class Shop(commands.Cog):
             current_level = item.get('upgrade_level', 0)
 
             # Get the custom emoji for this item
-            item_emoji = get_item_emoji(item['name'], item_type)
+            if item_type == 'pet':
+                item_emoji = get_pet_emoji(item['name'])
+            else:
+                item_emoji = get_item_emoji(item['name'], item_type)
             current_level = item.get('upgrade_level', 0)
             level_str = f" +{current_level}" if current_level > 0 else ""
         
@@ -5932,8 +5927,31 @@ class Shop(commands.Cog):
                 if item.get('set_name'):
                     stats.append(f"⚔️ **Set:** `{item['set_name']}`")
 
-            stats.append(f"**Description:** {item.get('description', 'No description')}")
-            embed.description = "\n".join(stats)
+            # ===== PET STATS =====
+            elif item_type == 'pet':
+                stats_lines = []
+                if item['atk_percent']:
+                    stats_lines.append(f"⚔️ **ATK +{item['atk_percent']}%**")
+                if item['def_percent']:
+                    stats_lines.append(f"🛡️ **DEF +{item['def_percent']}%**")
+                if item['hp_percent']:
+                    stats_lines.append(f"❤️ **HP +{item['hp_percent']}%**")
+                if item['dodge_percent']:
+                    stats_lines.append(f"**Dodge +{item['dodge_percent']}%**")
+                if item['bleed_flat']:
+                    stats_lines.append(f"🩸 **Bleed +{item['bleed_flat']}**")
+                if item['burn_flat']:
+                    stats_lines.append(f"🔥 **Burn +{item['burn_flat']}**")
+                if item['energy_bonus']:
+                    stats_lines.append(f"**Energy +{item['energy_bonus']}**")
+                embed.description = "\n".join(stats_lines) if stats_lines else "No special stats."
+                embed.add_field(name="Description", value=item['description'] or "No description.", inline=False)
+
+
+            # For non-pet items, we already built stats in a list; add them as description
+            if item_type != 'pet':
+                stats.append(f"**Description:** {item.get('description', 'No description')}")
+                embed.description = "\n".join(stats)
 
             if item.get('rarity_color'):
                 embed.color = item['rarity_color']
@@ -6167,6 +6185,19 @@ class Shop(commands.Cog):
                     """, item_id)
                     item = item_row if item_row else "Unknown"
 
+                # ===== NEW PET BRANCH =====
+                elif item_type == 'pet':
+                    # Unequip all pets
+                    await conn.execute("UPDATE user_pets SET equipped = FALSE WHERE user_id = $1", user_id)
+                    # Equip selected pet
+                    await conn.execute("UPDATE user_pets SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                    # Get item name for response
+                    item = await conn.fetchval("""
+                        SELECT pt.name FROM user_pets up
+                        JOIN pet_types pt ON up.pet_id = pt.pet_id
+                        WHERE up.id = $1
+                    """, item_id)
+
             # Get emoji for the item
             item_emoji = get_item_emoji(item, item_type)
 
@@ -6176,6 +6207,7 @@ class Shop(commands.Cog):
         
             await interaction.followup.send(f"**Equipped**{item_emoji}", ephemeral=True)
 
+            # Refresh inventory view (optional)
             async with self.bot.db_pool.acquire() as conn:
                 weapons = await conn.fetch("""
                     SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
@@ -6233,10 +6265,14 @@ class Shop(commands.Cog):
                 item_list = inventory_data['armor']
                 embed_title = "🛡️ **Armor**"
                 embed_color = discord.Color.blue()
-            else:  # accessory
+            elif item_type == 'accessory':
                 item_list = inventory_data['accessories']
                 embed_title = "📿 **Accessories**"
                 embed_color = discord.Color.green()
+            else:  # pet
+                # For pets, we don't need to show a category again, but we can just go back to inventory
+                await temp_inventory_view.show_pets(interaction)
+                return
 
             # Create category view with updated items
             category_view = CategoryView(user_id, item_list, item_type, temp_inventory_view)
@@ -6246,7 +6282,7 @@ class Shop(commands.Cog):
                 await temp_inventory_view.show_weapons(interaction)
             elif item_type == 'armor':
                 await temp_inventory_view.show_armor(interaction)
-            else:  # accessory
+            elif item_type == 'accessory':
                 await temp_inventory_view.show_accessories(interaction)
 
         except Exception as e:
@@ -6298,11 +6334,21 @@ class Shop(commands.Cog):
                     """, item_id)
                     item = item_row if item_row else "Unknown"
 
+                # ===== NEW PET BRANCH =====
+                elif item_type == 'pet':
+                    await conn.execute("UPDATE user_pets SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
+                    item = await conn.fetchval("""
+                        SELECT pt.name FROM user_pets up
+                        JOIN pet_types pt ON up.pet_id = pt.pet_id
+                        WHERE up.id = $1
+                    """, item_id)
+
             # Get emoji for the item
             item_emoji = get_item_emoji(item, item_type)
         
             await interaction.followup.send(f"**Unequipped** {item_emoji}", ephemeral=True)
         
+            # Refresh inventory view (optional)
             async with self.bot.db_pool.acquire() as conn:
                 weapons = await conn.fetch("""
                     SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
@@ -6360,20 +6406,22 @@ class Shop(commands.Cog):
                 item_list = inventory_data['armor']
                 embed_title = "🛡️ **Armor**"
                 embed_color = discord.Color.blue()
-            else:
+            elif item_type == 'accessory':
                 item_list = inventory_data['accessories']
                 embed_title = "📿 **Accessories**"
                 embed_color = discord.Color.green()
-
+            else:  # pet
+                # For pets, go back to pet inventory
+                await temp_inventory_view.show_pets(interaction)
+                return
 
             category_view = CategoryView(user_id, item_list, item_type, temp_inventory_view)
 
-           
             if item_type == 'weapon':
                 await temp_inventory_view.show_weapons(interaction)
             elif item_type == 'armor':
                 await temp_inventory_view.show_armor(interaction)
-            else:
+            elif item_type == 'accessory':
                 await temp_inventory_view.show_accessories(interaction)
 
         except Exception as e:
