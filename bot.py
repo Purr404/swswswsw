@@ -4671,19 +4671,19 @@ class CategorySelectView(discord.ui.View):
         self.user_id = user_id
 
     @discord.ui.button(label="⚔️ Weapons", style=discord.ButtonStyle.primary, row=0)
-    async def weapons_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def weapons_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.show_items(interaction, 'weapon')
 
     @discord.ui.button(label="🛡️ Armor", style=discord.ButtonStyle.primary, row=0)
-    async def armor_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def armor_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.show_items(interaction, 'armor')
 
     @discord.ui.button(label="📿 Accessories", style=discord.ButtonStyle.primary, row=1)
-    async def accessories_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def accessories_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.show_items(interaction, 'accessory')
 
     @discord.ui.button(label="📦 Consumables", style=discord.ButtonStyle.primary, row=1)
-    async def materials_button(self, button: discord.ui.Button, interaction: discord.Interaction):
+    async def materials_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.show_items(interaction, 'material')
 
     async def show_items(self, interaction: discord.Interaction, category: str):
@@ -5935,13 +5935,25 @@ class Shop(commands.Cog):
                 await temp_view.show_materials(interaction)
             elif action == "back":
                 print("✅ back action triggered")
+                # Create the main embed
                 try:
                     embed = temp_view.create_main_embed()
+                    print(f"   embed title: {embed.title}")
+                    print(f"   embed fields: {len(embed.fields)}")
                 except Exception as e:
                     print(f"❌ create_main_embed failed: {e}")
                     traceback.print_exc()
                     embed = discord.Embed(title="⚠️ Error", description="Could not load inventory.", color=discord.Color.red())
-                await interaction.edit_original_response(embed=embed, view=temp_view)
+                
+                # Edit the message
+                try:
+                    await interaction.edit_original_response(embed=embed, view=temp_view)
+                    print("✅ edit_original_response succeeded")
+                except Exception as e:
+                    print(f"❌ edit_original_response failed: {e}")
+                    traceback.print_exc()
+                    await interaction.followup.send("Failed to update inventory view.", ephemeral=True)
+                
                 print("✅ back action completed")
             else:
                 print(f"⚠️ Unknown action: {action}")
@@ -5952,6 +5964,7 @@ class Shop(commands.Cog):
                 await interaction.followup.send("An error occurred while processing your request.", ephemeral=True)
             except:
                 pass
+
 
     async def handle_item_selection(self, interaction: discord.Interaction, item_type: str, item_id: int):
         """Handle when a user clicks on an item - shows all stats"""
