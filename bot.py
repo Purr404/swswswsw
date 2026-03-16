@@ -6782,6 +6782,8 @@ class Shop(commands.Cog):
             await temp_view.show_armor(interaction)
         elif item_type == 'accessory':
             await temp_view.show_accessories(interaction)
+        elif item_type == 'pet':     
+            await temp_view.show_pets(interaction)
         elif item_type == 'material':
             await temp_view.show_materials(interaction)
 
