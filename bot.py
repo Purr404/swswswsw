@@ -6652,7 +6652,7 @@ class Shop(commands.Cog):
 
     async def handle_material_selection(self, interaction: discord.Interaction, material_id: int):
         user_id = str(interaction.user.id)
-        await interaction.response.defer(ephemeral=False)  # important: not ephemeral
+        await interaction.response.defer(ephemeral=False)
 
         async with self.bot.db_pool.acquire() as conn:
             material = await conn.fetchrow("""
@@ -6666,20 +6666,20 @@ class Shop(commands.Cog):
             await interaction.followup.send("Material not found.", ephemeral=True)
             return
 
-        # Determine emoji based on name
+        # Determine emoji based on name – use a single variable 'emoji'
         name_lower = material['name'].lower()
         if 'hp potion' in name_lower:
-            emoji = CUSTOM_EMOJIS.get('hp_potion')
+            emoji = CUSTOM_EMOJIS.get('hp_potion', '🧪')
         elif 'energy potion' in name_lower:
-            emoji = CUSTOM_EMOJIS.get('energy_potion')
+            emoji = CUSTOM_EMOJIS.get('energy_potion', '⚡')
         elif 'sword' in name_lower:
-            stone_emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+            emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
         elif 'armor' in name_lower:
-            stone_emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+            emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
         elif 'accessories' in name_lower:
-            stone_emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+            emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
         else:
-            stone_emoji = '📦'
+            emoji = '📦'
 
         embed = discord.Embed(
             title=f"{emoji} **{material['name']}**",
@@ -6692,7 +6692,6 @@ class Shop(commands.Cog):
         view.add_item(discord.ui.Button(label="🔙", style=discord.ButtonStyle.secondary, custom_id="back_to_materials", row=0))
 
         await interaction.edit_original_response(embed=embed, view=view)
-
 
 
     async def handle_back_to_category(self, interaction: discord.Interaction, item_type: str):
