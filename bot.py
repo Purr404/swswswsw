@@ -4276,12 +4276,12 @@ class InventoryView(discord.ui.View):
             custom_id="inventory_back", 
             row=1
         ))
+
     def create_main_embed(self):
         """Create the main inventory overview (only items and gems)"""
+        print("🔄 create_main_embed called")
         user = self.cog.bot.get_user(int(self.user_id))
-        # Get the custom emoji string from your CUSTOM_EMOJIS dictionary
-        energy_emoji = CUSTOM_EMOJIS.get('energy_potion', '🧪')  # fallback to '🧪' if missing
-
+        energy_emoji = CUSTOM_EMOJIS.get('energy_potion', '🧪')
         embed = discord.Embed(
             title=f"📦 **{user.display_name if user else 'Unknown'}'s Inventory**",
             description=f"💰 **Gems:** {self.inventory['gems']}",
@@ -4293,9 +4293,9 @@ class InventoryView(discord.ui.View):
         embed.add_field(name="⚔️ Weapons", value=str(len(self.inventory['weapons'])), inline=True)
         embed.add_field(name="🛡️ Armor", value=str(len(self.inventory['armor'])), inline=True)
         embed.add_field(name="📿 Accessories", value=str(len(self.inventory['accessories'])), inline=True)
-        # Use the custom energy emoji in the field name
         embed.add_field(name=f"{energy_emoji} Consumables", value=str(len(self.inventory.get('materials', []))), inline=True)
 
+        print(f"   embed title: {embed.title}")
         return embed
 
     async def refresh_inventory(self, interaction):
@@ -4720,6 +4720,8 @@ class CategorySelectView(discord.ui.View):
                     JOIN shop_items si ON um.material_id = si.item_id
                     WHERE um.user_id = $1 AND um.quantity > 0
                 """, self.user_id)
+            else:
+                return await interaction.response.send_message(f"Invalid category.", ephemeral=True)
 
         if not items:
             return await interaction.response.send_message(f"You have no {category}s to trade.", ephemeral=True)
