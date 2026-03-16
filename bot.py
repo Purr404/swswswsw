@@ -4751,9 +4751,19 @@ class CategorySelectView(discord.ui.View):
     async def accessories_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.show_items(interaction, 'accessory')
 
-    @discord.ui.button(label="📦 Consumables", style=discord.ButtonStyle.primary, row=1)
-    async def materials_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    # Consumables button with energy potion emoji
+    @discord.ui.button(label="Consumables", 
+                       emoji=discord.PartialEmoji(name="energy_potion", id=1481365820566409236), 
+                       style=discord.ButtonStyle.primary, row=1)
+    async def consumables_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.show_items(interaction, 'material')
+
+    # Pets button with paw emoji
+    @discord.ui.button(label="Pets", 
+                       emoji=discord.PartialEmoji(name="paw", id=1482627374066565170), 
+                       style=discord.ButtonStyle.primary, row=2)
+    async def pets_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.show_items(interaction, 'pet')
 
     async def show_items(self, interaction: discord.Interaction, category: str):
         # Fetch items of the selected category with their stats
@@ -4789,8 +4799,18 @@ class CategorySelectView(discord.ui.View):
                     JOIN shop_items si ON um.material_id = si.item_id
                     WHERE um.user_id = $1 AND um.quantity > 0
                 """, self.user_id)
+            elif category == 'pet':
+                items = await conn.fetch("""
+                    SELECT up.id, pt.name, up.equipped,
+                           pt.atk_percent, pt.def_percent, pt.hp_percent,
+                           pt.dodge_percent, pt.bleed_flat, pt.burn_flat, pt.energy_bonus
+                    FROM user_pets up
+                    JOIN pet_types pt ON up.pet_id = pt.pet_id
+                    WHERE up.user_id = $1
+                    ORDER BY up.equipped DESC, up.purchased_at DESC
+                """, self.user_id)
             else:
-                return await interaction.response.send_message(f"Invalid category.", ephemeral=True)
+                return await interaction.response.send_message("Invalid category.", ephemeral=True)
 
         if not items:
             return await interaction.response.send_message(f"You have no {category}s to trade.", ephemeral=True)
@@ -4853,7 +4873,10 @@ class ItemPaginationView(discord.ui.View):
 
         options = []
         for item in page_items:
-            emoji = get_item_emoji(item['name'], self.category)
+            if self.category == 'pet':
+                emoji = get_pet_emoji(item['name'])
+            else:
+                emoji = get_item_emoji(item['name'], self.category)
             # Build label with stats
             if self.category == 'weapon':
                 label = f"{item['name']} (ATK {item['attack']})"
@@ -4869,6 +4892,9 @@ class ItemPaginationView(discord.ui.View):
                 label = f"{item['name']} (+{item['bonus_value']} {stat_name})"
             elif self.category == 'material':
                 label = f"{item['name']} x{item['quantity']}"
+            elif self.category == 'pet':
+                # Just show the name – stats are shown when selecting
+                label = f"{item['name']}"
             else:
                 label = item['name'][:100]
 
