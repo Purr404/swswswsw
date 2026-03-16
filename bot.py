@@ -4271,7 +4271,7 @@ class InventoryView(discord.ui.View):
             row=0
         ))
         self.add_item(discord.ui.Button(
-            label="🔙", 
+            label="🔄", 
             style=discord.ButtonStyle.secondary, 
             custom_id="inventory_back", 
             row=1
@@ -5855,11 +5855,12 @@ class Shop(commands.Cog):
 
 
     async def handle_inventory_action(self, interaction: discord.Interaction, action: str):
-        """Handle inventory main menu actions"""
+        print(f"🔄 handle_inventory_action called with action: {action}")
         try:
             await interaction.response.defer(ephemeral=True)
             user_id = str(interaction.user.id)
-        
+            print(f"   user_id: {user_id}, action: {action}")
+
             # Fetch fresh inventory data
             async with self.bot.db_pool.acquire() as conn:
                 weapons = await conn.fetch("""
@@ -5933,14 +5934,22 @@ class Shop(commands.Cog):
             elif action == "materials":
                 await temp_view.show_materials(interaction)
             elif action == "back":
-                await interaction.edit_original_response(embed=temp_view.create_main_embed(), view=temp_view)
-            
+                print("✅ back action triggered")
+                try:
+                    embed = temp_view.create_main_embed()
+                except Exception as e:
+                    print(f"❌ create_main_embed failed: {e}")
+                    traceback.print_exc()
+                    embed = discord.Embed(title="⚠️ Error", description="Could not load inventory.", color=discord.Color.red())
+                await interaction.edit_original_response(embed=embed, view=temp_view)
+                print("✅ back action completed")
+            else:
+                print(f"⚠️ Unknown action: {action}")
         except Exception as e:
-            print(f"Error in handle_inventory_action: {e}")
+            print(f"❌ Error in handle_inventory_action: {e}")
             traceback.print_exc()
             try:
-                # After defer, we MUST use followup, NOT response
-                await interaction.followup.send("An error occurred.", ephemeral=True)
+                await interaction.followup.send("An error occurred while processing your request.", ephemeral=True)
             except:
                 pass
 
