@@ -4515,8 +4515,7 @@ async def update_trade_embed(message: discord.Message, trade_id: int):
         if it['gems'] > 0:
             offer = f"💎 {it['gems']} gems"
         else:
-            name = await get_item_name(it['item_type'], it['item_id'])
-            offer = name
+            offer = await get_trade_item_display(it['item_type'], it['item_id'])
         if user_id == trade['initiator_id']:
             initiator_offers.append(offer)
         else:
@@ -4537,6 +4536,7 @@ async def update_trade_embed(message: discord.Message, trade_id: int):
     embed.add_field(name="Status", value=status, inline=False)
 
     await message.edit(embed=embed)
+
 
 async def get_item_name(item_type: str, item_id: int) -> str:
     """Return a display name for an item given its type and ID."""
@@ -4570,7 +4570,76 @@ async def get_item_name(item_type: str, item_id: int) -> str:
             return row['name'] if row else "Unknown Material"
     return "Unknown"
 
+async def get_trade_item_display(item_type: str, item_id: int) -> str:
+    """Return a formatted string for a trade item, including emoji and stats."""
+    async with bot.db_pool.acquire() as conn:
+        if item_type == 'weapon':
+            row = await conn.fetchrow("""
+                SELECT uw.attack, COALESCE(si.name, uw.generated_name) as name
+                FROM user_weapons uw
+                LEFT JOIN shop_items si ON uw.weapon_item_id = si.item_id
+                WHERE uw.id = $1
+            """, item_id)
+            if row:
+                emoji = get_item_emoji(row['name'], 'weapon')
+                return f"{emoji} **{row['name']}** (ATK {row['attack']})"
 
+        elif item_type == 'armor':
+            row = await conn.fetchrow("""
+                SELECT ua.defense, ua.hp_bonus, at.name
+                FROM user_armor ua
+                JOIN armor_types at ON ua.armor_id = at.armor_id
+                WHERE ua.id = $1
+            """, item_id)
+            if row:
+                emoji = get_item_emoji(row['name'], 'armor')
+                hp = row['hp_bonus'] or 0
+                return f"{emoji} **{row['name']}** (DEF {row['defense']} | HP +{hp})"
+
+        elif item_type == 'accessory':
+            row = await conn.fetchrow("""
+                SELECT ua.bonus_value, at.name, at.bonus_stat
+                FROM user_accessories ua
+                JOIN accessory_types at ON ua.accessory_id = at.accessory_id
+                WHERE ua.id = $1
+            """, item_id)
+            if row:
+                emoji = get_item_emoji(row['name'], 'accessory')
+                stat_display = row['bonus_stat'].upper()
+                return f"{emoji} **{row['name']}** (+{row['bonus_value']} {stat_display})"
+
+        elif item_type == 'material':
+            row = await conn.fetchrow("""
+                SELECT name FROM shop_items WHERE item_id = $1
+            """, item_id)
+            if row:
+                name_lower = row['name'].lower()
+                if 'hp potion' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('hp_potion', '🧪')
+                elif 'energy potion' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('energy_potion', '⚡')
+                elif 'sword' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
+                elif 'armor' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
+                elif 'accessories' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+                else:
+                    emoji = '📦'
+                return f"{emoji} **{row['name']}** x1"
+
+        elif item_type == 'pet':
+            row = await conn.fetchrow("""
+                SELECT pt.name
+                FROM user_pets up
+                JOIN pet_types pt ON up.pet_id = pt.pet_id
+                WHERE up.id = $1
+            """, item_id)
+            if row:
+                emoji = get_pet_emoji(row['name'])
+                return f"{emoji} **{row['name']}**"
+
+    return "Unknown item"
 
 class TradeView(discord.ui.View):
     def __init__(self, trade_id: int, initiator_id: str, receiver_id: str, message_id: int):
