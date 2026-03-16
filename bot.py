@@ -4234,6 +4234,9 @@ class InventoryView(discord.ui.View):
         self.inventory = inventory_data
         self.cog = cog
 
+        paw_emoji = discord.PartialEmoji(name="paw", id=1482627374066565170)
+        energy_emoji = discord.PartialEmoji(name="energy_potion", id=1481365820566409236)
+
         # Add buttons with custom_ids
         self.add_item(discord.ui.Button(
             label="🗡️ Weapons", 
@@ -4254,27 +4257,31 @@ class InventoryView(discord.ui.View):
             row=0
         ))
         self.add_item(discord.ui.Button(
-            label="🐾 Pets",
+            label="Pets",
+            emoji=paw_emoji,
             style=discord.ButtonStyle.primary,
             custom_id="inventory_pets",
             row=0
         ))
         self.add_item(discord.ui.Button(
-            label="📦 Materials", 
-            style=discord.ButtonStyle.primary, 
-            custom_id="inventory_materials", 
+            label="Consumables",
+            emoji=energy_emoji,
+            style=discord.ButtonStyle.primary,
+            custom_id="inventory_materials",
             row=0
         ))
         self.add_item(discord.ui.Button(
-            label="🔄", 
+            label="🔙", 
             style=discord.ButtonStyle.secondary, 
             custom_id="inventory_back", 
             row=1
         ))
-
     def create_main_embed(self):
         """Create the main inventory overview (only items and gems)"""
         user = self.cog.bot.get_user(int(self.user_id))
+        # Get the custom emoji string from your CUSTOM_EMOJIS dictionary
+        energy_emoji = CUSTOM_EMOJIS.get('energy_potion', '🧪')  # fallback to '🧪' if missing
+
         embed = discord.Embed(
             title=f"📦 **{user.display_name if user else 'Unknown'}'s Inventory**",
             description=f"💰 **Gems:** {self.inventory['gems']}",
@@ -4286,7 +4293,8 @@ class InventoryView(discord.ui.View):
         embed.add_field(name="⚔️ Weapons", value=str(len(self.inventory['weapons'])), inline=True)
         embed.add_field(name="🛡️ Armor", value=str(len(self.inventory['armor'])), inline=True)
         embed.add_field(name="📿 Accessories", value=str(len(self.inventory['accessories'])), inline=True)
-        embed.add_field(name="📦 Materials", value=str(len(self.inventory.get('materials', []))), inline=True)
+        # Use the custom energy emoji in the field name
+        embed.add_field(name=f"{energy_emoji} Consumables", value=str(len(self.inventory.get('materials', []))), inline=True)
 
         return embed
 
@@ -4431,16 +4439,20 @@ class InventoryView(discord.ui.View):
                 await interaction.followup.send("You have no pets!", ephemeral=True)
                 return
 
+            # Get custom paw emoji from CUSTOM_EMOJIS
+            paw_emoji = CUSTOM_EMOJIS.get('paw', '🐾')  # fallback to '🐾' if missing
+
             # Convert to list of dicts with required keys for CategoryView
             pet_list = [dict(pet) for pet in pets]
             # Create CategoryView with item_type='pet'
-            embed = discord.Embed(title="🐾 **Pets**", color=discord.Color.purple())
+            embed = discord.Embed(title=f"{paw_emoji} **Pets**", color=discord.Color.purple())
             view = CategoryView(self.user_id, pet_list, 'pet', self)
             await interaction.edit_original_response(embed=embed, view=view)
         except Exception as e:
             print(f"Error in show_pets: {e}")
             traceback.print_exc()
             await interaction.followup.send("An error occurred.", ephemeral=True)
+
 
     async def show_materials(self, interaction: discord.Interaction):
         try:
@@ -4449,9 +4461,11 @@ class InventoryView(discord.ui.View):
                 return
             materials = self.inventory.get('materials', [])
             if not materials:
-                await interaction.followup.send("You have no materials!", ephemeral=True)
+                await interaction.followup.send("You have no consumables!", ephemeral=True)
                 return
-            embed = discord.Embed(title="📦 **Materials**", color=discord.Color.light_grey())
+            # Use the custom emoji string in the embed title (works in embeds)
+            energy_emoji = CUSTOM_EMOJIS.get('energy_potion', '🧪')
+            embed = discord.Embed(title=f"{energy_emoji} **Consumables**", color=discord.Color.light_grey())
             view = CategoryView(self.user_id, materials, 'material', self)
             await interaction.edit_original_response(embed=embed, view=view)
         except Exception as e:
@@ -4668,7 +4682,7 @@ class CategorySelectView(discord.ui.View):
     async def accessories_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         await self.show_items(interaction, 'accessory')
 
-    @discord.ui.button(label="📦 Materials", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="📦 Consumables", style=discord.ButtonStyle.primary, row=1)
     async def materials_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         await self.show_items(interaction, 'material')
 
