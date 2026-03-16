@@ -1246,9 +1246,13 @@ class DatabaseSystem:
                             user_id TEXT NOT NULL,
                             item_type TEXT NOT NULL,
                             item_id INTEGER NOT NULL,
-                            gems INTEGER DEFAULT 0
+                            gems INTEGER DEFAULT 0,
+                            quantity INTEGER DEFAULT 1
                         )
                     ''')
+                    await conn.execute('ALTER TABLE trade_items ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1;')
+
+
                     # ========== MATERIALS TABLE ==========
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS user_materials (
@@ -3808,7 +3812,50 @@ async def on_message(message):
 
         await message.channel.send(f"✅ Added **{gems} gems** to the trade.", delete_after=5)
         del pending_gem_inputs[user_id]
-        return  # ← Stop processing here
+        return
+
+    # --- NEW: Handle material quantity input for trades ---
+    if user_id in pending_material_inputs:
+        pending = pending_material_inputs[user_id]
+        if time.time() > pending['expires']:
+            del pending_material_inputs[user_id]
+            await message.channel.send("⌛ Quantity input timed out.", delete_after=5)
+            return
+
+        try:
+            qty = int(message.content)
+            if qty <= 0:
+                raise ValueError
+        except ValueError:
+            await message.channel.send("❌ Invalid amount. Please enter a positive number.", delete_after=5)
+            return
+
+        async with bot.db_pool.acquire() as conn:
+            available = await conn.fetchval("""
+                SELECT quantity FROM user_materials
+                WHERE user_id = $1 AND material_id = $2
+            """, user_id, pending['material_id'])
+            if not available or available < qty:
+                await message.channel.send(f"❌ You only have {available or 0} of that item.", delete_after=5)
+                del pending_material_inputs[user_id]
+                return
+
+            await conn.execute("""
+                INSERT INTO trade_items (trade_id, user_id, item_type, item_id, gems, quantity)
+                VALUES ($1, $2, 'material', $3, 0, $4)
+            """, pending['trade_id'], user_id, pending['material_id'], qty)
+
+        try:
+            channel = bot.get_channel(pending['channel_id'])
+            if channel:
+                trade_msg = await channel.fetch_message(pending['message_id'])
+                await update_trade_embed(trade_msg, pending['trade_id'])
+        except Exception as e:
+            print(f"Error updating trade message: {e}")
+
+        await message.channel.send(f"✅ Added **{qty}** of that consumable to the trade.", delete_after=5)
+        del pending_material_inputs[user_id]
+        return
 
     # --- 2. Quiz answer handling ---
     if quiz_system.quiz_running and message.channel == quiz_system.quiz_channel:
@@ -4494,6 +4541,7 @@ class InventoryView(discord.ui.View):
 
 # Dictionary to track users who are in the middle of adding gems
 pending_gem_inputs = {}  # key: user_id (str), value: {"trade_id": int, "message_id": int, "channel_id": int, "expires": float}
+pending_material_inputs = {}  # key: user_id, value: {"trade_id": int, "material_id": int, "message_id": int, "channel_id": int, "expires": float}
 
 async def update_trade_embed(message: discord.Message, trade_id: int):
     """Fetch trade data and edit the given message with updated embed."""
@@ -4511,15 +4559,16 @@ async def update_trade_embed(message: discord.Message, trade_id: int):
     receiver_offers = []
 
     for it in items:
-        user_id = it['user_id']
-        if it['gems'] > 0:
-            offer = f"💎 {it['gems']} gems"
-        else:
-            offer = await get_trade_item_display(it['item_type'], it['item_id'])
-        if user_id == trade['initiator_id']:
-            initiator_offers.append(offer)
-        else:
-            receiver_offers.append(offer)
+            user_id = it['user_id']
+            if it['gems'] > 0:
+                offer = f"💎 {it['gems']} gems"
+            else:
+                qty = it.get('quantity', 1)
+                offer = await get_trade_item_display(it['item_type'], it['item_id'], qty)
+            if user_id == trade['initiator_id']:
+                initiator_offers.append(offer)
+            else:
+                receiver_offers.append(offer)
 
     embed = discord.Embed(title="🔄 Trade Session", color=discord.Color.blue())
     embed.add_field(
@@ -4570,8 +4619,8 @@ async def get_item_name(item_type: str, item_id: int) -> str:
             return row['name'] if row else "Unknown Material"
     return "Unknown"
 
-async def get_trade_item_display(item_type: str, item_id: int) -> str:
-    """Return a formatted string for a trade item, including emoji and stats."""
+async def get_trade_item_display(item_type: str, item_id: int, quantity: int = 1) -> str:
+    """Return a formatted string for a trade item, including emoji and stats. Quantity is used for materials."""
     async with bot.db_pool.acquire() as conn:
         if item_type == 'weapon':
             row = await conn.fetchrow("""
@@ -4583,7 +4632,6 @@ async def get_trade_item_display(item_type: str, item_id: int) -> str:
             if row:
                 emoji = get_item_emoji(row['name'], 'weapon')
                 return f"{emoji} **{row['name']}** (ATK {row['attack']})"
-
         elif item_type == 'armor':
             row = await conn.fetchrow("""
                 SELECT ua.defense, ua.hp_bonus, at.name
@@ -4595,7 +4643,6 @@ async def get_trade_item_display(item_type: str, item_id: int) -> str:
                 emoji = get_item_emoji(row['name'], 'armor')
                 hp = row['hp_bonus'] or 0
                 return f"{emoji} **{row['name']}** (DEF {row['defense']} | HP +{hp})"
-
         elif item_type == 'accessory':
             row = await conn.fetchrow("""
                 SELECT ua.bonus_value, at.name, at.bonus_stat
@@ -4607,7 +4654,6 @@ async def get_trade_item_display(item_type: str, item_id: int) -> str:
                 emoji = get_item_emoji(row['name'], 'accessory')
                 stat_display = row['bonus_stat'].upper()
                 return f"{emoji} **{row['name']}** (+{row['bonus_value']} {stat_display})"
-
         elif item_type == 'material':
             row = await conn.fetchrow("""
                 SELECT name FROM shop_items WHERE item_id = $1
@@ -4626,8 +4672,7 @@ async def get_trade_item_display(item_type: str, item_id: int) -> str:
                     emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
                 else:
                     emoji = '📦'
-                return f"{emoji} **{row['name']}** x1"
-
+                return f"{emoji} **{row['name']}** x{quantity}"
         elif item_type == 'pet':
             row = await conn.fetchrow("""
                 SELECT pt.name
@@ -4638,8 +4683,8 @@ async def get_trade_item_display(item_type: str, item_id: int) -> str:
             if row:
                 emoji = get_pet_emoji(row['name'])
                 return f"{emoji} **{row['name']}**"
-
     return "Unknown item"
+
 
 class TradeView(discord.ui.View):
     def __init__(self, trade_id: int, initiator_id: str, receiver_id: str, message_id: int):
@@ -4714,16 +4759,17 @@ class TradeView(discord.ui.View):
                             'material': 'user_materials'
                         }
                         if it['item_type'] == 'material':
-                            qty = await conn.fetchval("SELECT quantity FROM user_materials WHERE user_id = $1 AND material_id = $2", it['user_id'], it['item_id'])
-                            if qty and qty >= 1:
-                                await conn.execute("UPDATE user_materials SET quantity = quantity - 1 WHERE user_id = $1 AND material_id = $2", it['user_id'], it['item_id'])
+                            qty_in_trade = it['quantity']
+                            current_qty = await conn.fetchval("SELECT quantity FROM user_materials WHERE user_id = $1 AND material_id = $2", it['user_id'], it['item_id'])
+                            if current_qty and current_qty >= qty_in_trade:
+                                await conn.execute("UPDATE user_materials SET quantity = quantity - $1 WHERE user_id = $2 AND material_id = $3", qty_in_trade, it['user_id'], it['item_id'])
                                 new_owner = self.receiver_id if it['user_id'] == self.initiator_id else self.initiator_id
                                 await conn.execute("""
                                     INSERT INTO user_materials (user_id, material_id, quantity)
-                                    VALUES ($1, $2, 1)
+                                    VALUES ($1, $2, $3)
                                     ON CONFLICT (user_id, material_id) DO UPDATE
-                                    SET quantity = user_materials.quantity + 1
-                                """, new_owner, it['item_id'])
+                                    SET quantity = user_materials.quantity + $3
+                                """, new_owner, it['item_id'], qty_in_trade)
                         else:
                             new_owner = self.receiver_id if it['user_id'] == self.initiator_id else self.initiator_id
                             await conn.execute(f"UPDATE {table_map[it['item_type']]} SET user_id = $1 WHERE id = $2", new_owner, it['item_id'])
@@ -4928,25 +4974,31 @@ class ItemPaginationView(discord.ui.View):
         select = self.children[0]
         value = select.values[0]
         cat, item_id = value.split(':')
+        item_id = int(item_id)
+
+        if cat == 'material':
+            pending_material_inputs[str(interaction.user.id)] = {
+                "trade_id": self.trade_view.trade_id,
+                "material_id": item_id,
+                "message_id": self.trade_view.message_id,
+                "channel_id": interaction.channel.id,
+                "expires": time.time() + 60
+            }
+            await interaction.response.send_message(
+                "💬 Please type the amount you want to add (within 60 seconds).",
+                ephemeral=True
+            )
+            return
+
         async with bot.db_pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO trade_items (trade_id, user_id, item_type, item_id)
-                VALUES ($1, $2, $3, $4)
-            """, self.trade_view.trade_id, self.user_id, cat, int(item_id))
-        await interaction.response.send_message(f"✅ {self.category.capitalize()} added to trade.", ephemeral=True)
+                INSERT INTO trade_items (trade_id, user_id, item_type, item_id, gems, quantity)
+                VALUES ($1, $2, $3, $4, 0, 1)
+            """, self.trade_view.trade_id, str(interaction.user.id), cat, item_id)
+
+        await interaction.response.send_message(f"✅ {cat.capitalize()} added to trade.", ephemeral=True)
         if self.trade_view.message:
             await update_trade_embed(self.trade_view.message, self.trade_view.trade_id)
-
-    async def prev_page(self, interaction: discord.Interaction):
-        self.page -= 1
-        self.update_buttons()
-        await interaction.response.edit_message(view=self)
-
-    async def next_page(self, interaction: discord.Interaction):
-        self.page += 1
-        self.update_buttons()
-        await interaction.response.edit_message(view=self)
-
 
 
 @bot.command(name='trade')
