@@ -824,30 +824,6 @@ async def upgrade_skill(ctx):
     await ctx.send(f"✅ Your **{wname}**'s skill is now **Level {current_level + 1}**!")
 
 
-@bot.command(name='respawn')
-async def check_respawn(ctx):
-    """Check your respawn time."""
-    user_id = str(ctx.author.id)
-    async with bot.db_pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT hp, respawn_at FROM player_stats WHERE user_id = $1", user_id)
-    if not row:
-        await ctx.send("No stats found.")
-        return
-    hp = row['hp']
-    respawn = row['respawn_at']
-    if hp > 0:
-        await ctx.send(f"Your HP is {hp}. You are alive.")
-    else:
-        if respawn:
-            # Ensure respawn is timezone-aware (assume UTC if naive)
-            if respawn.tzinfo is None:
-                respawn = respawn.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            remaining = respawn - now
-            await ctx.send(f"You are dead. Respawn at {respawn} (in {remaining})")
-        else:
-            await ctx.send("You are dead but no respawn time set!")
-
 
 # LOG TO DISCORD--------------
 async def log_to_discord(bot, message, level="INFO", error=None):
@@ -3964,19 +3940,35 @@ async def process_effects():
         traceback.print_exc()
 
 @tasks.loop(minutes=1)
-async def respawn_task():
+async def respawn_task(self):
     try:
-        async with bot.db_pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE player_stats
-                SET hp = max_hp, respawn_at = NULL
+        async with self.bot.db_pool.acquire() as conn:
+            # Get all users whose respawn time has passed
+            dead_users = await conn.fetch("""
+                SELECT user_id FROM player_stats
                 WHERE respawn_at IS NOT NULL AND respawn_at <= NOW() AT TIME ZONE 'UTC'
             """)
-
+        for dead in dead_users:
+            user_id = dead['user_id']
+            # Get dynamic stats (includes pet bonuses)
+            stats = await get_player_stats(user_id)
+            # Update to full HP and full energy (dynamic max)
+            async with self.bot.db_pool.acquire() as conn2:
+                await conn2.execute("""
+                    UPDATE player_stats
+                    SET hp = $1, energy = $2, respawn_at = NULL
+                    WHERE user_id = $3
+                """, stats['max_hp'], stats['max_energy'], user_id)
         print("respawn_task tick")
     except Exception as e:
         print(f"❌ respawn_task error: {e}")
         traceback.print_exc()
+
+@respawn_task.before_loop
+async def before_respawn_task():
+    await bot.wait_until_ready()
+    while bot.db_pool is None:
+        await asyncio.sleep(1)
 
 # === BOT STARTUP ===
 @bot.event
@@ -8559,25 +8551,30 @@ class CullingGame(commands.Cog):
     # ------------------------------------------------------------------
     @tasks.loop(hours=1)
     async def energy_regen(self):
-        """Give 1 energy every hour to all players (up to max)."""
-        async with self.bot.db_pool.acquire() as conn:
-            rows = await conn.fetch("""
-                SELECT user_id, energy, max_energy, last_energy_regen
-                FROM player_stats
-                WHERE energy < max_energy
-            """)
-            now = datetime.utcnow()  # naive UTC
-            for row in rows:
-                last = row['last_energy_regen']
-                if last.tzinfo is not None:
-                    last = last.replace(tzinfo=None)
-                if (now - last) >= timedelta(hours=1):
-                    new_energy = min(row['energy'] + 1, row['max_energy'])
-                    await conn.execute("""
-                        UPDATE player_stats
-                        SET energy = $1, last_energy_regen = $2
-                        WHERE user_id = $3
-                    """, new_energy, now, row['user_id'])
+        try:
+            async with self.bot.db_pool.acquire() as conn:
+                alive = await conn.fetch("SELECT user_id FROM player_stats WHERE hp > 0")
+            now = datetime.utcnow()
+            for player in alive:
+                user_id = player['user_id']
+                stats = await get_player_stats(user_id)
+                if stats['energy'] < stats['max_energy']:
+                    async with self.bot.db_pool.acquire() as conn2:
+                        last = await conn2.fetchval("SELECT last_energy_regen FROM player_stats WHERE user_id = $1", user_id)
+                    if last.tzinfo is not None:
+                        last = last.replace(tzinfo=None)
+                    if (now - last) >= timedelta(hours=1):
+                        new_energy = stats['energy'] + 1
+                        async with self.bot.db_pool.acquire() as conn3:
+                            await conn3.execute("""
+                                UPDATE player_stats
+                                SET energy = $1, last_energy_regen = $2
+                                WHERE user_id = $3
+                            """, new_energy, now, user_id)
+            print("energy_regen tick")
+        except Exception as e:
+            print(f"❌ energy_regen error: {e}")
+            traceback.print_exc()
 
     @energy_regen.before_loop
     async def before_energy_regen(self):
