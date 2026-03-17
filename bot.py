@@ -3940,9 +3940,10 @@ async def process_effects():
         traceback.print_exc()
 
 @tasks.loop(minutes=1)
-async def respawn_task(self):
+async def respawn_task():
+    """Respawn dead players with full HP and energy."""
     try:
-        async with self.bot.db_pool.acquire() as conn:
+        async with bot.db_pool.acquire() as conn:
             # Get all users whose respawn time has passed
             dead_users = await conn.fetch("""
                 SELECT user_id FROM player_stats
@@ -3953,7 +3954,7 @@ async def respawn_task(self):
             # Get dynamic stats (includes pet bonuses)
             stats = await get_player_stats(user_id)
             # Update to full HP and full energy (dynamic max)
-            async with self.bot.db_pool.acquire() as conn2:
+            async with bot.db_pool.acquire() as conn2:
                 await conn2.execute("""
                     UPDATE player_stats
                     SET hp = $1, energy = $2, respawn_at = NULL
