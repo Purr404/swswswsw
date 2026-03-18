@@ -10194,9 +10194,10 @@ async def get_player_stats(user_id: str):
     if title_bonuses:
         atk = int(atk * (1 + title_bonuses['atk_percent'] / 100))
         defense = int(defense * (1 + title_bonuses['def_percent'] / 100))
-        flat_hp += int(BASE_HP * title_bonuses['hp_percent'] / 100)   # % of base HP
+        # Title HP% is a multiplier applied after sets and pet
+        title_hp_mult = 1 + title_bonuses['hp_percent'] / 100
         crit_chance += title_bonuses['crit_chance']
-        dodge += title_bonuses['dodge_percent']        
+        dodge += title_bonuses['dodge_percent']
         bleed_flat_bonus += title_bonuses['bleed_flat']
         burn_flat_bonus += title_bonuses['burn_flat']
         crit_dmg_res = title_bonuses['crit_dmg_res_percent']
@@ -10206,6 +10207,7 @@ async def get_player_stats(user_id: str):
         extra_plunder_attempts = title_bonuses['extra_plunder_attempts']
         equipped_title = (title_bonuses['name'], title_bonuses['emoji'])
     else:
+        title_hp_mult = 1.0
         crit_dmg_res = 0
         mining_bonus_percent = 0
         boss_damage_percent = 0
@@ -10213,18 +10215,18 @@ async def get_player_stats(user_id: str):
         extra_plunder_attempts = 0
         equipped_title = None
 
-    # --- Recompute max HP after all flat bonuses (including title) ---
-    max_hp = BASE_HP + flat_hp
+    # --- Final max HP (after all bonuses) ---
+    max_hp_after_title = int(max_hp_after_pet * title_hp_mult)
+    max_hp = max_hp_after_title
     current_hp = row['hp']
     if current_hp > max_hp:
         current_hp = max_hp
 
-    # --- Adjust max energy with pet bonus (title may add energy later) ---
+    # --- Adjust max energy with pet bonus ---
     max_energy = row['max_energy'] + energy_bonus
     current_energy = row['energy']
     if current_energy > max_energy:
         current_energy = max_energy
-
 
     # --- Active buffs ---
     async with bot.db_pool.acquire() as conn:
