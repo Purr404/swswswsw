@@ -641,6 +641,17 @@ async def check_emojis(ctx):
     
     await ctx.send(embed=embed)
 
+@bot.command(name='fixbossreaper')
+@commands.has_permissions(administrator=True)
+async def fix_boss_reaper(ctx):
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE titles SET emoji = '<:boss_reaper:1483707209090334820>'
+            WHERE name = 'Boss Reaper'
+        """)
+    await ctx.send("✅ Fixed Boss Reaper emoji. It should now display correctly everywhere.")
+
+
 @bot.command()
 async def testpartial(ctx):
     view = discord.ui.View()
