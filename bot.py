@@ -5256,6 +5256,11 @@ async def build_profile_embed(user_id: str, member: discord.Member):
             WHERE up.user_id = $1 AND up.equipped = TRUE
         """, user_id)
 
+    # ===== TITLE BONUSES =====
+    title_bonuses = await get_equipped_title_bonuses(user_id)
+    title_emoji = title_bonuses['emoji'] if title_bonuses else None
+    boss_dmg_percent = title_bonuses['boss_damage_percent'] if title_bonuses else 0
+
     # --- Flat stats from gear ---
     total_atk = 0
     total_def = BASE_DEF
@@ -5332,7 +5337,7 @@ async def build_profile_embed(user_id: str, member: discord.Member):
                 hp_mult *= 1.15
             elif sname == 'angel':
                 crit_chance_add += 15
-                total_bleed_damage += 20 
+                total_bleed_damage += 20
                 hp_mult *= 1.15
 
     # Apply set multipliers
@@ -5378,7 +5383,11 @@ async def build_profile_embed(user_id: str, member: discord.Member):
         current_energy = max_energy
 
     # ===== BUILD EMBED =====
-    embed = discord.Embed(title=f"**{member.display_name}'s Profile**", color=discord.Color.gold())
+    title_suffix = f" {title_emoji}" if title_emoji else ""
+    embed = discord.Embed(
+        title=f"**{member.display_name}'s Profile**{title_suffix}",
+        color=discord.Color.gold()
+    )
     embed.set_thumbnail(url=member.display_avatar.url)
 
     hp_percent = (current_hp / max_hp) * 10
@@ -5406,6 +5415,8 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     ]
     if pet_dodge > 0:
         stats_lines.append(f"**Dodge:** {pet_dodge}%")
+    if boss_dmg_percent > 0:
+        stats_lines.append(f"**Boss DMG:** +{boss_dmg_percent}%")
     embed.add_field(name="**STATS**", value="\n".join(stats_lines), inline=False)
 
     def slot_emoji(slot, item=None):
@@ -5440,7 +5451,6 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     embed.add_field(name="**Equipped Gears**", value=f"{row1}\n{row2}\n{row3}", inline=False)
 
     return embed
-
 
 @bot.command(name='myprofile')
 async def my_profile(ctx):
@@ -9987,7 +9997,16 @@ class AttackView(discord.ui.View):
         a_user = bot.get_user(int(self.attacker_id))
         d_user = bot.get_user(int(self.defender_id))
 
-        embed = discord.Embed(title=f"{a_user.display_name} vs {d_user.display_name}", color=discord.Color.red())
+        # Get title emoji if equipped
+        a_title = a_stats.get('equipped_title')
+        d_title = d_stats.get('equipped_title')
+        a_title_emoji = f" {a_title[1]}" if a_title else ""
+        d_title_emoji = f" {d_title[1]}" if d_title else ""
+
+        embed = discord.Embed(
+            title=f"{a_user.display_name}{a_title_emoji} vs {d_user.display_name}{d_title_emoji}",
+            color=discord.Color.red()
+        )
         embed.set_thumbnail(url=a_user.display_avatar.url)
 
         def hp_bar(current, max_hp):
@@ -10108,7 +10127,7 @@ async def get_player_stats(user_id: str):
     atk_mult = 1.0
     def_mult = 1.0
     hp_mult = 1.0
-    reflect_add = 0  # reflect from armor set is flat addition
+    reflect_add = 0
     crit_chance_add = 0
     crit_damage_add = 0
 
@@ -10145,15 +10164,14 @@ async def get_player_stats(user_id: str):
                 hp_mult *= 1.15
             elif sname == 'angel':
                 crit_chance_add += 15
-                bleed_damage += 20  
+                bleed_damage += 20
                 hp_mult *= 1.15
 
     # Apply multipliers to flat stats
     atk = int(atk * atk_mult)
     defense = int(defense * def_mult)
     # HP multiplier applies to the total gear HP (including base)
-    max_hp_no_pet = int(hp_from_gear * hp_mult)
-    # Add the flat reflect and crit bonuses
+    max_hp_after_sets = int(hp_from_gear * hp_mult)   # HP after sets
     reflect += reflect_add
     crit_chance += crit_chance_add
     crit_damage += crit_damage_add
@@ -10184,17 +10202,27 @@ async def get_player_stats(user_id: str):
         bleed_flat_bonus = pet['bleed_flat']
         burn_flat_bonus = pet['burn_flat']
 
-    # Apply pet multipliers (after sets)
+    # Apply pet multipliers
     atk = int(atk * pet_atk_mult)
     defense = int(defense * pet_def_mult)
-    max_hp = int(max_hp_no_pet * pet_hp_mult)
+    max_hp_after_pet = int(max_hp_after_sets * pet_hp_mult)   # HP after sets and pet
 
     # ========== TITLE BONUSES ==========
+    # Initialize title variables with defaults
+    title_atk_mult = 1.0
+    title_def_mult = 1.0
+    title_hp_mult = 1.0
+    crit_dmg_res = 0
+    mining_bonus_percent = 0
+    boss_damage_percent = 0
+    extra_boss_attempts = 0
+    extra_plunder_attempts = 0
+    equipped_title = None
+
     title_bonuses = await get_equipped_title_bonuses(user_id)
     if title_bonuses:
-        atk = int(atk * (1 + title_bonuses['atk_percent'] / 100))
-        defense = int(defense * (1 + title_bonuses['def_percent'] / 100))
-        # Title HP% is a multiplier applied after sets and pet
+        title_atk_mult = 1 + title_bonuses['atk_percent'] / 100
+        title_def_mult = 1 + title_bonuses['def_percent'] / 100
         title_hp_mult = 1 + title_bonuses['hp_percent'] / 100
         crit_chance += title_bonuses['crit_chance']
         dodge += title_bonuses['dodge_percent']
@@ -10206,18 +10234,12 @@ async def get_player_stats(user_id: str):
         extra_boss_attempts = title_bonuses['extra_boss_attempts']
         extra_plunder_attempts = title_bonuses['extra_plunder_attempts']
         equipped_title = (title_bonuses['name'], title_bonuses['emoji'])
-    else:
-        title_hp_mult = 1.0
-        crit_dmg_res = 0
-        mining_bonus_percent = 0
-        boss_damage_percent = 0
-        extra_boss_attempts = 0
-        extra_plunder_attempts = 0
-        equipped_title = None
 
-    # --- Final max HP (after all bonuses) ---
-    max_hp_after_title = int(max_hp_after_pet * title_hp_mult)
-    max_hp = max_hp_after_title
+    # Apply title multipliers
+    atk = int(atk * title_atk_mult)
+    defense = int(defense * title_def_mult)
+    max_hp = int(max_hp_after_pet * title_hp_mult)   # Final HP after all multipliers
+
     current_hp = row['hp']
     if current_hp > max_hp:
         current_hp = max_hp
