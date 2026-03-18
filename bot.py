@@ -188,8 +188,9 @@ CUSTOM_EMOJIS = {
     'armors_enhancement_stone': '<:armors_enhancement_stone:1480856847727726592>',
     'sword_enhancement_stone': '<:sword_enhancement_stone:1480855437388681226>',
     'acc_enhancement_stone': '<:acc_enhancement_stone:1480916604203171870>',
-
-
+    # Titles
+    'administrator': '<:administrator:1470082908151742536>',
+    'boss_reaper': '<:boss_reaper:1483707209090334820>',
 }
 
 
@@ -376,6 +377,41 @@ def get_pet_emoji(pet_name: str) -> str:
         return '✨'
     return '🐾'
 
+# 🔽 INSERT THE NEW HELPER HERE 🔽
+async def get_equipped_title_bonuses(user_id: str) -> dict:
+    """Return a dict of stat bonuses from the user's equipped title."""
+    async with bot.db_pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT t.hp_percent, t.def_percent, t.atk_percent,
+                   t.crit_chance, t.dodge_percent, t.dmg_reduction_percent,
+                   t.bleed_flat, t.burn_flat, t.crit_dmg_res_percent,
+                   t.mining_bonus_percent, t.boss_damage_percent,
+                   t.extra_boss_attempts, t.extra_plunder_attempts,
+                   t.name, t.emoji
+            FROM titles t
+            JOIN user_titles ut ON t.title_id = ut.title_id
+            WHERE ut.user_id = $1 AND ut.equipped = TRUE
+        """, user_id)
+    if row:
+        return {
+            'hp_percent': row['hp_percent'],
+            'def_percent': row['def_percent'],
+            'atk_percent': row['atk_percent'],
+            'crit_chance': row['crit_chance'],
+            'dodge_percent': row['dodge_percent'],
+            'dmg_reduction_percent': row['dmg_reduction_percent'],
+            'bleed_flat': row['bleed_flat'],
+            'burn_flat': row['burn_flat'],
+            'crit_dmg_res_percent': row['crit_dmg_res_percent'],
+            'mining_bonus_percent': row['mining_bonus_percent'],
+            'boss_damage_percent': row['boss_damage_percent'],
+            'extra_boss_attempts': row['extra_boss_attempts'],
+            'extra_plunder_attempts': row['extra_plunder_attempts'],
+            'name': row['name'],
+            'emoji': row['emoji'] or '🏷️'
+        }
+    return None
+
 # ============================================================
 
 async def debug_log(self, message: str):
@@ -448,6 +484,22 @@ async def clean_old_trades():
             DELETE FROM active_trades
             WHERE status = 'pending' AND created_at < NOW() - INTERVAL '1 hour'
         """)
+
+@bot.command(name='givetitle')
+@commands.has_permissions(administrator=True)
+async def give_title(ctx, member: discord.Member, *, title_name: str):
+    """Give a title to a user (admin only)."""
+    user_id = str(member.id)
+    async with bot.db_pool.acquire() as conn:
+        title = await conn.fetchrow("SELECT title_id FROM titles WHERE name = $1", title_name)
+        if not title:
+            await ctx.send("❌ Title not found.")
+            return
+        await conn.execute("""
+            INSERT INTO user_titles (user_id, title_id) VALUES ($1, $2)
+            ON CONFLICT (user_id, title_id) DO NOTHING
+        """, user_id, title['title_id'])
+    await ctx.send(f"✅ Gave **{title_name}** to {member.mention}.")
 
 @bot.command(name='mypendingtrades')
 async def my_pending_trades(ctx):
@@ -1489,6 +1541,24 @@ class DatabaseSystem:
                         CHECK (type IN ('role', 'color', 'weapon', 'random_weapon_box',
                                         'random_gear_box', 'random_accessories_box', 'pickaxe', 'material', 'potion', 'random_pet_box'));
                     """)
+
+                    # 🔽 ADD TITLES SEED HERE 🔽
+                    await conn.execute("""
+                        INSERT INTO titles (name, emoji, description,
+                                            boss_damage_percent, extra_boss_attempts,
+                                            hp_percent, def_percent, atk_percent,
+                                            crit_chance, dodge_percent, dmg_reduction_percent,
+                                            crit_dmg_res_percent, mining_bonus_percent,
+                                            bleed_flat, burn_flat)
+                        VALUES
+                        ('Boss Reaper', '<:boss_reaper:1483707209090334820>', 'Earned by being the top damage dealer in the server boss.',
+                         5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                        ('Administrator', '<:administrator:1470082908151742536>', 'Exclusive title for server administrators.',
+                         100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 5000, 5000)
+                        ON CONFLICT (name) DO NOTHING;
+                    """)
+                    # 🔼 END TITLES SEED
+
                     # ========== CREATE INDEXES ==========
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_purchases_user ON user_purchases(user_id)')
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_weapons_user ON user_weapons(user_id)')
@@ -4262,27 +4332,37 @@ class CategoryView(discord.ui.View):
         end = min(start + self.items_per_page, len(items))
         page_items = items[start:end]
 
-        if item_type == 'material':
+        if item_type == 'material' or item_type == 'mixed':
             for i, item in enumerate(page_items):
-                name_lower = item['name'].lower()
-                # Potions
-                if 'hp potion' in name_lower:
-                    emoji = CUSTOM_EMOJIS.get('hp_potion')
-                elif 'energy potion' in name_lower:
-                    emoji = CUSTOM_EMOJIS.get('energy_potion')
-                elif 'sword' in name_lower:
-                    emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone', '💎')
-                elif 'armor' in name_lower:
-                    emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone', '💎')
-                elif 'accessories' in name_lower:
-                    emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone', '💎')
+                # Check if it's a title (by looking for 'category' or 'title_id')
+                if item.get('category') == 'title' or 'title_id' in item:
+                    # Title button
+                    emoji = item.get('emoji') or '👑'
+                    label = item['name']
+                    custom_id = f"inv_title_{item['id']}"
                 else:
-                    emoji = '📦'
+                    # Material button – using your exact logic (no fallback)
+                    name_lower = item['name'].lower()
+                    if 'hp potion' in name_lower:
+                        emoji = CUSTOM_EMOJIS.get('hp_potion')
+                    elif 'energy potion' in name_lower:
+                        emoji = CUSTOM_EMOJIS.get('energy_potion')
+                    elif 'sword' in name_lower:
+                        emoji = CUSTOM_EMOJIS.get('sword_enhancement_stone')
+                    elif 'armor' in name_lower:
+                        emoji = CUSTOM_EMOJIS.get('armors_enhancement_stone')
+                    elif 'accessories' in name_lower:
+                        emoji = CUSTOM_EMOJIS.get('acc_enhancement_stone')
+                    else:
+                        emoji = '📦'
+                    label = f"x{item['quantity']}"
+                    custom_id = f"inv_material_{item['material_id']}"
+
                 button = discord.ui.Button(
-                    label=f"x{item['quantity']}",
+                    label=label,
                     emoji=emoji,
                     style=discord.ButtonStyle.secondary,
-                    custom_id=f"inv_material_{item['material_id']}",
+                    custom_id=custom_id,
                     row=i // 5
                 )
                 self.add_item(button)
@@ -4361,7 +4441,7 @@ class InventoryView(discord.ui.View):
             style=discord.ButtonStyle.primary,
             custom_id="inventory_materials",
             row=0
-        ))
+        ))    
         self.add_item(discord.ui.Button(
             label="🔄", 
             style=discord.ButtonStyle.secondary, 
@@ -4551,14 +4631,44 @@ class InventoryView(discord.ui.View):
             if interaction.user.id != int(self.user_id):
                 await interaction.followup.send("Not your inventory!", ephemeral=True)
                 return
+
+            # Fetch materials
             materials = self.inventory.get('materials', [])
-            if not materials:
-                await interaction.followup.send("You have no consumables!", ephemeral=True)
+            # Fetch titles from database
+            async with self.cog.bot.db_pool.acquire() as conn:
+                titles = await conn.fetch("""
+                    SELECT t.title_id as id, t.name, t.emoji,
+                           ut.equipped, t.hp_percent, t.def_percent,
+                           t.atk_percent, t.crit_chance, t.dodge_percent,
+                           t.dmg_reduction_percent, t.bleed_flat, t.burn_flat,
+                           t.crit_dmg_res_percent, t.mining_bonus_percent,
+                           t.boss_damage_percent, t.extra_boss_attempts,
+                           t.extra_plunder_attempts
+                    FROM titles t
+                    JOIN user_titles ut ON t.title_id = ut.title_id
+                    WHERE ut.user_id = $1
+                    ORDER BY ut.equipped DESC, t.name
+                """, self.user_id)
+
+            # Build combined list with category markers
+            combined = []
+            for m in materials:
+                m_dict = dict(m)
+                m_dict['category'] = 'material'
+                combined.append(m_dict)
+            for t in titles:
+                t_dict = dict(t)
+                t_dict['category'] = 'title'
+                combined.append(t_dict)
+
+            if not combined:
+                await interaction.followup.send("You have no consumables or titles!", ephemeral=True)
                 return
-            # Use the custom emoji string in the embed title (works in embeds)
+
+            # Use your custom energy emoji in the title
             energy_emoji = CUSTOM_EMOJIS.get('energy_potion', '🧪')
-            embed = discord.Embed(title=f"{energy_emoji} **Consumables**", color=discord.Color.light_grey())
-            view = CategoryView(self.user_id, materials, 'material', self)
+            embed = discord.Embed(title=f"{energy_emoji} **Consumables & Titles**", color=discord.Color.light_grey())
+            view = CategoryView(self.user_id, combined, 'mixed', self)
             await interaction.edit_original_response(embed=embed, view=view)
         except Exception as e:
             print(f"Error in show_materials: {e}")
@@ -5867,6 +5977,14 @@ class Shop(commands.Cog):
             if len(parts) >= 3:
                 material_id = int(parts[2])
                 await self.handle_material_selection(interaction, material_id)
+        elif custom_id.startswith("inv_title_"):
+            parts = custom_id.split('_')
+            if len(parts) >= 3:
+                title_id = int(parts[2])
+                await self.handle_title_selection(interaction, title_id)
+
+        elif custom_id == "item_back_materials":
+            await self.handle_inventory_action(interaction, "materials")
 
         elif custom_id == "back_to_materials":
             await self.handle_inventory_action(interaction, "materials")
@@ -6546,6 +6664,13 @@ class Shop(commands.Cog):
                     """, item_id)
                     item = item_row if item_row else "Unknown"
 
+                elif item_type == 'title':
+                    # Unequip all titles
+                    await conn.execute("UPDATE user_titles SET equipped = FALSE WHERE user_id = $1", user_id)
+                    # Equip selected title
+                    await conn.execute("UPDATE user_titles SET equipped = TRUE WHERE user_id = $1 AND title_id = $2", user_id, item_id)
+                    item = await conn.fetchval("SELECT name FROM titles WHERE title_id = $1", item_id)
+
                 # ===== NEW PET BRANCH =====
                 elif item_type == 'pet':
                     # Unequip all pets
@@ -6694,6 +6819,10 @@ class Shop(commands.Cog):
                         WHERE ua.id = $1
                     """, item_id)
                     item = item_row if item_row else "Unknown"
+
+                elif item_type == 'title':
+                    await conn.execute("UPDATE user_titles SET equipped = FALSE WHERE user_id = $1 AND title_id = $2", user_id, item_id)
+                    item = await conn.fetchval("SELECT name FROM titles WHERE title_id = $1", item_id)
 
                 # ===== NEW PET BRANCH =====
                 elif item_type == 'pet':
@@ -6899,6 +7028,97 @@ class Shop(commands.Cog):
         view.add_item(discord.ui.Button(label="🔙", style=discord.ButtonStyle.secondary, custom_id="back_to_materials", row=0))
 
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+    async def handle_title_selection(self, interaction: discord.Interaction, title_id: int):
+        user_id = str(interaction.user.id)
+        await interaction.response.defer(ephemeral=False)
+
+        async with self.bot.db_pool.acquire() as conn:
+            title = await conn.fetchrow("""
+                SELECT t.title_id, t.name, t.emoji, t.description,
+                       t.hp_percent, t.def_percent, t.atk_percent,
+                       t.crit_chance, t.dodge_percent, t.dmg_reduction_percent,
+                       t.bleed_flat, t.burn_flat, t.crit_dmg_res_percent,
+                       t.mining_bonus_percent, t.boss_damage_percent,
+                       t.extra_boss_attempts, t.extra_plunder_attempts,
+                       ut.equipped
+                FROM titles t
+                JOIN user_titles ut ON t.title_id = ut.title_id
+                WHERE t.title_id = $1 AND ut.user_id = $2
+            """, title_id, user_id)
+
+        if not title:
+            await interaction.followup.send("Title not found.", ephemeral=True)
+            return
+
+        emoji = title['emoji'] or '👑'
+        embed = discord.Embed(
+            title=f"{emoji} **{title['name']}**",
+            description=title['description'] or "No description.",
+            color=discord.Color.gold()
+        )
+
+        stats = []
+        if title['hp_percent']:
+            stats.append(f"HP +{title['hp_percent']}%")
+        if title['def_percent']:
+            stats.append(f"DEF +{title['def_percent']}%")
+        if title['atk_percent']:
+            stats.append(f"ATK +{title['atk_percent']}%")
+        if title['crit_chance']:
+            stats.append(f"Crit Chance +{title['crit_chance']}%")
+        if title['dodge_percent']:
+            stats.append(f"Dodge +{title['dodge_percent']}%")
+        if title['dmg_reduction_percent']:
+            stats.append(f"Damage Reduction +{title['dmg_reduction_percent']}%")
+        if title['bleed_flat']:
+            stats.append(f"Bleed +{title['bleed_flat']}")
+        if title['burn_flat']:
+            stats.append(f"Burn +{title['burn_flat']}")
+        if title['crit_dmg_res_percent']:
+            stats.append(f"Crit DMG RES +{title['crit_dmg_res_percent']}%")
+        if title['mining_bonus_percent']:
+            stats.append(f"Mining Bonus +{title['mining_bonus_percent']}%")
+        if title['boss_damage_percent']:
+            stats.append(f"Boss DMG +{title['boss_damage_percent']}%")
+        if title['extra_boss_attempts']:
+            stats.append(f"+{title['extra_boss_attempts']} Boss Attempts")
+        if title['extra_plunder_attempts']:
+            stats.append(f"+{title['extra_plunder_attempts']} Plunder Attempts")
+
+        if stats:
+            embed.add_field(name="Stats", value="\n".join(stats), inline=False)
+        else:
+            embed.add_field(name="Stats", value="No bonuses.", inline=False)
+
+        status = "✅ **EQUIPPED**" if title['equipped'] else "❌ **NOT EQUIPPED**"
+        embed.add_field(name="Status", value=status, inline=False)
+
+        view = discord.ui.View(timeout=60)
+        if title['equipped']:
+            view.add_item(discord.ui.Button(
+                label="Unequip",
+                style=discord.ButtonStyle.danger,
+                custom_id=f"unequip_title_{title_id}",
+                row=0
+            ))
+        else:
+            view.add_item(discord.ui.Button(
+                label="Equip",
+                style=discord.ButtonStyle.success,
+                custom_id=f"equip_title_{title_id}",
+                row=0
+            ))
+        view.add_item(discord.ui.Button(
+            label="🔙",
+            style=discord.ButtonStyle.secondary,
+            custom_id="item_back_materials",
+            row=1
+        ))
+
+        await interaction.edit_original_response(embed=embed, view=view)
+
 
 
     async def handle_back_to_category(self, interaction: discord.Interaction, item_type: str):
@@ -9969,15 +10189,42 @@ async def get_player_stats(user_id: str):
     defense = int(defense * pet_def_mult)
     max_hp = int(max_hp_no_pet * pet_hp_mult)
 
-    # --- Current HP and energy ---
+    # ========== TITLE BONUSES ==========
+    title_bonuses = await get_equipped_title_bonuses(user_id)
+    if title_bonuses:
+        atk = int(atk * (1 + title_bonuses['atk_percent'] / 100))
+        defense = int(defense * (1 + title_bonuses['def_percent'] / 100))
+        flat_hp += int(BASE_HP * title_bonuses['hp_percent'] / 100)   # % of base HP
+        crit_chance += title_bonuses['crit_chance']
+        dodge += title_bonuses['dodge_percent']        
+        bleed_flat_bonus += title_bonuses['bleed_flat']
+        burn_flat_bonus += title_bonuses['burn_flat']
+        crit_dmg_res = title_bonuses['crit_dmg_res_percent']
+        mining_bonus_percent = title_bonuses['mining_bonus_percent']
+        boss_damage_percent = title_bonuses['boss_damage_percent']
+        extra_boss_attempts = title_bonuses['extra_boss_attempts']
+        extra_plunder_attempts = title_bonuses['extra_plunder_attempts']
+        equipped_title = (title_bonuses['name'], title_bonuses['emoji'])
+    else:
+        crit_dmg_res = 0
+        mining_bonus_percent = 0
+        boss_damage_percent = 0
+        extra_boss_attempts = 0
+        extra_plunder_attempts = 0
+        equipped_title = None
+
+    # --- Recompute max HP after all flat bonuses (including title) ---
+    max_hp = BASE_HP + flat_hp
     current_hp = row['hp']
     if current_hp > max_hp:
         current_hp = max_hp
 
+    # --- Adjust max energy with pet bonus (title may add energy later) ---
     max_energy = row['max_energy'] + energy_bonus
     current_energy = row['energy']
     if current_energy > max_energy:
         current_energy = max_energy
+
 
     # --- Active buffs ---
     async with bot.db_pool.acquire() as conn:
@@ -10004,8 +10251,13 @@ async def get_player_stats(user_id: str):
         'dodge': dodge,
         'bleed_flat_bonus': bleed_flat_bonus,
         'burn_flat_bonus': burn_flat_bonus,
+        'crit_dmg_res': crit_dmg_res,
+        'mining_bonus_percent': mining_bonus_percent,
+        'boss_damage_percent': boss_damage_percent,
+        'extra_boss_attempts': extra_boss_attempts,
+        'extra_plunder_attempts': extra_plunder_attempts,
+        'equipped_title': equipped_title,
     }
-
 
 async def update_player_hp(user_id: str, new_hp: int):
     async with bot.db_pool.acquire() as conn:
@@ -10598,6 +10850,22 @@ async def perform_boss_reset():
 
         # --- Pick a new random boss image ---
         new_image_url = random.choice(BOSS_IMAGES) if BOSS_IMAGES else None
+
+            # 🔽 INSERT TITLE AWARD HERE 🔽
+            top_user_id = rankings[0]['user_id']
+            async with bot.db_pool.acquire() as conn_title:
+                title_id = await conn_title.fetchval("SELECT title_id FROM titles WHERE name = 'Boss Reaper'")
+                if title_id:
+                    await conn_title.execute("""
+                        INSERT INTO user_titles (user_id, title_id) VALUES ($1, $2)
+                        ON CONFLICT (user_id, title_id) DO NOTHING
+                    """, top_user_id, title_id)
+                    try:
+                        user = await bot.fetch_user(int(top_user_id))
+                        if user:
+                            await user.send("🏆 Congratulations! You were the top damage dealer in the Server Boss and received the **Boss Reaper** title!")
+                    except:
+                        pass
 
         # --- Reset boss HP and update image ---
         async with bot.db_pool.acquire() as conn3:
