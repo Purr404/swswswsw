@@ -646,11 +646,19 @@ async def check_emojis(ctx):
 async def fix_boss_reaper(ctx):
     async with bot.db_pool.acquire() as conn:
         await conn.execute("""
-            UPDATE titles SET emoji = '<:boss_reaper:1483707209090334820>'
-            WHERE name = 'Boss Reaper'
+            INSERT INTO titles (name, emoji, description,
+                                boss_damage_percent, extra_boss_attempts, hp_percent)
+            VALUES ('Boss Reaper', '<:boss_reaper:1483707209090334820>',
+                    'Earned by being the top damage dealer in the server boss. Lasts 24 hours.',
+                    5, 1, 10)
+            ON CONFLICT (name) DO UPDATE SET
+                boss_damage_percent = 5,
+                extra_boss_attempts = 1,
+                hp_percent = 10,
+                emoji = '<:boss_reaper:1483707209090334820>',
+                description = 'Earned by being the top damage dealer in the server boss. Lasts 24 hours.';
         """)
-    await ctx.send("✅ Fixed Boss Reaper emoji. It should now display correctly everywhere.")
-
+    await ctx.send("✅ Boss Reaper title updated with correct stats and expiration description.")
 
 @bot.command()
 async def testpartial(ctx):
