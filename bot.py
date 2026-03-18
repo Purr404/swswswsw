@@ -1562,9 +1562,9 @@ class DatabaseSystem:
                                             crit_dmg_res_percent, mining_bonus_percent,
                                             bleed_flat, burn_flat)
                         VALUES
-                        ('Boss Reaper', '<:boss_reaper:1483707209090334820>', 'Earned by being the top damage dealer in the server boss.',
+                        ('Boss Reaper', '<:boss_reaper:1483707209090334820>', 'Earned by being the top 1 damage dealer in the server boss.',
                          5, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-                        ('Administrator', '<:administrator:1470082908151742536>', 'Exclusive title for server administrators.',
+                        ('Administrator', '<:administrator:1470082908151742536>', 'Exclusive title for Server Administrators.',
                          100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 5000, 5000)
                         ON CONFLICT (name) DO NOTHING;
                     """)
@@ -6595,8 +6595,7 @@ class Shop(commands.Cog):
                     await conn.execute("UPDATE user_weapons SET equipped = FALSE WHERE user_id = $1", user_id)
                     # Equip selected weapon
                     await conn.execute("UPDATE user_weapons SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
-                
-                    # Get item name with emoji
+                    # Get item name
                     item_row = await conn.fetchrow("""
                         SELECT COALESCE(si.name, uw.generated_name) as name 
                         FROM user_weapons uw 
@@ -6612,7 +6611,6 @@ class Shop(commands.Cog):
                         JOIN armor_types at ON ua.armor_id = at.armor_id
                         WHERE ua.id = $1
                     """, item_id)
-                
                     # Unequip other armor in same slot
                     await conn.execute("""
                         UPDATE user_armor SET equipped = FALSE 
@@ -6621,7 +6619,6 @@ class Shop(commands.Cog):
                     """, user_id, slot)
                     # Equip new armor
                     await conn.execute("UPDATE user_armor SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
-                
                     # Get item name
                     item_row = await conn.fetchval("""
                         SELECT at.name FROM user_armor ua 
@@ -6671,13 +6668,13 @@ class Shop(commands.Cog):
                         slot = new_slot
                     else:
                         slot = current_slot
-                        # If already has a slot, unequip any other accessory in that slot (should be none, but safety)
+                        # If already has a slot, unequip any other accessory in that slot (safety)
                         await conn.execute("UPDATE user_accessories SET equipped = FALSE WHERE user_id = $1 AND slot = $2 AND id != $3", user_id, slot, item_id)
 
                     # Equip this accessory
                     await conn.execute("UPDATE user_accessories SET equipped = TRUE WHERE id = $1", item_id)
 
-                    # Get item name for response
+                    # Get item name
                     item_row = await conn.fetchval("""
                         SELECT at.name FROM user_accessories ua 
                         JOIN accessory_types at ON ua.accessory_id = at.accessory_id 
@@ -6690,31 +6687,39 @@ class Shop(commands.Cog):
                     await conn.execute("UPDATE user_titles SET equipped = FALSE WHERE user_id = $1", user_id)
                     # Equip selected title
                     await conn.execute("UPDATE user_titles SET equipped = TRUE WHERE user_id = $1 AND title_id = $2", user_id, item_id)
-                    item = await conn.fetchval("SELECT name FROM titles WHERE title_id = $1", item_id)
+                    # Fetch title name and emoji
+                    title_row = await conn.fetchrow("SELECT name, emoji FROM titles WHERE title_id = $1", item_id)
+                    if title_row:
+                        item = title_row['name']
+                        item_emoji = title_row['emoji'] or '👑'
+                    else:
+                        item = "Unknown Title"
+                        item_emoji = '👑'
+                    # Send confirmation immediately
+                    await interaction.followup.send(f"**Equipped** {item_emoji}", ephemeral=True)
 
-                # ===== NEW PET BRANCH =====
                 elif item_type == 'pet':
                     # Unequip all pets
                     await conn.execute("UPDATE user_pets SET equipped = FALSE WHERE user_id = $1", user_id)
                     # Equip selected pet
                     await conn.execute("UPDATE user_pets SET equipped = TRUE WHERE id = $1 AND user_id = $2", item_id, user_id)
-                    # Get item name for response
+                    # Get pet name
                     item = await conn.fetchval("""
                         SELECT pt.name FROM user_pets up
                         JOIN pet_types pt ON up.pet_id = pt.pet_id
                         WHERE up.id = $1
                     """, item_id)
 
-            # Get emoji for the item
-            item_emoji = get_item_emoji(item, item_type)
+            # For non-title items, get emoji via helper and send confirmation
+            if item_type != 'title':
+                item_emoji = get_item_emoji(item, item_type)
+                await interaction.followup.send(f"**Equipped**{item_emoji}", ephemeral=True)
 
             # If the item can affect HP (armor or accessory), update player's HP
             if item_type in ('armor', 'accessory'):
                 await self.update_player_hp_after_equip(user_id)
-        
-            await interaction.followup.send(f"**Equipped**{item_emoji}", ephemeral=True)
 
-            # Refresh inventory view (optional)
+            # Refresh inventory data (including materials and titles for consumables view)
             async with self.bot.db_pool.acquire() as conn:
                 weapons = await conn.fetch("""
                     SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
@@ -6752,45 +6757,56 @@ class Shop(commands.Cog):
                     ORDER BY ua.equipped DESC, ua.purchased_at DESC
                 """, user_id)
 
+                materials = await conn.fetch("""
+                    SELECT um.material_id, si.name, um.quantity, si.description
+                    FROM user_materials um
+                    JOIN shop_items si ON um.material_id = si.item_id
+                    WHERE um.user_id = $1 AND um.quantity > 0
+                    ORDER BY si.name
+                """, user_id)
+
+                # Fetch titles for the combined consumables view
+                titles = await conn.fetch("""
+                    SELECT t.title_id as id, t.name, t.emoji, ut.equipped,
+                           t.hp_percent, t.def_percent, t.atk_percent,
+                           t.crit_chance, t.dodge_percent, t.dmg_reduction_percent,
+                           t.bleed_flat, t.burn_flat, t.crit_dmg_res_percent,
+                           t.mining_bonus_percent, t.boss_damage_percent,
+                           t.extra_boss_attempts, t.extra_plunder_attempts
+                    FROM titles t
+                    JOIN user_titles ut ON t.title_id = ut.title_id
+                    WHERE ut.user_id = $1
+                    ORDER BY ut.equipped DESC, t.name
+                """, user_id)
+
             balance = await currency_system.get_balance(user_id)
 
             inventory_data = {
                 'weapons': [dict(w) for w in weapons],
                 'armor': [dict(a) for a in armor],
                 'accessories': [dict(a) for a in accessories],
+                'materials': [dict(m) for m in materials],
                 'gems': balance['gems']
             }
 
-            # Create a new inventory view
             temp_inventory_view = InventoryView(user_id, inventory_data, self)
-        
-            if item_type == 'weapon':
-                item_list = inventory_data['weapons']
-                embed_title = "🗡️ **Weapons**"
-                embed_color = discord.Color.red()
-            elif item_type == 'armor':
-                item_list = inventory_data['armor']
-                embed_title = "🛡️ **Armor**"
-                embed_color = discord.Color.blue()
-            elif item_type == 'accessory':
-                item_list = inventory_data['accessories']
-                embed_title = "📿 **Accessories**"
-                embed_color = discord.Color.green()
-            else:  # pet
-                # For pets, we don't need to show a category again, but we can just go back to inventory
-                await temp_inventory_view.show_pets(interaction)
-                return
 
-            # Create category view with updated items
-            category_view = CategoryView(user_id, item_list, item_type, temp_inventory_view)
-
-            # Show the appropriate category with updated data
+            # Redirect based on item type
             if item_type == 'weapon':
                 await temp_inventory_view.show_weapons(interaction)
             elif item_type == 'armor':
                 await temp_inventory_view.show_armor(interaction)
             elif item_type == 'accessory':
                 await temp_inventory_view.show_accessories(interaction)
+            elif item_type == 'pet':
+                await temp_inventory_view.show_pets(interaction)
+            elif item_type == 'title':
+                # After equipping title, go to consumables (which includes titles)
+                await temp_inventory_view.show_materials(interaction)
+            else:
+                # fallback to main inventory
+                embed = temp_inventory_view.create_main_embed()
+                await interaction.edit_original_response(embed=embed, view=temp_inventory_view)
 
         except Exception as e:
             print(f"Error in handle_equip_action: {e}")
@@ -6799,7 +6815,6 @@ class Shop(commands.Cog):
                 await interaction.followup.send("An error occurred while equipping.", ephemeral=True)
             except:
                 pass
-
                   
 
     async def handle_unequip_action(self, interaction: discord.Interaction, item_type: str, item_id: int):
@@ -6843,9 +6858,15 @@ class Shop(commands.Cog):
 
                 elif item_type == 'title':
                     await conn.execute("UPDATE user_titles SET equipped = FALSE WHERE user_id = $1 AND title_id = $2", user_id, item_id)
-                    item = await conn.fetchval("SELECT name FROM titles WHERE title_id = $1", item_id)
+                    # Fetch title name and emoji
+                    title_row = await conn.fetchrow("SELECT name, emoji FROM titles WHERE title_id = $1", item_id)
+                    if title_row:
+                        item = title_row['name']
+                        item_emoji = title_row['emoji'] or '👑'
+                    else:
+                        item = "Unknown Title"
+                        item_emoji = '👑'
 
-                # ===== NEW PET BRANCH =====
                 elif item_type == 'pet':
                     await conn.execute("UPDATE user_pets SET equipped = FALSE WHERE id = $1 AND user_id = $2", item_id, user_id)
                     item = await conn.fetchval("""
@@ -6854,12 +6875,13 @@ class Shop(commands.Cog):
                         WHERE up.id = $1
                     """, item_id)
 
-            # Get emoji for the item
-            item_emoji = get_item_emoji(item, item_type)
+            # For non-title items, get emoji via helper
+            if item_type != 'title':
+                item_emoji = get_item_emoji(item, item_type)
         
             await interaction.followup.send(f"**Unequipped** {item_emoji}", ephemeral=True)
         
-            # Refresh inventory view (optional)
+            # Refresh inventory data (including materials and titles)
             async with self.bot.db_pool.acquire() as conn:
                 weapons = await conn.fetch("""
                     SELECT uw.id, COALESCE(si.name, uw.generated_name) as name,
@@ -6897,36 +6919,43 @@ class Shop(commands.Cog):
                     ORDER BY ua.equipped DESC, ua.purchased_at DESC
                 """, user_id)
 
+                materials = await conn.fetch("""
+                    SELECT um.material_id, si.name, um.quantity, si.description
+                    FROM user_materials um
+                    JOIN shop_items si ON um.material_id = si.item_id
+                    WHERE um.user_id = $1 AND um.quantity > 0
+                    ORDER BY si.name
+                """, user_id)
+
+                # Fetch titles for the combined consumables view
+                titles = await conn.fetch("""
+                    SELECT t.title_id as id, t.name, t.emoji, ut.equipped,
+                           t.hp_percent, t.def_percent, t.atk_percent,
+                           t.crit_chance, t.dodge_percent, t.dmg_reduction_percent,
+                           t.bleed_flat, t.burn_flat, t.crit_dmg_res_percent,
+                           t.mining_bonus_percent, t.boss_damage_percent,
+                           t.extra_boss_attempts, t.extra_plunder_attempts
+                    FROM titles t
+                    JOIN user_titles ut ON t.title_id = ut.title_id
+                    WHERE ut.user_id = $1
+                    ORDER BY ut.equipped DESC, t.name
+                """, user_id)
+
             balance = await currency_system.get_balance(user_id)
 
             inventory_data = {
                 'weapons': [dict(w) for w in weapons],
                 'armor': [dict(a) for a in armor],
                 'accessories': [dict(a) for a in accessories],
+                'materials': [dict(m) for m in materials],
                 'gems': balance['gems']
             }
 
-            # Create a new inventory view
+            # Create temporary inventory view
             temp_inventory_view = InventoryView(user_id, inventory_data, self)
-        
-            if item_type == 'weapon':
-                item_list = inventory_data['weapons']
-                embed_title = "🗡️ **Weapons**"
-                embed_color = discord.Color.red()
-            elif item_type == 'armor':
-                item_list = inventory_data['armor']
-                embed_title = "🛡️ **Armor**"
-                embed_color = discord.Color.blue()
-            elif item_type == 'accessory':
-                item_list = inventory_data['accessories']
-                embed_title = "📿 **Accessories**"
-                embed_color = discord.Color.green()
-            else:  # pet
-                # For pets, go back to pet inventory
-                await temp_inventory_view.show_pets(interaction)
-                return
 
-            category_view = CategoryView(user_id, item_list, item_type, temp_inventory_view)
+            # Add titles to the view's inventory data for later use (optional, but show_materials already fetches fresh)
+            # For simplicity, we'll just call show_materials which does its own fetch.
 
             if item_type == 'weapon':
                 await temp_inventory_view.show_weapons(interaction)
@@ -6934,6 +6963,15 @@ class Shop(commands.Cog):
                 await temp_inventory_view.show_armor(interaction)
             elif item_type == 'accessory':
                 await temp_inventory_view.show_accessories(interaction)
+            elif item_type == 'pet':
+                await temp_inventory_view.show_pets(interaction)
+            elif item_type == 'title':
+                # After unequipping title, go to consumables (which includes titles)
+                await temp_inventory_view.show_materials(interaction)
+            else:
+                # fallback to main inventory
+                embed = temp_inventory_view.create_main_embed()
+                await interaction.edit_original_response(embed=embed, view=temp_inventory_view)
 
         except Exception as e:
             print(f"Error in handle_unequip_action: {e}")
@@ -6942,6 +6980,7 @@ class Shop(commands.Cog):
                 await interaction.followup.send("An error occurred while unequipping.", ephemeral=True)
             except:
                 pass
+
 
     async def update_player_hp_after_equip(self, user_id: str):
         """Recalculate max HP based on equipped gear (flat bonuses + set bonuses) and set current HP to new max."""
