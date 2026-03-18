@@ -1140,6 +1140,58 @@ class DatabaseSystem:
                         ('Baby Purr', 5, 15, 30, 0, 0, 1000, 1, 'A mystical cat that adds burn damage to your attacks.')
                         ON CONFLICT (name) DO NOTHING;
                     """)
+                    # ========== TITLE SYSTEM TABLES ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS titles (
+                            title_id SERIAL PRIMARY KEY,
+                            name TEXT NOT NULL UNIQUE,
+                            emoji TEXT,
+                            description TEXT,
+                            hp_percent INT DEFAULT 0,
+                            def_percent INT DEFAULT 0,
+                            atk_percent INT DEFAULT 0,
+                            crit_chance INT DEFAULT 0,
+                            dodge_percent INT DEFAULT 0,
+                            dmg_reduction_percent INT DEFAULT 0,
+                            bleed_flat INT DEFAULT 0,
+                            burn_flat INT DEFAULT 0,
+                            crit_dmg_res_percent INT DEFAULT 0,
+                            mining_bonus_percent INT DEFAULT 0,
+                            boss_damage_percent INT DEFAULT 0,
+                            extra_boss_attempts INT DEFAULT 0,
+                            extra_plunder_attempts INT DEFAULT 0
+                        )
+                    ''')
+
+                    # Add columns if they don't exist (for existing tables)
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS hp_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS def_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS atk_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS crit_chance INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS dodge_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS dmg_reduction_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS bleed_flat INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS burn_flat INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS crit_dmg_res_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS mining_bonus_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS boss_damage_percent INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS extra_boss_attempts INT DEFAULT 0;')
+                    await conn.execute('ALTER TABLE titles ADD COLUMN IF NOT EXISTS extra_plunder_attempts INT DEFAULT 0;')
+
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS user_titles (
+                            user_id TEXT NOT NULL REFERENCES user_gems(user_id) ON DELETE CASCADE,
+                            title_id INTEGER NOT NULL REFERENCES titles(title_id) ON DELETE CASCADE,
+                            equipped BOOLEAN DEFAULT FALSE,
+                            obtained_at TIMESTAMP DEFAULT NOW(),
+                            PRIMARY KEY (user_id, title_id)
+                        )
+                    ''')
+                    # Ensure only one equipped title per user
+                    await conn.execute('''
+                        CREATE UNIQUE INDEX IF NOT EXISTS idx_user_titles_equipped
+                        ON user_titles (user_id) WHERE equipped = TRUE;
+                    ''')
 
                     # ========== PLAYER STATS ==========
                     await conn.execute('''
