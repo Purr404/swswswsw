@@ -4114,6 +4114,25 @@ async def before_respawn_task():
     while bot.db_pool is None:
         await asyncio.sleep(1)
 
+@tasks.loop(hours=1)
+async def remove_expired_titles():
+    try:
+        async with bot.db_pool.acquire() as conn:
+            result = await conn.execute("""
+                DELETE FROM user_titles
+                WHERE expires_at IS NOT NULL AND expires_at <= NOW() AT TIME ZONE 'UTC'
+            """)
+            print("🧹 Removed expired titles.")
+    except Exception as e:
+        print(f"❌ remove_expired_titles error: {e}")
+        traceback.print_exc()
+
+@remove_expired_titles.before_loop
+async def before_remove_expired_titles():
+    await bot.wait_until_ready()
+    while bot.db_pool is None:
+        await asyncio.sleep(1)
+
 # === BOT STARTUP ===
 @bot.event
 async def on_ready():
@@ -4204,6 +4223,7 @@ async def setup_hook():
     process_effects.start()
     respawn_task.start()
     boss_reset_task.start()
+    remove_expired_titles.start()
     print("✅ setup_hook: background tasks started")
 
 bot.setup_hook = setup_hook
