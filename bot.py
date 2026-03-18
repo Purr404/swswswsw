@@ -5384,6 +5384,16 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     total_def = int(total_def * pet_def_mult)
     max_hp = int(max_hp_no_pet * pet_hp_mult)
 
+    # ========== TITLE BONUSES ==========
+    if title_bonuses:
+        total_atk = int(total_atk * (1 + title_bonuses['atk_percent'] / 100))
+        total_def = int(total_def * (1 + title_bonuses['def_percent'] / 100))
+        max_hp += int(BASE_HP * title_bonuses['hp_percent'] / 100)   # flat addition after all multipliers
+        total_crit_chance += title_bonuses['crit_chance']
+        pet_dodge += title_bonuses['dodge_percent']   # add title dodge to display
+        boss_dmg_percent = title_bonuses['boss_damage_percent']  # ensure it's set
+        # (other stats like crit_dmg_res are not displayed)
+
     current_hp = player['hp']
     if current_hp > max_hp:
         current_hp = max_hp
@@ -5462,6 +5472,8 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     embed.add_field(name="**Equipped Gears**", value=f"{row1}\n{row2}\n{row3}", inline=False)
 
     return embed
+
+
 
 @bot.command(name='myprofile')
 async def my_profile(ctx):
