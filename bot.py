@@ -10851,21 +10851,21 @@ async def perform_boss_reset():
         # --- Pick a new random boss image ---
         new_image_url = random.choice(BOSS_IMAGES) if BOSS_IMAGES else None
 
-            # 🔽 INSERT TITLE AWARD HERE 🔽
-            top_user_id = rankings[0]['user_id']
-            async with bot.db_pool.acquire() as conn_title:
-                title_id = await conn_title.fetchval("SELECT title_id FROM titles WHERE name = 'Boss Reaper'")
-                if title_id:
-                    await conn_title.execute("""
-                        INSERT INTO user_titles (user_id, title_id) VALUES ($1, $2)
-                        ON CONFLICT (user_id, title_id) DO NOTHING
-                    """, top_user_id, title_id)
-                    try:
-                        user = await bot.fetch_user(int(top_user_id))
-                        if user:
-                            await user.send("🏆 Congratulations! You were the top damage dealer in the Server Boss and received the **Boss Reaper** title!")
-                    except:
-                        pass
+        # 🔽 Title award – must be at the same indent level as the for loop above
+        top_user_id = rankings[0]['user_id']
+        async with bot.db_pool.acquire() as conn_title:
+            title_id = await conn_title.fetchval("SELECT title_id FROM titles WHERE name = 'Boss Reaper'")
+            if title_id:
+                await conn_title.execute("""
+                    INSERT INTO user_titles (user_id, title_id) VALUES ($1, $2)
+                    ON CONFLICT (user_id, title_id) DO NOTHING
+                """, top_user_id, title_id)
+                try:
+                    user = await bot.fetch_user(int(top_user_id))
+                    if user:
+                        await user.send("🏆 Congratulations! You were the top damage dealer in the server boss this cycle and received the **Boss Reaper** title!")
+                except:
+                    pass
 
         # --- Reset boss HP and update image ---
         async with bot.db_pool.acquire() as conn3:
