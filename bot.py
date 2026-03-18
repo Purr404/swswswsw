@@ -10110,7 +10110,7 @@ class AttackView(discord.ui.View):
         d_title_emoji = f" {d_title[1]}" if d_title else ""
 
         embed = discord.Embed(
-            title=f"{a_user.display_name}{a_title_emoji} vs {d_user.display_name}{d_title_emoji}",
+            title=f"{a_user.display_name} vs {d_user.display_name}",
             color=discord.Color.red()
         )
         embed.set_thumbnail(url=a_user.display_avatar.url)
@@ -10143,10 +10143,18 @@ class AttackView(discord.ui.View):
         a_gear = await format_gear_grid(self.attacker_id)
         d_gear = await format_gear_grid(self.defender_id)
 
-        embed.add_field(name=f"{a_user.display_name}'s Stats", value=a_stats_text, inline=False)
+        embed.add_field(
+            name=f"{a_user.display_name}'s Stats{a_title_emoji}",
+            value=a_stats_text,
+            inline=False
+        )
         embed.add_field(name="Gears", value=a_gear, inline=False)
         embed.add_field(name="▬" * 20, value="\u200b", inline=False)
-        embed.add_field(name=f"{d_user.display_name}'s Stats", value=d_stats_text, inline=False)
+        embed.add_field(
+            name=f"{d_user.display_name}'s Stats{d_title_emoji}",
+            value=d_stats_text,
+            inline=False
+        )
         embed.add_field(name="Gears", value=d_gear, inline=False)
 
         if action_text:
