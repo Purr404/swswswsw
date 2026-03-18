@@ -5267,7 +5267,7 @@ async def build_profile_embed(user_id: str, member: discord.Member):
             WHERE up.user_id = $1 AND up.equipped = TRUE
         """, user_id)
 
-    # ===== TITLE BONUSES =====
+    # ===== TITLE BONUSES (fetch early for emoji) =====
     title_bonuses = await get_equipped_title_bonuses(user_id)
     title_emoji = title_bonuses['emoji'] if title_bonuses else None
     boss_dmg_percent = title_bonuses['boss_damage_percent'] if title_bonuses else 0
@@ -5354,7 +5354,7 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     # Apply set multipliers
     total_atk = int(total_atk * atk_mult)
     total_def = int(total_def * def_mult)
-    max_hp_no_pet = int(hp_from_gear * hp_mult)
+    max_hp_after_sets = int(hp_from_gear * hp_mult)
     total_reflect += reflect_add
     total_crit_chance += crit_chance_add
     total_crit_damage += crit_damage_add
@@ -5382,17 +5382,24 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     # Apply pet multipliers
     total_atk = int(total_atk * pet_atk_mult)
     total_def = int(total_def * pet_def_mult)
-    max_hp = int(max_hp_no_pet * pet_hp_mult)
+    max_hp_after_pet = int(max_hp_after_sets * pet_hp_mult)
 
     # ========== TITLE BONUSES ==========
+    title_hp_mult = 1.0
     if title_bonuses:
+        # ATK% and DEF% multipliers
         total_atk = int(total_atk * (1 + title_bonuses['atk_percent'] / 100))
         total_def = int(total_def * (1 + title_bonuses['def_percent'] / 100))
-        max_hp += int(BASE_HP * title_bonuses['hp_percent'] / 100)   # flat addition after all multipliers
+        # HP% multiplier
+        title_hp_mult = 1 + title_bonuses['hp_percent'] / 100
+        # Additive stats
         total_crit_chance += title_bonuses['crit_chance']
-        pet_dodge += title_bonuses['dodge_percent']   # add title dodge to display
-        boss_dmg_percent = title_bonuses['boss_damage_percent']  # ensure it's set
-        # (other stats like crit_dmg_res are not displayed)
+        pet_dodge += title_bonuses['dodge_percent']  # add title dodge to display
+        # Store other bonuses for display
+        boss_dmg_percent = title_bonuses['boss_damage_percent']
+
+    # Final max HP after title multiplier
+    max_hp = int(max_hp_after_pet * title_hp_mult)
 
     current_hp = player['hp']
     if current_hp > max_hp:
@@ -5436,8 +5443,16 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     ]
     if pet_dodge > 0:
         stats_lines.append(f"**Dodge:** {pet_dodge}%")
-    if boss_dmg_percent > 0:
-        stats_lines.append(f"**Boss DMG:** +{boss_dmg_percent}%")
+
+    # Title-specific stats
+    if title_bonuses:       
+        if title_bonuses['dmg_reduction_percent']:
+            stats_lines.append(f"**DMG RED.:** +{title_bonuses['dmg_reduction_percent']}%")
+        if title_bonuses['crit_dmg_res_percent']:
+            stats_lines.append(f"**Crit RES:** +{title_bonuses['crit_dmg_res_percent']}%")    
+        if boss_dmg_percent:
+            stats_lines.append(f"**Boss DMG:** +{boss_dmg_percent}%")
+
     embed.add_field(name="**STATS**", value="\n".join(stats_lines), inline=False)
 
     def slot_emoji(slot, item=None):
@@ -5472,7 +5487,6 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     embed.add_field(name="**Equipped Gears**", value=f"{row1}\n{row2}\n{row3}", inline=False)
 
     return embed
-
 
 
 @bot.command(name='myprofile')
