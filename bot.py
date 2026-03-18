@@ -1263,6 +1263,8 @@ class DatabaseSystem:
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_user_titles_equipped
                         ON user_titles (user_id) WHERE equipped = TRUE;
                     ''')
+                    await conn.execute('ALTER TABLE user_titles ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_titles_expires ON user_titles (expires_at);')
 
                     # ========== PLAYER STATS ==========
                     await conn.execute('''
@@ -10957,21 +10959,27 @@ async def perform_boss_reset():
                     pass
 
 
-            # --- Award Boss Reaper title to top 1 ---
+            # --- Award Boss Reaper title to top 1 (with 24h expiration) ---
             top_user_id = rankings[0]['user_id']
             async with bot.db_pool.acquire() as conn_title:
                 title_row = await conn_title.fetchrow("SELECT title_id, emoji FROM titles WHERE name = 'Boss Reaper'")
                 if title_row:
                     title_id = title_row['title_id']
                     emoji = title_row['emoji'] or '🏷️'
+                    expires_at = datetime.now(timezone.utc) + timedelta(days=1)
                     await conn_title.execute("""
-                        INSERT INTO user_titles (user_id, title_id) VALUES ($1, $2)
-                        ON CONFLICT (user_id, title_id) DO NOTHING
-                    """, top_user_id, title_id)
+                        INSERT INTO user_titles (user_id, title_id, equipped, expires_at)
+                        VALUES ($1, $2, FALSE, $3)
+                        ON CONFLICT (user_id, title_id) DO UPDATE
+                        SET expires_at = $3
+                    """, top_user_id, title_id, expires_at)
                     try:
                         user = await bot.fetch_user(int(top_user_id))
                         if user:
-                            await user.send(f"🏆 Congratulations! You were the top damage dealer in the Server Boss and received the {emoji} **Boss Reaper** title!")
+                            await user.send(
+                                f"🏆 Congratulations! You were the top damage dealer in the Server Boss "
+                                f"and have earned the {emoji} **Boss Reaper** title for the next 24 hours!"
+                            )
                     except:
                         pass
 
