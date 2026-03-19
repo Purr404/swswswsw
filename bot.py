@@ -992,7 +992,7 @@ class DatabaseSystem:
         self.using_database = False
 
     async def smart_connect(self):
-        """Connect to PostgreSQL database with multiple fallback strategies."""
+        """Connect to PostgreSQL with fallback strategies, including skipping SSL verification."""
         if not DATABASE_URL:
             raise ValueError("DATABASE_URL is required for PostgreSQL connection")
 
@@ -1000,30 +1000,27 @@ class DatabaseSystem:
             raise ImportError("asyncpg is required for database operations")
 
         print("\n🔌 Attempting database connection...")
-        print(f"   Using URL: {DATABASE_URL[:20]}...")
 
-        # Try different connection strategies (no keepalive parameters)
+        # Connection strategies – try SSL first, then fallback to no SSL, and finally skip verification
         connection_strategies = [
-            ("Standard with SSL", {'ssl': 'require', 'command_timeout': 30}),
-            ("Standard with SSL (ssl=True)", {'ssl': True, 'command_timeout': 30}),
-            ("SSL with longer timeout", {'ssl': 'require', 'command_timeout': 60}),
+            ("Standard SSL (verify)", {'ssl': 'require', 'command_timeout': 30}),
+            ("SSL without verification", {'ssl': {'sslrootcert': None, 'sslmode': 'require'}, 'command_timeout': 30}),
             ("No SSL", {'ssl': None, 'command_timeout': 30}),
             ("No SSL, longer timeout", {'ssl': None, 'command_timeout': 60}),
-            ("No extra args", {}),  # last resort
+            ("No extra args", {}),
         ]
 
         for strategy_name, strategy_args in connection_strategies:
             print(f"  Trying: {strategy_name}...")
             try:
                 self.pool = await asyncpg.create_pool(
-                    DATABASE_URL,  # use original URL without keepalive
+                    DATABASE_URL,
                     min_size=1,
                     max_size=5,
                     **strategy_args
                 )
                 bot.db_pool = self.pool
 
-                # Test the connection
                 async with self.pool.acquire() as conn:
                     result = await conn.fetchval('SELECT 1')
                     print(f"    ✅ Connection test: {result}")
@@ -1681,6 +1678,7 @@ class DatabaseSystem:
                 continue
 
         raise ConnectionError("All connection strategies failed. Could not connect to PostgreSQL.")
+
 
     async def add_gems(self, user_id: str, gems: int, reason: str = ""):
         """Add gems to a user"""
@@ -10740,6 +10738,7 @@ class PlunderButton(discord.ui.Button):
 
 
 class BossAttackView(discord.ui.View):
+    _last_update = {}
     def __init__(self, guild_id: int):
         super().__init__(timeout=None)  # persistent view
         self.guild_id = guild_id
@@ -10922,7 +10921,14 @@ class BossAttackView(discord.ui.View):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def update_boss_message(self, interaction: discord.Interaction, current_hp: int, max_hp: int):
-        """Edit the main boss embed with updated HP."""
+        """Edit the main boss embed with updated HP, with a per‑guild cooldown."""
+        now = time.time()
+        guild_id = self.guild_id
+        # Cooldown: at least 2 seconds between updates for this guild
+        if guild_id in self.__class__._last_update and now - self.__class__._last_update[guild_id] < 2:
+            return
+        self.__class__._last_update[guild_id] = now
+
         async with bot.db_pool.acquire() as conn:
             msg_id = await conn.fetchval("SELECT message_id FROM boss_config WHERE guild_id = $1", self.guild_id)
         if not msg_id:
@@ -10932,8 +10938,16 @@ class BossAttackView(discord.ui.View):
             msg = await channel.fetch_message(msg_id)
             embed = await self.build_boss_embed(current_hp, max_hp)
             await msg.edit(embed=embed)
-        except:
-            pass
+        except discord.NotFound:
+            # Message deleted – clear from DB
+            async with bot.db_pool.acquire() as conn2:
+                await conn2.execute("UPDATE boss_config SET message_id = NULL WHERE guild_id = $1", self.guild_id)
+        except discord.HTTPException as e:
+            if e.status == 429:
+                print(f"⚠️ Rate limit hit for guild {guild_id}, skipping this update.")
+            else:
+                print(f"❌ Failed to edit boss message: {e}")
+
 
     async def build_boss_embed(self, current_hp: int, max_hp: int) -> discord.Embed:
         """Fetch current boss image URL from DB and build embed."""
