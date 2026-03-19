@@ -5657,7 +5657,7 @@ class Shop(commands.Cog):
             custom_id="shop_maincat_pets"
         )
         button_tools = discord.ui.Button(
-            label="Tools",
+            label="Supplies",
             emoji=tools_emoji,
             style=discord.ButtonStyle.secondary,
             custom_id="shop_maincat_tools"
@@ -5749,7 +5749,7 @@ class Shop(commands.Cog):
                 msg = await channel.fetch_message(row['message_id'])
                 view = discord.ui.View(timeout=None)
                 button = discord.ui.Button(
-                    label="🛒 Open Shop",
+                    label="Open Shop",
                     style=discord.ButtonStyle.primary,
                     custom_id="shop_open_main"
                 )
@@ -5781,7 +5781,7 @@ class Shop(commands.Cog):
 
         view = discord.ui.View(timeout=None)
         button = discord.ui.Button(
-            label="🛒 Open Shop",
+            label="Open Shop",
             style=discord.ButtonStyle.primary,
             custom_id="shop_open_main"
         )
@@ -6069,6 +6069,11 @@ class Shop(commands.Cog):
         elif custom_id.startswith("shop_buy_"):
             item_id = int(custom_id.replace("shop_buy_", ""))
             await self.purchase_item(interaction, item_id)
+
+        elif custom_id.startswith("buy_potion_10_"):
+            item_id = int(custom_id.replace("buy_potion_10_", ""))
+            await self.purchase_potion_batch(interaction, item_id, 10)
+
 
         # ===== INVENTORY BUTTON HANDLERS =====
         # Use helper methods instead of accessing view
@@ -7730,8 +7735,8 @@ class Shop(commands.Cog):
     # -------------------------------------------------------------------------
     async def show_tools(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title=f"{CUSTOM_EMOJIS['pickaxe']} Tools",
-            description="Purchase tools to enhance your gameplay!",
+            title=f"{CUSTOM_EMOJIS.get('pickaxe', '⛏️')} Supplies",
+            description="Purchase tools and consumables in batches!",
             color=discord.Color.orange()
         )
         view = discord.ui.View(timeout=300)
@@ -7743,23 +7748,36 @@ class Shop(commands.Cog):
                 WHERE type = 'pickaxe'
                 ORDER BY price ASC
             """)
+            potions = await conn.fetch("""
+                SELECT item_id, name, description, price
+                FROM shop_items
+                WHERE type = 'potion'
+                ORDER BY name
+            """)
 
         if pickaxes:
-            tools_info = (
-                f"{CUSTOM_EMOJIS['pickaxe']} **Pickaxes**\n\n"                
-                f"**Purchase a pickaxe to begin your mining journey!**"
-            )
-            embed.description = tools_info
-
             for pick in pickaxes:
                 button = discord.ui.Button(
-                    label=f"⛏️ {pick['name'][:15]} – {pick['price']}g",
+                    label=f"⛏️ {pick['name']} – {pick['price']}g",
                     style=discord.ButtonStyle.primary,
                     custom_id=f"shop_buy_{pick['item_id']}"
                 )
                 view.add_item(button)
-        else:
-            embed.description = "No tools available yet."
+
+        if potions:
+            for potion in potions:
+                name_lower = potion['name'].lower()
+                if 'hp potion' in name_lower:
+                    emoji = CUSTOM_EMOJIS.get('hp_potion', '🧪')
+                else:
+                    emoji = CUSTOM_EMOJIS.get('energy_potion', '⚡')
+                batch_price = potion['price'] * 10
+                button = discord.ui.Button(
+                    label=f"{emoji} x10 {potion['name']} – {batch_price}g",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id=f"buy_potion_10_{potion['item_id']}"
+                )
+                view.add_item(button)
 
         back = discord.ui.Button(
             label="◀ Back",
@@ -7769,6 +7787,7 @@ class Shop(commands.Cog):
         view.add_item(back)
 
         await interaction.response.edit_message(embed=embed, view=view)
+
 
     async def show_pets(self, interaction: discord.Interaction):
         embed = discord.Embed(
@@ -8365,6 +8384,43 @@ class Shop(commands.Cog):
             return
 
         await self.send_shop_log(interaction.guild, interaction.user, item['name'], item['price'], new_balance['gems'])
+
+
+    async def purchase_potion_batch(self, interaction: discord.Interaction, item_id: int, batch_size: int = 10):
+        await interaction.response.defer(ephemeral=True)
+        user_id = str(interaction.user.id)
+
+        async with self.bot.db_pool.acquire() as conn:
+            potion = await conn.fetchrow("SELECT name, price FROM shop_items WHERE item_id = $1", item_id)
+            if not potion:
+                await interaction.followup.send("❌ Potion not found.", ephemeral=True)
+                return
+
+        total_cost = potion['price'] * batch_size
+
+        balance = await currency_system.get_balance(user_id)
+        if balance['gems'] < total_cost:
+            await interaction.followup.send(f"❌ You need {total_cost} gems. You have {balance['gems']}.", ephemeral=True)
+            return
+
+        success = await currency_system.deduct_gems(user_id, total_cost, f"Purchased {batch_size}x {potion['name']}")
+        if not success:
+            await interaction.followup.send("❌ Failed to deduct gems.", ephemeral=True)
+            return
+
+        async with self.bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO user_materials (user_id, material_id, quantity)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id, material_id) DO UPDATE
+                SET quantity = user_materials.quantity + $3
+            """, user_id, item_id, batch_size)
+
+        await interaction.followup.send(f"✅ Purchased **{batch_size}x {potion['name']}** for **{total_cost} gems**.", ephemeral=True)
+
+        # Log to shop logs
+        await self.send_shop_log(interaction.guild, interaction.user, f"{batch_size}x {potion['name']}", total_cost, balance['gems'] - total_cost)
+
 
     # -------------------------------------------------------------------------
     # SECRET SHOP (Treasure Carriage booking)
