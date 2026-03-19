@@ -552,7 +552,6 @@ async def on_raw_message_delete(payload):
 @commands.has_permissions(administrator=True)
 async def edit_shop_image(ctx, image_url: str):
     """Permanently change the persistent shop message's image."""
-    # Fetch existing shop message location from database
     async with ctx.bot.db_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT channel_id, message_id FROM shop_messages WHERE guild_id = $1", ctx.guild.id)
     if not row:
@@ -578,14 +577,13 @@ async def edit_shop_image(ctx, image_url: str):
                 return
             data = await resp.read()
 
-    # Create a Discord file
     file = discord.File(io.BytesIO(data), filename="shop.png")
 
-    # Preserve the existing embed, or create a default one
+    # Preserve existing embed or create a default one
     embed = msg.embeds[0] if msg.embeds else discord.Embed(title="💎 **GEM SHOP**", color=discord.Color.gold())
     embed.set_image(url="attachment://shop.png")
 
-    # Recreate the persistent view (same button as original)
+    # Recreate the persistent view
     view = discord.ui.View(timeout=None)
     button = discord.ui.Button(
         label="🛒 Open Shop",
@@ -594,11 +592,10 @@ async def edit_shop_image(ctx, image_url: str):
     )
     view.add_item(button)
 
-    # Edit the message with the new file and updated embed
-    await msg.edit(embed=embed, file=file, view=view)
+    # ✅ Use files=[file] instead of file=file
+    await msg.edit(embed=embed, files=[file], view=view)
 
     await ctx.send("✅ Shop image updated permanently.")
-
 
 @bot.command(name='testemojis')
 async def test_emojis(ctx):
