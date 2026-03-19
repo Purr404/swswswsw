@@ -488,6 +488,32 @@ async def clean_old_trades():
             WHERE status = 'pending' AND created_at < NOW() - INTERVAL '1 hour'
         """)
 
+
+@bot.command(name='fix_arena_columns')
+@commands.has_permissions(administrator=True)
+async def fix_arena_columns(ctx):
+    """Rename kills/deaths to wins/losses in arena_stats table."""
+    async with bot.db_pool.acquire() as conn:
+        try:
+            # Rename kills → wins
+            await conn.execute('ALTER TABLE arena_stats RENAME COLUMN kills TO wins;')
+        except Exception as e:
+            # Column may not exist or already renamed
+            pass
+
+        try:
+            # Rename deaths → losses
+            await conn.execute('ALTER TABLE arena_stats RENAME COLUMN deaths TO losses;')
+        except Exception as e:
+            pass
+
+        # Ensure both columns exist (in case they were missing)
+        await conn.execute('ALTER TABLE arena_stats ADD COLUMN IF NOT EXISTS wins INTEGER DEFAULT 0;')
+        await conn.execute('ALTER TABLE arena_stats ADD COLUMN IF NOT EXISTS losses INTEGER DEFAULT 0;')
+
+    await ctx.send("✅ Arena stats table updated to use `wins` and `losses`.")
+
+
 @bot.command(name='givetitle')
 @commands.has_permissions(administrator=True)
 async def give_title(ctx, member: discord.Member, *, title_name: str):
