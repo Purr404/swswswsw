@@ -11271,47 +11271,66 @@ class ArenaDuelView(AttackView):
         self.is_arena = True
         self.points_stake = 25
         self.duel_ended = False
+        self.log_channel_id = 1484235804367782080  # <-- REPLACE WITH YOUR CHANNEL ID
+
+    async def get_log_channel(self):
+        """Fetch the log channel by ID."""
+        channel = bot.get_channel(self.log_channel_id)
+        if not channel:
+            # Fallback: try to find #bot-logs
+            for guild in bot.guilds:
+                channel = discord.utils.get(guild.text_channels, name="bot-logs")
+                if channel:
+                    break
+        return channel
+
+    async def log(self, message):
+        """Send log to dedicated channel and print."""
+        print(f"[ARENA] {message}")
+        channel = await self.get_log_channel()
+        if channel:
+            try:
+                await channel.send(f"`[ARENA]` {message[:1900]}")
+            except:
+                pass
 
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.duel_ended:
             return
 
-        try:
-            await super().attack_button(interaction, button)
-            await asyncio.sleep(0.5)
+        await self.log(f"Attack by {interaction.user.name}")
 
-            async with bot.db_pool.acquire() as conn:
-                a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
-                d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
+        # Execute parent attack
+        await super().attack_button(interaction, button)
 
-            debug_msg = f"After attack: Attacker HP={a_hp}, Defender HP={d_hp}"
-            print(f"[ARENA] {debug_msg}")
-            await self.log_to_discord(debug_msg)
+        # Wait a moment for DB
+        await asyncio.sleep(0.5)
 
-            if d_hp <= 0:
-                await self.log_to_discord("Defender died, ending match")
-                await self.end_arena_match(self.attacker_id, self.defender_id)
-            elif a_hp <= 0:
-                await self.log_to_discord("Attacker died, ending match")
-                await self.end_arena_match(self.defender_id, self.attacker_id)
-            else:
-                await self.log_to_discord("Both alive, duel continues")
-        except Exception as e:
-            error_msg = f"Error in attack_button: {e}"
-            print(error_msg)
-            traceback.print_exc()
-            await self.log_to_discord(error_msg, exc_info=e)
+        # Fetch HP directly
+        async with bot.db_pool.acquire() as conn:
+            a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
+            d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
+
+        await self.log(f"Post‑attack HP – Attacker: {a_hp}, Defender: {d_hp}")
+
+        if d_hp <= 0:
+            await self.log("Defender died → ending match")
+            await self.end_arena_match(self.attacker_id, self.defender_id)
+        elif a_hp <= 0:
+            await self.log("Attacker died → ending match")
+            await self.end_arena_match(self.defender_id, self.attacker_id)
+        else:
+            await self.log("Both alive, duel continues")
 
     async def end_arena_match(self, winner_id: str, loser_id: str):
         if self.duel_ended:
             return
         self.duel_ended = True
-        msg = f"end_arena_match called: winner={winner_id}, loser={loser_id}"
-        print(f"[ARENA] {msg}")
-        await self.log_to_discord(msg)
+        await self.log(f"end_arena_match called: winner={winner_id}, loser={loser_id}")
 
         try:
             async with bot.db_pool.acquire() as conn:
+                # Update arena stats
                 await conn.execute("""
                     UPDATE arena_stats
                     SET points = points + $1, wins = wins + 1, last_match = NOW()
@@ -11322,7 +11341,9 @@ class ArenaDuelView(AttackView):
                     SET points = GREATEST(points - $1, 0), losses = losses + 1, last_match = NOW()
                     WHERE user_id = $2
                 """, self.points_stake, loser_id)
+                await self.log("Arena stats updated")
 
+                # Respawn both
                 for uid in (winner_id, loser_id):
                     stats = await get_player_stats(uid)
                     await conn.execute("""
@@ -11330,59 +11351,39 @@ class ArenaDuelView(AttackView):
                         SET hp = $1, respawn_at = NULL
                         WHERE user_id = $2
                     """, stats['max_hp'], uid)
-                    print(f"[ARENA] Respawned {uid} to {stats['max_hp']} HP")
+                    await self.log(f"Respawned {uid} to {stats['max_hp']} HP")
 
+            # Announce
             winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
             loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
-
             global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
             if global_channel:
                 await global_channel.send(
                     f"⚔️ **Arena Result**\n"
-                    f"{winner.mention} defeated {loser.mention} in the arena!\n"
+                    f"{winner.mention} defeated {loser.mention}!\n"
                     f"{winner.mention} gained **{self.points_stake}** points, "
                     f"{loser.mention} lost **{self.points_stake}** points."
                 )
+                await self.log("Global announcement sent")
+            else:
+                await self.log("Global channel not found")
 
+            # Close thread
             thread = bot.get_channel(self.channel_id)
             if thread and isinstance(thread, discord.Thread):
-                await thread.send("🏁 The duel has ended. This thread will be closed in 10 seconds.")
+                await thread.send("🏁 Duel ended – closing in 10 seconds.")
                 await asyncio.sleep(10)
                 try:
                     await thread.delete()
-                    print("[ARENA] Thread deleted")
+                    await self.log("Thread deleted")
                 except Exception as e:
-                    print(f"[ARENA] Failed to delete thread: {e}")
-        except Exception as e:
-            error_msg = f"Error in end_arena_match: {e}"
-            print(error_msg)
-            traceback.print_exc()
-            await self.log_to_discord(error_msg, exc_info=e)
+                    await self.log(f"Thread deletion failed: {e}")
+            else:
+                await self.log(f"Thread not found (ID: {self.channel_id})")
 
-    async def log_to_discord(self, message, exc_info=None):
-        """Send debug logs to #bot-logs channel and always print to console."""
-        # Always print to console (visible in Railway logs)
-        print(f"[ARENA] {message}")
-        if exc_info:
-            tb = ''.join(traceback.format_exception(type(exc_info), exc_info, exc_info.__traceback__))
-            print(f"TRACEBACK:\n{tb}")
-
-        # Attempt to send to Discord #bot-logs
-        try:
-            for guild in bot.guilds:
-                channel = discord.utils.get(guild.text_channels, name="bot-logs")
-                if channel:
-                    embed = discord.Embed(
-                        title="Arena Debug",
-                        description=message[:2000],
-                        color=discord.Color.orange()
-                    )
-                    if exc_info:
-                        embed.add_field(name="Traceback", value=f"```py\n{tb[-1000:]}\n```", inline=False)
-                    await channel.send(embed=embed)
-                    return
         except Exception as e:
-            print(f"⚠️ Failed to send log to Discord: {e}")
+            tb = traceback.format_exc()
+            await self.log(f"ERROR in end_arena_match: {e}\n{tb}")
 
 
 
