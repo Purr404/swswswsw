@@ -11411,6 +11411,26 @@ async def create_arena_thread(player1_id: str, player2_id: str):
     if not player1 or not player2:
         return
 
+    # --- Revive both players if they are dead ---
+    async with bot.db_pool.acquire() as conn:
+        for uid in (player1_id, player2_id):
+            # Ensure player_stats exists
+            await conn.execute("""
+                INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy, last_energy_regen)
+                VALUES ($1, 1000, 1000, 3, 3, NOW())
+                ON CONFLICT (user_id) DO NOTHING
+            """, uid)
+
+            # Check current HP
+            row = await conn.fetchrow("SELECT hp, max_hp FROM player_stats WHERE user_id = $1", uid)
+            if row and row['hp'] <= 0:
+                await conn.execute("""
+                    UPDATE player_stats
+                    SET hp = max_hp, respawn_at = NULL
+                    WHERE user_id = $1
+                """, uid)
+                print(f"[ARENA] Revived player {uid} for duel.")
+
     # Create a private thread
     thread_name = f"arena-{player1.name}-vs-{player2.name}"
     thread = await channel.create_thread(
