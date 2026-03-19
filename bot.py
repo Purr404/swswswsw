@@ -11530,6 +11530,24 @@ async def load_mining_persistence(bot):
             traceback.print_exc()
     print("✅ load_mining_persistence: finished")
 
+async def load_arena_persistence():
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, channel_id, message_id FROM arena_config WHERE message_id IS NOT NULL")
+    for row in rows:
+        guild = bot.get_guild(row['guild_id'])
+        if not guild:
+            continue
+        channel = guild.get_channel(row['channel_id'])
+        if not channel:
+            continue
+        try:
+            msg = await channel.fetch_message(row['message_id'])
+            view = ArenaMainView()
+            await msg.edit(view=view)
+            print(f"✅ Reattached arena view in #{channel.name}")
+        except Exception as e:
+            print(f"⚠️ Failed to reattach arena view: {e}")
+
 
 
 # === RUN BOT ===
