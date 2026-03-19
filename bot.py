@@ -992,7 +992,7 @@ class DatabaseSystem:
         self.using_database = False
 
     async def smart_connect(self):
-        """Connect to PostgreSQL database with multiple fallback strategies."""
+        """Connect to PostgreSQL database with robust error handling and multiple fallbacks."""
         if not DATABASE_URL:
             raise ValueError("DATABASE_URL is required for PostgreSQL connection")
 
@@ -1001,22 +1001,17 @@ class DatabaseSystem:
 
         print("\n🔌 Attempting database connection...")
 
-        # Try different connection strategies with increasing robustness
+        # Try different connection strategies (without keepalive, as it may not be supported)
         connection_strategies = [
-            ("Keepalive + SSL", {
-                'ssl': 'require',
-                'keepalives': 1,
-                'keepalives_idle': 30,
-                'keepalives_interval': 10,
-                'keepalives_count': 5,
-                'command_timeout': 30,
-                'max_queries': 50000,
-                'max_inactive_connection_lifetime': 300.0
-            }),
             ("Standard with SSL", {'ssl': 'require', 'command_timeout': 30}),
-            ("Standard without SSL", {'ssl': None, 'command_timeout': 30}),
+            ("Standard with SSL (ssl=True)", {'ssl': True, 'command_timeout': 30}),
+            ("SSL with longer timeout", {'ssl': 'require', 'command_timeout': 60}),
+            ("No SSL", {'ssl': None, 'command_timeout': 30}),
             ("No SSL, longer timeout", {'ssl': None, 'command_timeout': 60}),
         ]
+
+        # Also try without any extra args as last resort
+        connection_strategies.append(("No extra args", {}))
 
         for strategy_name, strategy_args in connection_strategies:
             print(f"  Trying: {strategy_name}...")
@@ -1024,7 +1019,7 @@ class DatabaseSystem:
                 self.pool = await asyncpg.create_pool(
                     DATABASE_URL,
                     min_size=1,
-                    max_size=5,  # increased for better concurrency
+                    max_size=5,          # increased concurrency
                     **strategy_args
                 )
                 bot.db_pool = self.pool
@@ -1680,7 +1675,6 @@ class DatabaseSystem:
                 print(f"    ❌ Failed: {type(e).__name__}: {e}")
                 import traceback
                 traceback.print_exc()
-                # Clean up any partially created pool
                 if self.pool:
                     await self.pool.close()
                     self.pool = None
