@@ -11079,14 +11079,14 @@ async def boss_leaderboard(ctx):
         return await ctx.send("No damage recorded yet. Attack the boss!")
 
     embed = discord.Embed(title="🏆 Boss Damage Leaderboard", color=discord.Color.gold())
-    desc_lines = []
-    for idx, row in enumerate(rows, start=1):
-        user = bot.get_user(int(row['user_id']))
-        name = user.display_name if user else f"User {row['user_id'][:6]}"
-        desc_lines.append(f"{idx}. **{name}** – {row['total_damage']} damage")
-    embed.description = "\n".join(desc_lines)
-    await ctx.send(embed=embed)
+        lines = []
+        for idx, row in enumerate(rows, start=1):
+            user = bot.get_user(int(row['user_id']))
+            name = user.display_name if user else f"User {row['user_id'][:6]}"
+            lines.append(f"{idx}. **{name}** {row['total_damage']} Damage")
 
+        embed.description = "\n".join(lines)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 from discord.ext import tasks
