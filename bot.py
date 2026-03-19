@@ -11102,8 +11102,8 @@ async def perform_boss_reset():
                     user = await bot.fetch_user(int(user_id))
                     if user:
                         embed = discord.Embed(title="🏆 Boss Rewards", color=discord.Color.gold())
-                        embed.description = f"You ranked **#{idx}** with **{damage}** damage!"
-                        embed.add_field(name="Reward", value=f"💎 {gems} gems")
+                        embed.description = f"You ranked **#{idx}** with **{damage}** Damage!"
+                        embed.add_field(name="Reward", value=f"Reward\n{reward} {GEM_EMOJI}")
                         await user.send(embed=embed)
                 except:
                     pass
