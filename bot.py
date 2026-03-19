@@ -1003,6 +1003,14 @@ class DatabaseSystem:
 
         # Try different connection strategies
         connection_strategies = [
+            ("Standard with SSL and keepalive", {
+                'ssl': 'require',
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 5,
+                'command_timeout': 30
+            }),
             ("Standard with SSL", {'ssl': 'require'}),
             ("Standard without SSL", {'ssl': None}),
             ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
