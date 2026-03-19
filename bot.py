@@ -11270,85 +11270,118 @@ class ArenaDuelView(AttackView):
         super().__init__(attacker_id, defender_id, channel_id, message_id)
         self.is_arena = True
         self.points_stake = 25
-        self.duel_ended = False  # prevent multiple endings
+        self.duel_ended = False
 
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.duel_ended:
             return
 
-        # Let parent handle the attack (damage, HP update)
-        await super().attack_button(interaction, button)
+        try:
+            # Let parent handle attack (damage calculation, HP update)
+            await super().attack_button(interaction, button)
 
-        # Fetch fresh stats from DB directly (bypass any caching)
-        async with bot.db_pool.acquire() as conn:
-            a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
-            d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
+            # Wait a moment for DB to update
+            await asyncio.sleep(0.5)
 
-        print(f"[ARENA DB] Attacker HP={a_hp}, Defender HP={d_hp}")
+            # Fetch fresh HP directly from DB
+            async with bot.db_pool.acquire() as conn:
+                a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
+                d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
 
-        # Determine winner
-        if d_hp <= 0:
-            print("[ARENA] Defender died → attacker wins")
-            await self.end_arena_match(self.attacker_id, self.defender_id)
-        elif a_hp <= 0:
-            print("[ARENA] Attacker died → defender wins")
-            await self.end_arena_match(self.defender_id, self.attacker_id)
-        else:
-            print("[ARENA] Both alive, duel continues")
+            # Log to console and Discord logs
+            debug_msg = f"After attack: Attacker HP={a_hp}, Defender HP={d_hp}"
+            print(f"[ARENA] {debug_msg}")
+            await self.log_to_discord(debug_msg)
+
+            if d_hp <= 0:
+                await self.log_to_discord("Defender died, ending match")
+                await self.end_arena_match(self.attacker_id, self.defender_id)
+            elif a_hp <= 0:
+                await self.log_to_discord("Attacker died, ending match")
+                await self.end_arena_match(self.defender_id, self.attacker_id)
+            else:
+                await self.log_to_discord("Both alive, duel continues")
+        except Exception as e:
+            error_msg = f"Error in attack_button: {e}"
+            print(error_msg)
+            traceback.print_exc()
+            await self.log_to_discord(error_msg)
 
     async def end_arena_match(self, winner_id: str, loser_id: str):
         if self.duel_ended:
             return
         self.duel_ended = True
-        print(f"[ARENA] end_arena_match called: winner={winner_id}, loser={loser_id}")
+        msg = f"end_arena_match called: winner={winner_id}, loser={loser_id}"
+        print(f"[ARENA] {msg}")
+        await self.log_to_discord(msg)
 
-        async with bot.db_pool.acquire() as conn:
-            # Update arena stats
-            await conn.execute("""
-                UPDATE arena_stats
-                SET points = points + $1, wins = wins + 1, last_match = NOW()
-                WHERE user_id = $2
-            """, self.points_stake, winner_id)
-            await conn.execute("""
-                UPDATE arena_stats
-                SET points = GREATEST(points - $1, 0), losses = losses + 1, last_match = NOW()
-                WHERE user_id = $2
-            """, self.points_stake, loser_id)
-
-            # --- Respawn both players to their dynamic max HP ---
-            for uid in (winner_id, loser_id):
-                stats = await get_player_stats(uid)
+        try:
+            async with bot.db_pool.acquire() as conn:
+                # Update arena stats
                 await conn.execute("""
-                    UPDATE player_stats
-                    SET hp = $1, respawn_at = NULL
+                    UPDATE arena_stats
+                    SET points = points + $1, wins = wins + 1, last_match = NOW()
                     WHERE user_id = $2
-                """, stats['max_hp'], uid)
-                print(f"[ARENA] Respawned {uid} to {stats['max_hp']} HP")
+                """, self.points_stake, winner_id)
+                await conn.execute("""
+                    UPDATE arena_stats
+                    SET points = GREATEST(points - $1, 0), losses = losses + 1, last_match = NOW()
+                    WHERE user_id = $2
+                """, self.points_stake, loser_id)
 
-        # Get usernames
-        winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
-        loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
+                # Respawn both players to their dynamic max HP
+                for uid in (winner_id, loser_id):
+                    stats = await get_player_stats(uid)
+                    await conn.execute("""
+                        UPDATE player_stats
+                        SET hp = $1, respawn_at = NULL
+                        WHERE user_id = $2
+                    """, stats['max_hp'], uid)
+                    print(f"[ARENA] Respawned {uid} to {stats['max_hp']} HP")
 
-        # Announce in global chat
-        global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
-        if global_channel:
-            await global_channel.send(
-                f"⚔️ **Arena Result**\n"
-                f"{winner.mention} defeated {loser.mention} in the arena!\n"
-                f"{winner.mention} gained **{self.points_stake}** points, "
-                f"{loser.mention} lost **{self.points_stake}** points."
-            )
+            # Get usernames
+            winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
+            loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
 
-        # Close the thread
-        thread = bot.get_channel(self.channel_id)
-        if thread and isinstance(thread, discord.Thread):
-            await thread.send("🏁 The duel has ended. This thread will be closed in 10 seconds.")
-            await asyncio.sleep(10)
-            try:
-                await thread.delete()
-                print("[ARENA] Thread deleted")
-            except Exception as e:
-                print(f"[ARENA] Failed to delete thread: {e}")
+            # Announce in global chat
+            global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
+            if global_channel:
+                await global_channel.send(
+                    f"⚔️ **Arena Result**\n"
+                    f"{winner.mention} defeated {loser.mention} in the arena!\n"
+                    f"{winner.mention} gained **{self.points_stake}** points, "
+                    f"{loser.mention} lost **{self.points_stake}** points."
+                )
+
+            # Close the thread
+            thread = bot.get_channel(self.channel_id)
+            if thread and isinstance(thread, discord.Thread):
+                await thread.send("🏁 The duel has ended. This thread will be closed in 10 seconds.")
+                await asyncio.sleep(10)
+                try:
+                    await thread.delete()
+                    print("[ARENA] Thread deleted")
+                except Exception as e:
+                    print(f"[ARENA] Failed to delete thread: {e}")
+        except Exception as e:
+            error_msg = f"Error in end_arena_match: {e}"
+            print(error_msg)
+            traceback.print_exc()
+            await self.log_to_discord(error_msg)
+
+    async def log_to_discord(self, message):
+        """Send debug logs to a #bot-logs channel if it exists."""
+        try:
+            for guild in bot.guilds:
+                channel = discord.utils.get(guild.text_channels, name="bot-logs")
+                if channel:
+                    await channel.send(f"`[ARENA]` {message}")
+                    return
+        except:
+            pass
+        # Fallback: print to console
+        print(f"[ARENA LOG] {message}")
+
 
 
 async def handle_arena_start(interaction: discord.Interaction):
