@@ -4109,7 +4109,7 @@ async def fortune_bag_to(ctx, channel: discord.TextChannel):
 async def process_effects():
     try:
         async with bot.db_pool.acquire() as conn:
-            # Apply damage
+            # Apply damage from active effects (bleed/burn)
             await conn.execute("""
                 UPDATE player_stats
                 SET hp = GREATEST(hp - value, 0)
@@ -4123,7 +4123,7 @@ async def process_effects():
                 SET remaining_ticks = remaining_ticks - 1
                 WHERE remaining_ticks > 0
             """)
-            # Delete expired
+            # Delete expired effects
             await conn.execute("DELETE FROM active_effects WHERE remaining_ticks <= 0")
 
             # Set respawn timer for players who just died
@@ -4132,11 +4132,17 @@ async def process_effects():
                 SET respawn_at = NOW() + INTERVAL '2 hours'
                 WHERE hp <= 0 AND respawn_at IS NULL
             """)
-        # Optional debug print (visible in Railway logs)
-        print("process_effects tick")
     except Exception as e:
         print(f"❌ process_effects error: {e}")
         traceback.print_exc()
+
+        # If the pool is closed, try to reconnect
+        if bot.db_pool and bot.db_pool._closed:
+            print("🔄 Database pool closed – attempting to reconnect...")
+            try:
+                await db.smart_connect()   # this reassigns bot.db_pool internally
+            except Exception as re:
+                print(f"❌ Reconnection failed: {re}")
 
 @tasks.loop(minutes=1)
 async def respawn_task():
