@@ -1328,6 +1328,32 @@ class DatabaseSystem:
                     await conn.execute('ALTER TABLE user_titles ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;')
                     await conn.execute('CREATE INDEX IF NOT EXISTS idx_user_titles_expires ON user_titles (expires_at);')
 
+                    # ========== ARENA SYSTEM TABLES ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS arena_stats (
+                            user_id TEXT PRIMARY KEY REFERENCES user_gems(user_id) ON DELETE CASCADE,
+                            points INTEGER DEFAULT 1000,
+                            kills INTEGER DEFAULT 0,
+                            deaths INTEGER DEFAULT 0,
+                            last_match TIMESTAMP
+                        )
+                    ''')
+
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS arena_queue (
+                            user_id TEXT PRIMARY KEY REFERENCES arena_stats(user_id) ON DELETE CASCADE,
+                            queued_at TIMESTAMP DEFAULT NOW()
+                        )
+                    ''')
+
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS arena_config (
+                            guild_id BIGINT PRIMARY KEY,
+                            channel_id BIGINT NOT NULL,
+                            message_id BIGINT
+                        )
+                    ''')
+
                     # ========== PLAYER STATS ==========
                     await conn.execute('''
                         CREATE TABLE IF NOT EXISTS player_stats (
@@ -11176,6 +11202,276 @@ async def perform_boss_reset():
                     await announce_channel.send("**Boss has Respawned!**")
                 except Exception as e:
                     print(f"Failed to send announcement: {e}")
+
+
+# ========== ARENA SYSTEM  ==========
+
+
+class ArenaMainView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)  # persistent
+
+    @discord.ui.button(label="Start", style=discord.ButtonStyle.success, custom_id="arena_start")
+    async def start_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await handle_arena_start(interaction)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger, custom_id="arena_cancel")
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await handle_arena_cancel(interaction)
+
+    @discord.ui.button(label="🏆 Rankings", style=discord.ButtonStyle.secondary, custom_id="arena_rankings")
+    async def rankings_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await show_arena_rankings(interaction)
+
+
+class ArenaDuelView(AttackView):
+    def __init__(self, attacker_id: str, defender_id: str, channel_id: int, message_id: int = None):
+        super().__init__(attacker_id, defender_id, channel_id, message_id)
+        self.is_arena = True
+        self.points_stake = 25  # points won/lost per match
+
+    async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Let parent handle the attack
+        await super().attack_button(interaction, button)
+
+        # After attack, check if defender died
+        d_stats = await get_player_stats(self.defender_id)
+        if d_stats['hp'] <= 0:
+            await self.end_arena_match(self.attacker_id, self.defender_id)
+
+    async def end_arena_match(self, winner_id: str, loser_id: str):
+        """Update stats, announce result, close thread."""
+        async with bot.db_pool.acquire() as conn:
+            # Update winner
+            await conn.execute("""
+                UPDATE arena_stats
+                SET points = points + $1, kills = kills + 1, last_match = NOW()
+                WHERE user_id = $2
+            """, self.points_stake, winner_id)
+            # Update loser (points cannot go below 0)
+            await conn.execute("""
+                UPDATE arena_stats
+                SET points = GREATEST(points - $1, 0), deaths = deaths + 1, last_match = NOW()
+                WHERE user_id = $2
+            """, self.points_stake, loser_id)
+
+        # Get usernames
+        winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
+        loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
+
+        # Announce in global chat
+        global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
+        if global_channel:
+            await global_channel.send(
+                f"⚔️ **Arena Result**\n"
+                f"{winner.mention} defeated {loser.mention} in the arena!\n"
+                f"{winner.mention} gained **{self.points_stake}** points, "
+                f"{loser.mention} lost **{self.points_stake}** points."
+            )
+
+        # Close the thread
+        thread = bot.get_channel(self.channel_id)
+        if thread and isinstance(thread, discord.Thread):
+            await thread.send("🏁 The duel has ended. This thread will be closed in 10 seconds.")
+            await asyncio.sleep(10)
+            await thread.delete()
+
+async def handle_arena_start(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    async with bot.db_pool.acquire() as conn:
+        # Ensure player has stats entry
+        await conn.execute("""
+            INSERT INTO arena_stats (user_id) VALUES ($1)
+            ON CONFLICT (user_id) DO NOTHING
+        """, user_id)
+
+        # Check if already in queue
+        in_queue = await conn.fetchval("SELECT 1 FROM arena_queue WHERE user_id = $1", user_id)
+        if in_queue:
+            await interaction.response.send_message("❌ You are already in the queue!", ephemeral=True)
+            return
+
+        # Add to queue
+        await conn.execute("INSERT INTO arena_queue (user_id) VALUES ($1)", user_id)
+
+    await interaction.response.send_message("✅ You joined the arena queue! Looking for an opponent...", ephemeral=True)
+
+    # Immediately trigger matchmaking
+    await try_matchmaking()
+
+async def try_matchmaking():
+    """Attempt to match any two players in the queue."""
+    async with bot.db_pool.acquire() as conn:
+        # Get all queued players with their points
+        queued = await conn.fetch("""
+            SELECT aq.user_id, ast.points
+            FROM arena_queue aq
+            JOIN arena_stats ast ON aq.user_id = ast.user_id
+            ORDER BY aq.queued_at
+        """)
+        if len(queued) < 2:
+            return
+
+        # Simple matchmaking: pair the first two with points within ±200
+        # For simplicity, we'll just match the first two.
+        player1 = queued[0]
+        player2 = queued[1]
+
+        # Remove both from queue
+        await conn.execute("DELETE FROM arena_queue WHERE user_id IN ($1, $2)", player1['user_id'], player2['user_id'])
+
+    # Start the duel in a thread
+    await create_arena_thread(player1['user_id'], player2['user_id'])
+
+async def create_arena_thread(player1_id: str, player2_id: str):
+    # Get arena channel
+    async with bot.db_pool.acquire() as conn:
+        config = await conn.fetchrow("SELECT channel_id FROM arena_config LIMIT 1")
+        if not config:
+            print("❌ Arena channel not configured.")
+            return
+    channel = bot.get_channel(config['channel_id'])
+    if not channel:
+        print("❌ Arena channel not found.")
+        return
+
+    player1 = bot.get_user(int(player1_id)) or await bot.fetch_user(int(player1_id))
+    player2 = bot.get_user(int(player2_id)) or await bot.fetch_user(int(player2_id))
+    if not player1 or not player2:
+        return
+
+    # Create a private thread
+    thread_name = f"arena-{player1.name}-vs-{player2.name}"
+    thread = await channel.create_thread(
+        name=thread_name,
+        type=discord.ChannelType.private_thread,
+        invitable=False
+    )
+
+    # Send initial message
+    await thread.send(f"⚔️ **Arena Match** – {player1.mention} vs {player2.mention}")
+
+    # Create duel view
+    view = ArenaDuelView(player1_id, player2_id, thread.id)
+    embed = await view.build_duel_embed()
+    msg = await thread.send(embed=embed, view=view)
+    view.message_id = msg.id
+
+async def show_arena_rankings(interaction: discord.Interaction):
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT user_id, points, kills, deaths
+            FROM arena_stats
+            ORDER BY points DESC
+            LIMIT 10
+        """)
+
+    embed = discord.Embed(title="🏆 Arena Leaderboard", color=discord.Color.gold())
+    if not rows:
+        embed.description = "No arena stats yet."
+    else:
+        lines = []
+        for idx, row in enumerate(rows, 1):
+            user = bot.get_user(int(row['user_id'])) or await bot.fetch_user(int(row['user_id']))
+            name = user.display_name if user else f"User {row['user_id'][:6]}"
+            lines.append(f"{idx}. **{name}** – {row['points']} pts | K:{row['kills']} D:{row['deaths']}")
+        embed.description = "\n".join(lines)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+
+@tasks.loop(seconds=5)
+async def arena_matchmaking_loop():
+    await try_matchmaking()
+
+@arena_matchmaking_loop.before_loop
+async def before_arena_matchmaking():
+    await bot.wait_until_ready()
+    while bot.db_pool is None:
+        await asyncio.sleep(1)
+
+
+@tasks.loop(hours=168)  # 7 days
+async def arena_weekly_reset():
+    """Award top 10 arena players with gems and reset points to 1000."""
+    async with bot.db_pool.acquire() as conn:
+        # Get top 10 by points
+        top = await conn.fetch("""
+            SELECT user_id, points, kills, deaths
+            FROM arena_stats
+            ORDER BY points DESC
+            LIMIT 10
+        """)
+
+        for idx, row in enumerate(top, 1):
+            gems = 0
+            if idx == 1:
+                gems = 1000
+            elif idx == 2:
+                gems = 750
+            elif idx == 3:
+                gems = 500
+            else:  # 4th to 10th
+                gems = 300
+
+            if gems > 0:
+                await currency_system.add_gems(row['user_id'], gems, f"Arena weekly rank #{idx}")
+
+        # Optional: reset all points to 1000 (uncomment if you want weekly reset)
+        await conn.execute("UPDATE arena_stats SET points = 1000")
+
+    # Announce in global chat with gem emoji
+    global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
+    if global_channel:
+        await global_channel.send(
+            f"🏆 **Arena Weekly Rewards have been distributed!** "
+            f"Top players received {GEM_EMOJI} Check your DMs."
+        )
+
+@arena_weekly_reset.before_loop
+async def before_arena_weekly():
+    await bot.wait_until_ready()
+    while bot.db_pool is None:
+        await asyncio.sleep(1)
+
+
+@bot.command(name='setarena')
+@commands.has_permissions(administrator=True)
+async def set_arena_channel(ctx, channel: discord.TextChannel):
+    """Set the dedicated arena channel and post the persistent message."""
+    # Delete old message if exists
+    async with bot.db_pool.acquire() as conn:
+        old = await conn.fetchrow("SELECT message_id FROM arena_config WHERE guild_id = $1", ctx.guild.id)
+        if old and old['message_id']:
+            try:
+                old_msg = await channel.fetch_message(old['message_id'])
+                await old_msg.delete()
+            except:
+                pass
+
+    # Create new message with buttons
+    embed = discord.Embed(
+        title="⚔️ Arena",
+        description="Click **Start** to join the matchmaking queue.\nClick **Cancel** to leave the queue.\nClick **Rankings** to see the leaderboard.",
+        color=discord.Color.purple()
+    )
+    # Optional: embed.set_image(url="https://your-arena-image-url.png")
+
+    view = ArenaMainView()
+    msg = await channel.send(embed=embed, view=view)
+
+    # Store in database
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO arena_config (guild_id, channel_id, message_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (guild_id) DO UPDATE
+            SET channel_id = $2, message_id = $3
+        """, ctx.guild.id, channel.id, msg.id)
+
+    await ctx.send(f"✅ Arena channel set to {channel.mention}", delete_after=5)
+    await ctx.message.delete(delay=5)
 
 
 @boss_reset_task.before_loop
