@@ -992,7 +992,7 @@ class DatabaseSystem:
         self.using_database = False
 
     async def smart_connect(self):
-        """Connect to PostgreSQL database"""
+        """Connect to PostgreSQL database with multiple fallback strategies."""
         if not DATABASE_URL:
             raise ValueError("DATABASE_URL is required for PostgreSQL connection")
 
@@ -1001,19 +1001,21 @@ class DatabaseSystem:
 
         print("\n🔌 Attempting database connection...")
 
-        # Try different connection strategies
+        # Try different connection strategies with increasing robustness
         connection_strategies = [
-            ("Standard with SSL and keepalive", {
+            ("Keepalive + SSL", {
                 'ssl': 'require',
                 'keepalives': 1,
                 'keepalives_idle': 30,
                 'keepalives_interval': 10,
                 'keepalives_count': 5,
-                'command_timeout': 30
+                'command_timeout': 30,
+                'max_queries': 50000,
+                'max_inactive_connection_lifetime': 300.0
             }),
-            ("Standard with SSL", {'ssl': 'require'}),
-            ("Standard without SSL", {'ssl': None}),
-            ("With longer timeout", {'ssl': 'require', 'command_timeout': 30}),
+            ("Standard with SSL", {'ssl': 'require', 'command_timeout': 30}),
+            ("Standard without SSL", {'ssl': None, 'command_timeout': 30}),
+            ("No SSL, longer timeout", {'ssl': None, 'command_timeout': 60}),
         ]
 
         for strategy_name, strategy_args in connection_strategies:
@@ -1022,11 +1024,12 @@ class DatabaseSystem:
                 self.pool = await asyncpg.create_pool(
                     DATABASE_URL,
                     min_size=1,
-                    max_size=3,
+                    max_size=5,  # increased for better concurrency
                     **strategy_args
                 )
                 bot.db_pool = self.pool
 
+                # Test the connection
                 async with self.pool.acquire() as conn:
                     result = await conn.fetchval('SELECT 1')
                     print(f"    ✅ Connection test: {result}")
@@ -1677,10 +1680,13 @@ class DatabaseSystem:
                 print(f"    ❌ Failed: {type(e).__name__}: {e}")
                 import traceback
                 traceback.print_exc()
+                # Clean up any partially created pool
+                if self.pool:
+                    await self.pool.close()
+                    self.pool = None
                 continue
 
         raise ConnectionError("All connection strategies failed. Could not connect to PostgreSQL.")
-
  
     async def add_gems(self, user_id: str, gems: int, reason: str = ""):
         """Add gems to a user"""
