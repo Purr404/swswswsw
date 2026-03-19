@@ -11368,7 +11368,6 @@ class ArenaDuelView(AttackView):
                         SET hp = $1, respawn_at = NULL
                         WHERE user_id = $2
                     """, stats['max_hp'], uid)
-                    await self.log(f"Respawned {uid} to {stats['max_hp']} HP")
 
             winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
             loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
@@ -11489,8 +11488,16 @@ async def create_arena_thread(player1_id: str, player2_id: str):
     p2_stats = await get_player_stats(player2_id)
 
     async with bot.db_pool.acquire() as conn:
-        await conn.execute("UPDATE player_stats SET hp = $1, respawn_at = NULL WHERE user_id = $2", p1_stats['max_hp'], player1_id)
-        await conn.execute("UPDATE player_stats SET hp = $1, respawn_at = NULL WHERE user_id = $2", p2_stats['max_hp'], player2_id)
+        await conn.execute("""
+            UPDATE player_stats 
+            SET hp = $1, energy = $2, respawn_at = NULL 
+            WHERE user_id = $3
+        """, p1_stats['max_hp'], p1_stats['max_energy'], player1_id)
+        await conn.execute("""
+            UPDATE player_stats 
+            SET hp = $1, energy = $2, respawn_at = NULL 
+            WHERE user_id = $3
+        """, p2_stats['max_hp'], p2_stats['max_energy'], player2_id)
 
     # Create private thread
     thread_name = f"arena-{player1.name}-vs-{player2.name}"
