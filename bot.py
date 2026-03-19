@@ -11442,7 +11442,7 @@ async def before_arena_weekly():
 @bot.command(name='setarena')
 @commands.has_permissions(administrator=True)
 async def set_arena_channel(ctx, channel: discord.TextChannel):
-    """Set the dedicated arena channel and post the persistent message."""
+    """Set the dedicated arena channel and post the persistent message with an image."""
     # Delete old message if exists
     async with bot.db_pool.acquire() as conn:
         old = await conn.fetchrow("SELECT message_id FROM arena_config WHERE guild_id = $1", ctx.guild.id)
@@ -11453,13 +11453,14 @@ async def set_arena_channel(ctx, channel: discord.TextChannel):
             except:
                 pass
 
-    # Create new message with buttons
+    # Create new message with buttons and image
     embed = discord.Embed(
         title="⚔️ Arena",
         description="Click **Start** to join the matchmaking queue.\nClick **Cancel** to leave the queue.\nClick **Rankings** to see the leaderboard.",
         color=discord.Color.purple()
     )
-    # Optional: embed.set_image(url="https://your-arena-image-url.png")
+    # Add your image URL here (must be a direct link to an image, e.g., ending in .png, .jpg)
+    embed.set_image(url="https://image2url.com/r2/default/images/1773931566730-e189ca93-4448-4903-be15-d3c62dcab41d.png")   # <-- REPLACE WITH YOUR IMAGE URL
 
     view = ArenaMainView()
     msg = await channel.send(embed=embed, view=view)
@@ -11475,7 +11476,6 @@ async def set_arena_channel(ctx, channel: discord.TextChannel):
 
     await ctx.send(f"✅ Arena channel set to {channel.mention}", delete_after=5)
     await ctx.message.delete(delay=5)
-
 
 @boss_reset_task.before_loop
 async def before_boss_reset():
