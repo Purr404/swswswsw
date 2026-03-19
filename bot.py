@@ -11266,20 +11266,20 @@ class ArenaMainView(discord.ui.View):
 
 
 class ArenaDuelView(AttackView):
-    def __init__(self, attacker_id: str, defender_id: str, channel_id: int, message_id: int = None):
+    def __init__(self, bot, attacker_id: str, defender_id: str, channel_id: int, message_id: int = None):
         super().__init__(attacker_id, defender_id, channel_id, message_id)
+        self.bot = bot
         self.is_arena = True
         self.points_stake = 25
         self.duel_ended = False
         self.log_channel_id = 1484235804367782080  # <-- YOUR DEBUG CHANNEL ID
 
-        # Log creation immediately
-        self.bot.loop.create_task(self.log(f"DEBUG: ArenaDuelView created for {attacker_id} vs {defender_id}"))
+        asyncio.create_task(self.log(f"DEBUG: ArenaDuelView created for {attacker_id} vs {defender_id}"))
 
     async def get_log_channel(self):
-        channel = bot.get_channel(self.log_channel_id)
+        channel = self.bot.get_channel(self.log_channel_id)
         if not channel:
-            for guild in bot.guilds:
+            for guild in self.bot.guilds:
                 channel = discord.utils.get(guild.text_channels, name="bot-logs")
                 if channel:
                     break
@@ -11302,7 +11302,6 @@ class ArenaDuelView(AttackView):
             return
 
         try:
-            # Call parent method – this may defer or respond
             await self.log("Calling super().attack_button...")
             await super().attack_button(interaction, button)
             await self.log("super().attack_button completed")
@@ -11311,10 +11310,8 @@ class ArenaDuelView(AttackView):
             traceback.print_exc()
             return
 
-        # Wait briefly for DB update
         await asyncio.sleep(0.5)
 
-        # Fetch latest HP
         try:
             async with bot.db_pool.acquire() as conn:
                 a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
@@ -11324,7 +11321,6 @@ class ArenaDuelView(AttackView):
             await self.log(f"ERROR fetching HP: {e}")
             return
 
-        # Check for death
         if d_hp <= 0:
             await self.log("Defender died, calling end_arena_match")
             await self.end_arena_match(self.attacker_id, self.defender_id)
@@ -11346,7 +11342,6 @@ class ArenaDuelView(AttackView):
 
         try:
             async with bot.db_pool.acquire() as conn:
-                # Update arena stats
                 await conn.execute("""
                     UPDATE arena_stats
                     SET points = points + $1, wins = wins + 1, last_match = NOW()
@@ -11359,7 +11354,6 @@ class ArenaDuelView(AttackView):
                 """, self.points_stake, loser_id)
                 await self.log("Arena stats updated")
 
-                # Respawn both
                 for uid in (winner_id, loser_id):
                     stats = await get_player_stats(uid)
                     await conn.execute("""
@@ -11369,7 +11363,6 @@ class ArenaDuelView(AttackView):
                     """, stats['max_hp'], uid)
                     await self.log(f"Respawned {uid} to {stats['max_hp']} HP")
 
-            # Announce
             winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
             loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
             global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
@@ -11384,7 +11377,6 @@ class ArenaDuelView(AttackView):
             else:
                 await self.log("Global channel not found")
 
-            # Close thread
             thread = bot.get_channel(self.channel_id)
             if thread and isinstance(thread, discord.Thread):
                 await thread.send("🏁 Duel ended – closing in 10 seconds.")
@@ -11517,7 +11509,7 @@ async def create_arena_thread(player1_id: str, player2_id: str):
     await thread.send(f"⚔️ **Arena Match** – {player1.mention} vs {player2.mention}")
 
     # Create duel view
-    view = ArenaDuelView(player1_id, player2_id, thread.id)
+    view = ArenaDuelView(bot, player1_id, player2_id, thread.id)
     embed = await view.build_duel_embed()
     msg = await thread.send(embed=embed, view=view)
     view.message_id = msg.id
