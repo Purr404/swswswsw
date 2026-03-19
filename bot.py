@@ -194,6 +194,8 @@ CUSTOM_EMOJIS = {
     'boss_reaper': '<:boss_reaper:1483707209090334820>',
 }
 
+# ===== GLOBAL GEM EMOJI FOR CURRENCY =====
+GEM_EMOJI = CUSTOM_EMOJIS.get('gem_crn', '💎')
 
 # ============================================================
 # EMOJIS HELPER FUNCTIONS 
