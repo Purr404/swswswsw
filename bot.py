@@ -10912,12 +10912,23 @@ class BossAttackView(discord.ui.View):
             return
 
         embed = discord.Embed(title="🏆 Boss Damage Leaderboard", color=discord.Color.gold())
-        desc_lines = []
+        lines = []
         for idx, row in enumerate(rows, start=1):
+            # Reward based on rank
+            if idx == 1:
+                reward = 1000
+            elif idx == 2:
+                reward = 750
+            elif idx == 3:
+                reward = 500
+            else:  # 4th to 10th
+                reward = 300
+
             user = bot.get_user(int(row['user_id']))
             name = user.display_name if user else f"User {row['user_id'][:6]}"
-            desc_lines.append(f"{idx}. **{name}** – {row['total_damage']} damage")
-        embed.description = "\n".join(desc_lines)
+            lines.append(f"{idx}. **{name}** {row['total_damage']} damage {GEM_EMOJI}{reward}")
+
+        embed.description = "\n".join(lines)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def update_boss_message(self, interaction: discord.Interaction, current_hp: int, max_hp: int):
