@@ -1353,6 +1353,18 @@ class DatabaseSystem:
                             message_id BIGINT
                         )
                     ''')
+                    # ========== ARENA RESET LOG ==========
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS arena_reset_log (
+                            id INTEGER PRIMARY KEY DEFAULT 1,
+                            last_reset TIMESTAMP NOT NULL DEFAULT NOW()
+                        )
+                    ''')
+                    # Ensure there's always one row
+                    await conn.execute('''
+                        INSERT INTO arena_reset_log (id, last_reset) VALUES (1, NOW())
+                        ON CONFLICT (id) DO NOTHING
+                    ''')
 
                     # ========== PLAYER STATS ==========
                     await conn.execute('''
@@ -11395,11 +11407,23 @@ async def before_arena_matchmaking():
         await asyncio.sleep(1)
 
 
-@tasks.loop(hours=168)  # 7 days
+@tasks.loop(hours=1)  # check every hour
 async def arena_weekly_reset():
-    """Award top 10 arena players with gems and reset points to 1000."""
+    """Check if 7 days have passed since last reset, and if so, distribute rewards and reset points."""
     async with bot.db_pool.acquire() as conn:
-        # Get top 10 by points
+        # Get last reset time
+        last_reset_row = await conn.fetchrow("SELECT last_reset FROM arena_reset_log WHERE id = 1")
+        if not last_reset_row:
+            return
+        last_reset = last_reset_row['last_reset']
+        if last_reset.tzinfo is None:
+            last_reset = last_reset.replace(tzinfo=timezone.utc)
+
+        now = datetime.now(timezone.utc)
+        if now - last_reset < timedelta(days=7):
+            return  # not enough time passed
+
+        # --- 7 days have passed – perform the reset ---
         top = await conn.fetch("""
             SELECT user_id, points, kills, deaths
             FROM arena_stats
@@ -11415,16 +11439,19 @@ async def arena_weekly_reset():
                 gems = 750
             elif idx == 3:
                 gems = 500
-            else:  # 4th to 10th
+            else:
                 gems = 300
 
             if gems > 0:
                 await currency_system.add_gems(row['user_id'], gems, f"Arena weekly rank #{idx}")
 
-        # Optional: reset all points to 1000 (uncomment if you want weekly reset)
+        # Reset all players' points to 1000 (mandatory)
         await conn.execute("UPDATE arena_stats SET points = 1000")
 
-    # Announce in global chat with gem emoji
+        # Update last reset time
+        await conn.execute("UPDATE arena_reset_log SET last_reset = $1 WHERE id = 1", now)
+
+    # Announce in global chat
     global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
     if global_channel:
         await global_channel.send(
@@ -11437,7 +11464,6 @@ async def before_arena_weekly():
     await bot.wait_until_ready()
     while bot.db_pool is None:
         await asyncio.sleep(1)
-
 
 @bot.command(name='setarena')
 @commands.has_permissions(administrator=True)
