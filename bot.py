@@ -3286,14 +3286,14 @@ async def send_gem_notification(user, admin, amount, new_balance):
             return True  # Return True since we don't need to send a DM
         
         embed = discord.Embed(
-            title="🎁 **You've received Gems!**",
-            description=f"**{admin.name}** has added gems to your account.",
+            title="**You've received {GEM_EMOJI}**",
+            description=f"**{admin.name}** has added Gems to your account.",
             color=discord.Color.gold(),
             
         )
         
-        embed.add_field(name="💎 Amount Added", value=f"**+{amount} gems**", inline=True)
-        embed.add_field(name="💰 New Balance", value=f"**{new_balance} gems**", inline=True)
+        embed.add_field(name="Amount Added", value=f"**+{amount} {GEM_EMOJI}**", inline=True)
+        embed.add_field(name="New Balance", value=f"**{new_balance} {GEM_EMOJI}**", inline=True)
         
         
         
@@ -3699,11 +3699,7 @@ async def daily_reward(ctx):
         color=discord.Color.gold()
     )
 
-    embed.add_field(
-        name="💎 Gems Earned",
-        value=f"**+{result['gems']} gems**",
-        inline=False
-    )
+    embed.add_field(name="Gems Earned", value=f"**+{result['gems']} {GEM_EMOJI}**", inline=False)
 
     potion_text = []
     if hp_potion_id:
@@ -3727,11 +3723,7 @@ async def daily_reward(ctx):
         inline=True
     )
 
-    embed.add_field(
-        name="💰 New Gem Balance",
-        value=f"**{result['balance']} gems**",
-        inline=True
-    )
+    embed.add_field(name="New Balance", value=f"**{result['balance']} {GEM_EMOJI}**", inline=True)
 
     embed.set_footer(text="Come back tomorrow for more rewards!")
     await ctx.send(embed=embed)
@@ -3852,9 +3844,9 @@ async def add_gems(ctx, member: discord.Member = None, amount: int = 100):
                 else:
                     embed.add_field(name="📨 Notification", value="⚠️ Could not send DM (user has DMs disabled)", inline=True)
 
-            embed.add_field(name="💎 Amount Added", value=f"**+{amount} gems**", inline=True)
-            embed.add_field(name="💰 New Balance", value=f"**{balance['gems']} gems**", inline=True)
-            embed.add_field(name="👤 Added By", value=ctx.author.mention, inline=True)
+            embed.add_field(name="Amount Added", value=f"**+{amount} {GEM_EMOJI}**", inline=True)
+            embed.add_field(name="New Balance", value=f"**{balance['gems']} {GEM_EMOJI}**", inline=True)
+            embed.add_field(name="Added By", value=ctx.author.mention, inline=True)
 
             # Add transaction ID if available
             if isinstance(result, dict) and 'transaction_id' in result:
@@ -3934,8 +3926,8 @@ async def balance_cmd(ctx):
     balance = await currency_system.get_balance(user_id)
     
     embed = discord.Embed(
-        title="💰 Your Balance",
-        description=f"**💎 {balance['gems']} gems**",
+        title="Your Balance",
+        description=f"**{GEM_EMOJI} {balance['gems']} Gems**",
         color=discord.Color.gold()
     )
     
