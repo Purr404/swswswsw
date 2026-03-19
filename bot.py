@@ -11274,7 +11274,13 @@ class ArenaDuelView(AttackView):
         self.duel_ended = False
         self.log_channel_id = 1484235804367782080  # <-- YOUR DEBUG CHANNEL ID
 
-        asyncio.create_task(self.log(f"DEBUG: ArenaDuelView created for {attacker_id} vs {defender_id}"))
+        # Log all button custom_ids
+        asyncio.create_task(self.log_children())
+
+    async def log_children(self):
+        await asyncio.sleep(1)  # Give time for the view to initialize
+        for child in self.children:
+            await self.log(f"Child custom_id: {child.custom_id}")
 
     async def get_log_channel(self):
         channel = self.bot.get_channel(self.log_channel_id)
@@ -11294,6 +11300,7 @@ class ArenaDuelView(AttackView):
             except:
                 pass
 
+    @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, custom_id="attack")
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.log(f"attack_button ENTERED by {interaction.user.name} (ID: {interaction.user.id})")
 
@@ -11396,6 +11403,7 @@ class ArenaDuelView(AttackView):
         await self.log("end_arena_match EXITED")
 
 
+
 async def handle_arena_start(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
     async with bot.db_pool.acquire() as conn:
@@ -11468,36 +11476,23 @@ async def create_arena_thread(player1_id: str, player2_id: str):
     if not player1 or not player2:
         return
 
-    # --- Revive both players to their dynamic max HP ---
+    # Revive both players to dynamic max HP
     async with bot.db_pool.acquire() as conn:
         for uid in (player1_id, player2_id):
-            # Ensure player_stats exists (creates default 1000/1000)
             await conn.execute("""
                 INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy, last_energy_regen)
                 VALUES ($1, 1000, 1000, 3, 3, NOW())
                 ON CONFLICT (user_id) DO NOTHING
             """, uid)
 
-    # Now get dynamic stats (which recalculates max_hp from gear/pets)
     p1_stats = await get_player_stats(player1_id)
     p2_stats = await get_player_stats(player2_id)
 
     async with bot.db_pool.acquire() as conn:
-        # Set both to their full dynamic HP and clear respawn
-        await conn.execute("""
-            UPDATE player_stats
-            SET hp = $1, respawn_at = NULL
-            WHERE user_id = $2
-        """, p1_stats['max_hp'], player1_id)
-        await conn.execute("""
-            UPDATE player_stats
-            SET hp = $1, respawn_at = NULL
-            WHERE user_id = $2
-        """, p2_stats['max_hp'], player2_id)
+        await conn.execute("UPDATE player_stats SET hp = $1, respawn_at = NULL WHERE user_id = $2", p1_stats['max_hp'], player1_id)
+        await conn.execute("UPDATE player_stats SET hp = $1, respawn_at = NULL WHERE user_id = $2", p2_stats['max_hp'], player2_id)
 
-    print(f"[ARENA] Revived {player1.name} (HP: {p1_stats['max_hp']}) and {player2.name} (HP: {p2_stats['max_hp']}) for duel.")
-
-    # Create a private thread
+    # Create private thread
     thread_name = f"arena-{player1.name}-vs-{player2.name}"
     thread = await channel.create_thread(
         name=thread_name,
@@ -11505,7 +11500,6 @@ async def create_arena_thread(player1_id: str, player2_id: str):
         invitable=False
     )
 
-    # Send initial message
     await thread.send(f"⚔️ **Arena Match** – {player1.mention} vs {player2.mention}")
 
     # Create duel view
@@ -11513,6 +11507,11 @@ async def create_arena_thread(player1_id: str, player2_id: str):
     embed = await view.build_duel_embed()
     msg = await thread.send(embed=embed, view=view)
     view.message_id = msg.id
+
+    # Log to debug channel
+    debug_channel = bot.get_channel(1484235804367782080)  # <-- your ID
+    if debug_channel:
+        await debug_channel.send(f"✅ Arena duel message sent with ID {msg.id}")
 
 
 
