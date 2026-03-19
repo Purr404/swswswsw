@@ -7790,7 +7790,7 @@ class Shop(commands.Cog):
                 button = discord.ui.Button(
                     label=f"x10 {potion['name']} – {batch_price}g",
                     emoji=emoji,
-                    style=discord.ButtonStyle.secondary,
+                    style=discord.ButtonStyle.primary,
                     custom_id=f"buy_potion_10_{potion['item_id']}"
                 )
                 view.add_item(button)
@@ -8432,11 +8432,21 @@ class Shop(commands.Cog):
                 SET quantity = user_materials.quantity + $3
             """, user_id, item_id, batch_size)
 
-        await interaction.followup.send(f"✅ Purchased **{batch_size}x {potion['name']}** for **{total_cost} gems**.", ephemeral=True)
+        name_lower = potion['name'].lower()
+        if 'hp potion' in name_lower:
+            emoji = CUSTOM_EMOJIS.get('hp_potion', '🧪')
+        else:
+            emoji = CUSTOM_EMOJIS.get('energy_potion', '⚡')
+
+        await interaction.followup.send(
+            f"✅ Purchased **{batch_size}x {emoji} {potion['name']}** for **{total_cost} gems**.",
+            ephemeral=True
+        )
 
         # Log to shop logs
         await self.send_shop_log(interaction.guild, interaction.user, f"{batch_size}x {potion['name']}", total_cost, balance['gems'] - total_cost)
 
+        
 
     # -------------------------------------------------------------------------
     # SECRET SHOP (Treasure Carriage booking)
