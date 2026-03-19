@@ -551,7 +551,7 @@ async def on_raw_message_delete(payload):
 @bot.command(name='editshopimage')
 @commands.has_permissions(administrator=True)
 async def edit_shop_image(ctx, image_url: str):
-    """Permanently change the persistent shop message's image."""
+    """Permanently change the persistent shop message's image using a direct image URL."""
     async with ctx.bot.db_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT channel_id, message_id FROM shop_messages WHERE guild_id = $1", ctx.guild.id)
     if not row:
@@ -569,19 +569,9 @@ async def edit_shop_image(ctx, image_url: str):
         await ctx.send("❌ Shop message not found. It may have been deleted.")
         return
 
-    # Download the new image
-    async with aiohttp.ClientSession() as session:
-        async with session.get(image_url) as resp:
-            if resp.status != 200:
-                await ctx.send("❌ Failed to download image.")
-                return
-            data = await resp.read()
-
-    file = discord.File(io.BytesIO(data), filename="shop.png")
-
     # Preserve existing embed or create a default one
     embed = msg.embeds[0] if msg.embeds else discord.Embed(title="💎 **GEM SHOP**", color=discord.Color.gold())
-    embed.set_image(url="attachment://shop.png")
+    embed.set_image(url=image_url)  # Use the provided external URL
 
     # Recreate the persistent view
     view = discord.ui.View(timeout=None)
@@ -592,10 +582,10 @@ async def edit_shop_image(ctx, image_url: str):
     )
     view.add_item(button)
 
-    # ✅ Use files=[file] instead of file=file
-    await msg.edit(embed=embed, files=[file], view=view)
+    # Remove any existing attachments (optional)
+    await msg.edit(embed=embed, attachments=[], view=view)
 
-    await ctx.send("✅ Shop image updated permanently.")
+    await ctx.send("✅ Shop image updated permanently (now using external URL).")
 
 @bot.command(name='testemojis')
 async def test_emojis(ctx):
