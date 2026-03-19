@@ -176,6 +176,7 @@ CUSTOM_EMOJIS = {
     
     # Tools/Misc
     'pickaxe': '<:pickaxe:1477024057382666383>',  # Replace with actual ID
+    'gem_crn': '<:gem_crn:1484072663772303493>',
     'shadow': '<:shadow:1477258013256454339>',
     'paw': '<:paw:1482627374066565170>',
     'energy_potion': '<:energy_potion:1481365820566409236>',
