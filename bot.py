@@ -992,39 +992,31 @@ class DatabaseSystem:
         self.using_database = False
 
     async def smart_connect(self):
-        """Connect to PostgreSQL database with keepalive parameters and multiple fallback strategies."""
+        """Connect to PostgreSQL database with multiple fallback strategies."""
         if not DATABASE_URL:
             raise ValueError("DATABASE_URL is required for PostgreSQL connection")
 
         if not ASYNCPG_AVAILABLE:
             raise ImportError("asyncpg is required for database operations")
 
-        # --- Add keepalive parameters to the connection string ---
-        keepalive_params = "?keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=5"
-        if '?' not in DATABASE_URL:
-            DATABASE_URL_KEEPALIVE = DATABASE_URL + keepalive_params
-        else:
-            DATABASE_URL_KEEPALIVE = DATABASE_URL + "&" + keepalive_params.lstrip('?')
-        # ---------------------------------------------------------
-
         print("\n🔌 Attempting database connection...")
-        print(f"   Using URL: {DATABASE_URL[:20]}... (keepalive enabled)")
+        print(f"   Using URL: {DATABASE_URL[:20]}...")
 
-        # Try different connection strategies (all use the keepalive URL)
+        # Try different connection strategies (no keepalive parameters)
         connection_strategies = [
             ("Standard with SSL", {'ssl': 'require', 'command_timeout': 30}),
             ("Standard with SSL (ssl=True)", {'ssl': True, 'command_timeout': 30}),
             ("SSL with longer timeout", {'ssl': 'require', 'command_timeout': 60}),
             ("No SSL", {'ssl': None, 'command_timeout': 30}),
             ("No SSL, longer timeout", {'ssl': None, 'command_timeout': 60}),
-            ("No extra args", {}),  # fallback
+            ("No extra args", {}),  # last resort
         ]
 
         for strategy_name, strategy_args in connection_strategies:
             print(f"  Trying: {strategy_name}...")
             try:
                 self.pool = await asyncpg.create_pool(
-                    DATABASE_URL_KEEPALIVE,  # <-- use the keepalive‑enabled URL
+                    DATABASE_URL,  # use original URL without keepalive
                     min_size=1,
                     max_size=5,
                     **strategy_args
@@ -1035,6 +1027,7 @@ class DatabaseSystem:
                 async with self.pool.acquire() as conn:
                     result = await conn.fetchval('SELECT 1')
                     print(f"    ✅ Connection test: {result}")
+
 
                     # ========== CORE TABLES ==========
                     await conn.execute('''
@@ -1687,28 +1680,7 @@ class DatabaseSystem:
                     self.pool = None
                 continue
 
-        # If all strategies fail, try once more with the original URL (no keepalive)
-        print("⚠️ All keepalive strategies failed – attempting without keepalive...")
-        try:
-            self.pool = await asyncpg.create_pool(
-                DATABASE_URL,
-                min_size=1,
-                max_size=5,
-                ssl='require'
-            )
-            bot.db_pool = self.pool
-            async with self.pool.acquire() as conn:
-                await conn.fetchval('SELECT 1')
-            # Table creation again (optional)
-            self.using_database = True
-            print("✅ Database connected without keepalive!")
-            return True
-        except Exception as e:
-            print(f"❌ Final attempt failed: {e}")
-            traceback.print_exc()
-
         raise ConnectionError("All connection strategies failed. Could not connect to PostgreSQL.")
-
 
     async def add_gems(self, user_id: str, gems: int, reason: str = ""):
         """Add gems to a user"""
