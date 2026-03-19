@@ -1333,8 +1333,8 @@ class DatabaseSystem:
                         CREATE TABLE IF NOT EXISTS arena_stats (
                             user_id TEXT PRIMARY KEY REFERENCES user_gems(user_id) ON DELETE CASCADE,
                             points INTEGER DEFAULT 1000,
-                            kills INTEGER DEFAULT 0,
-                            deaths INTEGER DEFAULT 0,
+                            wins INTEGER DEFAULT 0,
+                            losses INTEGER DEFAULT 0,
                             last_match TIMESTAMP
                         )
                     ''')
@@ -11246,7 +11246,6 @@ class ArenaDuelView(AttackView):
         self.points_stake = 25  # points won/lost per match
 
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Let parent handle the attack
         await super().attack_button(interaction, button)
 
         # After attack, check if defender died
@@ -11260,13 +11259,13 @@ class ArenaDuelView(AttackView):
             # Update winner
             await conn.execute("""
                 UPDATE arena_stats
-                SET points = points + $1, kills = kills + 1, last_match = NOW()
+                SET points = points + $1, wins = wins + 1, last_match = NOW()
                 WHERE user_id = $2
             """, self.points_stake, winner_id)
-            # Update loser (points cannot go below 0)
+            # Update loser
             await conn.execute("""
                 UPDATE arena_stats
-                SET points = GREATEST(points - $1, 0), deaths = deaths + 1, last_match = NOW()
+                SET points = GREATEST(points - $1, 0), losses = losses + 1, last_match = NOW()
                 WHERE user_id = $2
             """, self.points_stake, loser_id)
 
@@ -11289,7 +11288,11 @@ class ArenaDuelView(AttackView):
         if thread and isinstance(thread, discord.Thread):
             await thread.send("🏁 The duel has ended. This thread will be closed in 10 seconds.")
             await asyncio.sleep(10)
-            await thread.delete()
+            try:
+                await thread.delete()
+            except Exception as e:
+                print(f"[ARENA] Failed to delete thread: {e}")
+
 
 async def handle_arena_start(interaction: discord.Interaction):
     user_id = str(interaction.user.id)
@@ -11328,7 +11331,6 @@ async def handle_arena_cancel(interaction: discord.Interaction):
 async def try_matchmaking():
     """Attempt to match any two players in the queue."""
     async with bot.db_pool.acquire() as conn:
-        # Get all queued players with their points
         queued = await conn.fetch("""
             SELECT aq.user_id, ast.points
             FROM arena_queue aq
@@ -11338,15 +11340,13 @@ async def try_matchmaking():
         if len(queued) < 2:
             return
 
-        # Simple matchmaking: pair the first two with points within ±200
-        # For simplicity, we'll just match the first two.
+        # Simple matchmaking: pair the first two
         player1 = queued[0]
         player2 = queued[1]
 
         # Remove both from queue
         await conn.execute("DELETE FROM arena_queue WHERE user_id IN ($1, $2)", player1['user_id'], player2['user_id'])
 
-    # Start the duel in a thread
     await create_arena_thread(player1['user_id'], player2['user_id'])
 
 async def create_arena_thread(player1_id: str, player2_id: str):
@@ -11386,7 +11386,7 @@ async def create_arena_thread(player1_id: str, player2_id: str):
 async def show_arena_rankings(interaction: discord.Interaction):
     async with bot.db_pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT user_id, points, kills, deaths
+            SELECT user_id, points, wins, losses
             FROM arena_stats
             ORDER BY points DESC
             LIMIT 10
@@ -11400,12 +11400,10 @@ async def show_arena_rankings(interaction: discord.Interaction):
         for idx, row in enumerate(rows, 1):
             user = bot.get_user(int(row['user_id'])) or await bot.fetch_user(int(row['user_id']))
             name = user.display_name if user else f"User {row['user_id'][:6]}"
-            lines.append(f"{idx}. **{name}** – {row['points']} pts | Wins:{row['kills']} Losses:{row['deaths']}")
+            lines.append(f"{idx}. **{name}** – {row['points']} pts | W:{row['wins']} L:{row['losses']}")
         embed.description = "\n".join(lines)
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
 
 @tasks.loop(seconds=5)
 async def arena_matchmaking_loop():
@@ -11436,7 +11434,7 @@ async def arena_weekly_reset():
 
         # --- 7 days have passed – perform the reset ---
         top = await conn.fetch("""
-            SELECT user_id, points, kills, deaths
+            SELECT user_id, points, wins, losses
             FROM arena_stats
             ORDER BY points DESC
             LIMIT 10
@@ -11456,7 +11454,7 @@ async def arena_weekly_reset():
             if gems > 0:
                 await currency_system.add_gems(row['user_id'], gems, f"Arena weekly rank #{idx}")
 
-        # Reset all players' points to 1000 (mandatory)
+        # Reset all players' points to 1000
         await conn.execute("UPDATE arena_stats SET points = 1000")
 
         # Update last reset time
@@ -11467,7 +11465,7 @@ async def arena_weekly_reset():
     if global_channel:
         await global_channel.send(
             f"🏆 **Arena Weekly Rewards have been distributed!** "
-            f"Top players received {GEM_EMOJI} Check your DMs."
+            f"Top players received {GEM_EMOJI} gems. Check your DMs."
         )
 
 @arena_weekly_reset.before_loop
@@ -11475,6 +11473,7 @@ async def before_arena_weekly():
     await bot.wait_until_ready()
     while bot.db_pool is None:
         await asyncio.sleep(1)
+
 
 @bot.command(name='setarena')
 @commands.has_permissions(administrator=True)
