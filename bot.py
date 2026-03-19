@@ -4232,6 +4232,7 @@ async def on_ready():
         await load_shop_persistence(bot)        # shop messages
         await load_mining_persistence(bot)      # mining views
         await load_boss_persistence()           # boss views
+        await load_arena_persistence() 
         bot._loaded_persistence = True
         print("✅ Persistent guild data loaded.")
     await bot.change_presence(
@@ -4312,6 +4313,8 @@ async def setup_hook():
     respawn_task.start()
     boss_reset_task.start()
     remove_expired_titles.start()
+    arena_matchmaking_loop.start()        
+    arena_weekly_reset.start()  
     print("✅ setup_hook: background tasks started")
 
 bot.setup_hook = setup_hook
