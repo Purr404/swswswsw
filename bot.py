@@ -7788,7 +7788,8 @@ class Shop(commands.Cog):
                     emoji = CUSTOM_EMOJIS.get('energy_potion', '⚡')
                 batch_price = potion['price'] * 10
                 button = discord.ui.Button(
-                    label=f"{emoji} x10 {potion['name']} – {batch_price}g",
+                    label=f"x10 {potion['name']} – {batch_price}g",
+                    emoji=emoji,
                     style=discord.ButtonStyle.secondary,
                     custom_id=f"buy_potion_10_{potion['item_id']}"
                 )
