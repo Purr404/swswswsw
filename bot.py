@@ -11400,7 +11400,7 @@ async def show_arena_rankings(interaction: discord.Interaction):
         for idx, row in enumerate(rows, 1):
             user = bot.get_user(int(row['user_id'])) or await bot.fetch_user(int(row['user_id']))
             name = user.display_name if user else f"User {row['user_id'][:6]}"
-            lines.append(f"{idx}. **{name}** – {row['points']} pts | K:{row['kills']} D:{row['deaths']}")
+            lines.append(f"{idx}. **{name}** – {row['points']} pts | Wins:{row['kills']} Losses:{row['deaths']}")
         embed.description = "\n".join(lines)
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
