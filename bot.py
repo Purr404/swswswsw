@@ -11270,29 +11270,37 @@ class ArenaDuelView(AttackView):
         super().__init__(attacker_id, defender_id, channel_id, message_id)
         self.is_arena = True
         self.points_stake = 25
+        self.duel_ended = False  # prevent multiple endings
 
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.duel_ended:
+            return
+
         # Let parent handle the attack (damage, HP update)
         await super().attack_button(interaction, button)
 
-        # Fetch fresh stats
-        a_stats = await get_player_stats(self.attacker_id)
-        d_stats = await get_player_stats(self.defender_id)
+        # Fetch fresh stats from DB directly (bypass any caching)
+        async with bot.db_pool.acquire() as conn:
+            a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
+            d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
 
-        print(f"[ARENA DEBUG] After attack: Attacker HP={a_stats['hp']}, Defender HP={d_stats['hp']}")
+        print(f"[ARENA DB] Attacker HP={a_hp}, Defender HP={d_hp}")
 
         # Determine winner
-        if d_stats['hp'] <= 0:
-            print("[ARENA DEBUG] Defender died → attacker wins")
+        if d_hp <= 0:
+            print("[ARENA] Defender died → attacker wins")
             await self.end_arena_match(self.attacker_id, self.defender_id)
-        elif a_stats['hp'] <= 0:
-            print("[ARENA DEBUG] Attacker died → defender wins")
+        elif a_hp <= 0:
+            print("[ARENA] Attacker died → defender wins")
             await self.end_arena_match(self.defender_id, self.attacker_id)
         else:
-            print("[ARENA DEBUG] Both alive, duel continues")
+            print("[ARENA] Both alive, duel continues")
 
     async def end_arena_match(self, winner_id: str, loser_id: str):
-        print(f"[ARENA DEBUG] end_arena_match called: winner={winner_id}, loser={loser_id}")
+        if self.duel_ended:
+            return
+        self.duel_ended = True
+        print(f"[ARENA] end_arena_match called: winner={winner_id}, loser={loser_id}")
 
         async with bot.db_pool.acquire() as conn:
             # Update arena stats
@@ -11309,7 +11317,7 @@ class ArenaDuelView(AttackView):
 
             # --- Respawn both players to their dynamic max HP ---
             for uid in (winner_id, loser_id):
-                stats = await get_player_stats(uid)  # gets current max_hp
+                stats = await get_player_stats(uid)
                 await conn.execute("""
                     UPDATE player_stats
                     SET hp = $1, respawn_at = NULL
@@ -11341,7 +11349,6 @@ class ArenaDuelView(AttackView):
                 print("[ARENA] Thread deleted")
             except Exception as e:
                 print(f"[ARENA] Failed to delete thread: {e}")
-
 
 
 async def handle_arena_start(interaction: discord.Interaction):
