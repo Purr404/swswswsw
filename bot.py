@@ -682,6 +682,21 @@ async def check_emojis(ctx):
     
     await ctx.send(embed=embed)
 
+@bot.command(name='setpotionprice')
+@commands.has_permissions(administrator=True)
+async def set_potion_price(ctx, potion_name: str, new_price: int):
+    """Set the price of a potion (single unit)."""
+    async with bot.db_pool.acquire() as conn:
+        result = await conn.execute("""
+            UPDATE shop_items SET price = $1 WHERE name = $2 AND type = 'potion'
+        """, new_price, potion_name)
+        if result == "UPDATE 0":
+            await ctx.send("❌ Potion not found.")
+        else:
+            await ctx.send(f"✅ Price of **{potion_name}** set to {new_price} gems per unit (×10 = {new_price*10} gems for a batch).")
+
+
+
 @bot.command(name='fixbossreaper')
 @commands.has_permissions(administrator=True)
 async def fix_boss_reaper(ctx):
