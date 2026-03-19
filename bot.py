@@ -11269,50 +11269,53 @@ class ArenaDuelView(AttackView):
     def __init__(self, attacker_id: str, defender_id: str, channel_id: int, message_id: int = None):
         super().__init__(attacker_id, defender_id, channel_id, message_id)
         self.is_arena = True
-        self.points_stake = 25  # points won/lost per match
+        self.points_stake = 25
 
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Let parent handle the attack (damage calculation, HP update, etc.)
+        # Let parent handle the attack (damage, HP update)
         await super().attack_button(interaction, button)
 
-        # Fetch fresh stats for both players
+        # Fetch fresh stats
         a_stats = await get_player_stats(self.attacker_id)
         d_stats = await get_player_stats(self.defender_id)
 
-        # Determine winner if duel ended
+        print(f"[ARENA DEBUG] After attack: Attacker HP={a_stats['hp']}, Defender HP={d_stats['hp']}")
+
+        # Determine winner
         if d_stats['hp'] <= 0:
-            # Defender died → attacker wins
+            print("[ARENA DEBUG] Defender died → attacker wins")
             await self.end_arena_match(self.attacker_id, self.defender_id)
         elif a_stats['hp'] <= 0:
-            # Attacker died (e.g., from reflect) → defender wins
+            print("[ARENA DEBUG] Attacker died → defender wins")
             await self.end_arena_match(self.defender_id, self.attacker_id)
-        # If both still alive, nothing happens – duel continues
+        else:
+            print("[ARENA DEBUG] Both alive, duel continues")
 
     async def end_arena_match(self, winner_id: str, loser_id: str):
-        """Update stats, respawn both players, announce result, close thread."""
+        print(f"[ARENA DEBUG] end_arena_match called: winner={winner_id}, loser={loser_id}")
+
         async with bot.db_pool.acquire() as conn:
-            # Update winner
+            # Update arena stats
             await conn.execute("""
                 UPDATE arena_stats
                 SET points = points + $1, wins = wins + 1, last_match = NOW()
                 WHERE user_id = $2
             """, self.points_stake, winner_id)
-            # Update loser
             await conn.execute("""
                 UPDATE arena_stats
                 SET points = GREATEST(points - $1, 0), losses = losses + 1, last_match = NOW()
                 WHERE user_id = $2
             """, self.points_stake, loser_id)
 
-            # --- Respawn both players to full HP ---
+            # --- Respawn both players to their dynamic max HP ---
             for uid in (winner_id, loser_id):
-                max_hp = await conn.fetchval("SELECT max_hp FROM player_stats WHERE user_id = $1", uid)
-                if max_hp:
-                    await conn.execute("""
-                        UPDATE player_stats
-                        SET hp = $1, respawn_at = NULL
-                        WHERE user_id = $2
-                    """, max_hp, uid)
+                stats = await get_player_stats(uid)  # gets current max_hp
+                await conn.execute("""
+                    UPDATE player_stats
+                    SET hp = $1, respawn_at = NULL
+                    WHERE user_id = $2
+                """, stats['max_hp'], uid)
+                print(f"[ARENA] Respawned {uid} to {stats['max_hp']} HP")
 
         # Get usernames
         winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
@@ -11335,8 +11338,10 @@ class ArenaDuelView(AttackView):
             await asyncio.sleep(10)
             try:
                 await thread.delete()
+                print("[ARENA] Thread deleted")
             except Exception as e:
                 print(f"[ARENA] Failed to delete thread: {e}")
+
 
 
 async def handle_arena_start(interaction: discord.Interaction):
@@ -11411,25 +11416,34 @@ async def create_arena_thread(player1_id: str, player2_id: str):
     if not player1 or not player2:
         return
 
-    # --- Revive both players if they are dead ---
+    # --- Revive both players to their dynamic max HP ---
     async with bot.db_pool.acquire() as conn:
         for uid in (player1_id, player2_id):
-            # Ensure player_stats exists
+            # Ensure player_stats exists (creates default 1000/1000)
             await conn.execute("""
                 INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy, last_energy_regen)
                 VALUES ($1, 1000, 1000, 3, 3, NOW())
                 ON CONFLICT (user_id) DO NOTHING
             """, uid)
 
-            # Check current HP
-            row = await conn.fetchrow("SELECT hp, max_hp FROM player_stats WHERE user_id = $1", uid)
-            if row and row['hp'] <= 0:
-                await conn.execute("""
-                    UPDATE player_stats
-                    SET hp = max_hp, respawn_at = NULL
-                    WHERE user_id = $1
-                """, uid)
-                print(f"[ARENA] Revived player {uid} for duel.")
+    # Now get dynamic stats (which recalculates max_hp from gear/pets)
+    p1_stats = await get_player_stats(player1_id)
+    p2_stats = await get_player_stats(player2_id)
+
+    async with bot.db_pool.acquire() as conn:
+        # Set both to their full dynamic HP and clear respawn
+        await conn.execute("""
+            UPDATE player_stats
+            SET hp = $1, respawn_at = NULL
+            WHERE user_id = $2
+        """, p1_stats['max_hp'], player1_id)
+        await conn.execute("""
+            UPDATE player_stats
+            SET hp = $1, respawn_at = NULL
+            WHERE user_id = $2
+        """, p2_stats['max_hp'], player2_id)
+
+    print(f"[ARENA] Revived {player1.name} (HP: {p1_stats['max_hp']}) and {player2.name} (HP: {p2_stats['max_hp']}) for duel.")
 
     # Create a private thread
     thread_name = f"arena-{player1.name}-vs-{player2.name}"
@@ -11447,6 +11461,8 @@ async def create_arena_thread(player1_id: str, player2_id: str):
     embed = await view.build_duel_embed()
     msg = await thread.send(embed=embed, view=view)
     view.message_id = msg.id
+
+
 
 async def show_arena_rankings(interaction: discord.Interaction):
     async with bot.db_pool.acquire() as conn:
