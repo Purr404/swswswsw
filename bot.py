@@ -11271,13 +11271,14 @@ class ArenaDuelView(AttackView):
         self.is_arena = True
         self.points_stake = 25
         self.duel_ended = False
-        self.log_channel_id = 1484235804367782080  # <-- REPLACE WITH YOUR CHANNEL ID
+        self.log_channel_id = 1484235804367782080  # <-- YOUR DEBUG CHANNEL ID
+
+        # Log creation immediately
+        self.bot.loop.create_task(self.log(f"DEBUG: ArenaDuelView created for {attacker_id} vs {defender_id}"))
 
     async def get_log_channel(self):
-        """Fetch the log channel by ID."""
         channel = bot.get_channel(self.log_channel_id)
         if not channel:
-            # Fallback: try to find #bot-logs
             for guild in bot.guilds:
                 channel = discord.utils.get(guild.text_channels, name="bot-logs")
                 if channel:
@@ -11285,7 +11286,6 @@ class ArenaDuelView(AttackView):
         return channel
 
     async def log(self, message):
-        """Send log to dedicated channel and print."""
         print(f"[ARENA] {message}")
         channel = await self.get_log_channel()
         if channel:
@@ -11295,38 +11295,54 @@ class ArenaDuelView(AttackView):
                 pass
 
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.log(f"attack_button ENTERED by {interaction.user.name} (ID: {interaction.user.id})")
+
         if self.duel_ended:
+            await self.log("Duel already ended, returning")
             return
 
-        await self.log(f"Attack by {interaction.user.name}")
+        try:
+            # Call parent method – this may defer or respond
+            await self.log("Calling super().attack_button...")
+            await super().attack_button(interaction, button)
+            await self.log("super().attack_button completed")
+        except Exception as e:
+            await self.log(f"EXCEPTION in super().attack_button: {e}")
+            traceback.print_exc()
+            return
 
-        # Execute parent attack
-        await super().attack_button(interaction, button)
-
-        # Wait a moment for DB
+        # Wait briefly for DB update
         await asyncio.sleep(0.5)
 
-        # Fetch HP directly
-        async with bot.db_pool.acquire() as conn:
-            a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
-            d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
+        # Fetch latest HP
+        try:
+            async with bot.db_pool.acquire() as conn:
+                a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
+                d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
+            await self.log(f"Post‑attack HP: Attacker={a_hp}, Defender={d_hp}")
+        except Exception as e:
+            await self.log(f"ERROR fetching HP: {e}")
+            return
 
-        await self.log(f"Post‑attack HP – Attacker: {a_hp}, Defender: {d_hp}")
-
+        # Check for death
         if d_hp <= 0:
-            await self.log("Defender died → ending match")
+            await self.log("Defender died, calling end_arena_match")
             await self.end_arena_match(self.attacker_id, self.defender_id)
         elif a_hp <= 0:
-            await self.log("Attacker died → ending match")
+            await self.log("Attacker died, calling end_arena_match")
             await self.end_arena_match(self.defender_id, self.attacker_id)
         else:
             await self.log("Both alive, duel continues")
 
+        await self.log("attack_button EXITED")
+
     async def end_arena_match(self, winner_id: str, loser_id: str):
+        await self.log(f"end_arena_match ENTERED: winner={winner_id}, loser={loser_id}")
+
         if self.duel_ended:
+            await self.log("Duel already ended, returning")
             return
         self.duel_ended = True
-        await self.log(f"end_arena_match called: winner={winner_id}, loser={loser_id}")
 
         try:
             async with bot.db_pool.acquire() as conn:
@@ -11385,6 +11401,7 @@ class ArenaDuelView(AttackView):
             tb = traceback.format_exc()
             await self.log(f"ERROR in end_arena_match: {e}\n{tb}")
 
+        await self.log("end_arena_match EXITED")
 
 
 async def handle_arena_start(interaction: discord.Interaction):
