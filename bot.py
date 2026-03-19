@@ -546,6 +546,60 @@ async def on_raw_message_delete(payload):
             SET status = 'cancelled'
             WHERE message_id = $1 AND status = 'pending'
         """, payload.message_id)
+
+
+@bot.command(name='editshopimage')
+@commands.has_permissions(administrator=True)
+async def edit_shop_image(ctx, image_url: str):
+    """Permanently change the persistent shop message's image."""
+    # Fetch existing shop message location from database
+    async with ctx.bot.db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT channel_id, message_id FROM shop_messages WHERE guild_id = $1", ctx.guild.id)
+    if not row:
+        await ctx.send("❌ No persistent shop found. Use `!!summonshopto` first.")
+        return
+
+    channel = ctx.guild.get_channel(row['channel_id'])
+    if not channel:
+        await ctx.send("❌ Shop channel no longer exists.")
+        return
+
+    try:
+        msg = await channel.fetch_message(row['message_id'])
+    except discord.NotFound:
+        await ctx.send("❌ Shop message not found. It may have been deleted.")
+        return
+
+    # Download the new image
+    async with aiohttp.ClientSession() as session:
+        async with session.get(image_url) as resp:
+            if resp.status != 200:
+                await ctx.send("❌ Failed to download image.")
+                return
+            data = await resp.read()
+
+    # Create a Discord file
+    file = discord.File(io.BytesIO(data), filename="shop.png")
+
+    # Preserve the existing embed, or create a default one
+    embed = msg.embeds[0] if msg.embeds else discord.Embed(title="💎 **GEM SHOP**", color=discord.Color.gold())
+    embed.set_image(url="attachment://shop.png")
+
+    # Recreate the persistent view (same button as original)
+    view = discord.ui.View(timeout=None)
+    button = discord.ui.Button(
+        label="🛒 Open Shop",
+        style=discord.ButtonStyle.primary,
+        custom_id="shop_open_main"
+    )
+    view.add_item(button)
+
+    # Edit the message with the new file and updated embed
+    await msg.edit(embed=embed, file=file, view=view)
+
+    await ctx.send("✅ Shop image updated permanently.")
+
+
 @bot.command(name='testemojis')
 async def test_emojis(ctx):
     """Test if custom emojis are working"""
