@@ -11314,6 +11314,17 @@ async def handle_arena_start(interaction: discord.Interaction):
     # Immediately trigger matchmaking
     await try_matchmaking()
 
+async def handle_arena_cancel(interaction: discord.Interaction):
+    """Remove the user from the arena queue."""
+    user_id = str(interaction.user.id)
+    async with bot.db_pool.acquire() as conn:
+        in_queue = await conn.fetchval("SELECT 1 FROM arena_queue WHERE user_id = $1", user_id)
+        if not in_queue:
+            await interaction.response.send_message("❌ You are not in the queue.", ephemeral=True)
+            return
+        await conn.execute("DELETE FROM arena_queue WHERE user_id = $1", user_id)
+    await interaction.response.send_message("✅ You left the arena queue.", ephemeral=True)
+
 async def try_matchmaking():
     """Attempt to match any two players in the queue."""
     async with bot.db_pool.acquire() as conn:
