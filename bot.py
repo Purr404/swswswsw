@@ -11277,18 +11277,13 @@ class ArenaDuelView(AttackView):
             return
 
         try:
-            # Let parent handle attack (damage calculation, HP update)
             await super().attack_button(interaction, button)
-
-            # Wait a moment for DB to update
             await asyncio.sleep(0.5)
 
-            # Fetch fresh HP directly from DB
             async with bot.db_pool.acquire() as conn:
                 a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
                 d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
 
-            # Log to console and Discord logs
             debug_msg = f"After attack: Attacker HP={a_hp}, Defender HP={d_hp}"
             print(f"[ARENA] {debug_msg}")
             await self.log_to_discord(debug_msg)
@@ -11305,7 +11300,7 @@ class ArenaDuelView(AttackView):
             error_msg = f"Error in attack_button: {e}"
             print(error_msg)
             traceback.print_exc()
-            await self.log_to_discord(error_msg)
+            await self.log_to_discord(error_msg, exc_info=e)
 
     async def end_arena_match(self, winner_id: str, loser_id: str):
         if self.duel_ended:
@@ -11317,7 +11312,6 @@ class ArenaDuelView(AttackView):
 
         try:
             async with bot.db_pool.acquire() as conn:
-                # Update arena stats
                 await conn.execute("""
                     UPDATE arena_stats
                     SET points = points + $1, wins = wins + 1, last_match = NOW()
@@ -11329,7 +11323,6 @@ class ArenaDuelView(AttackView):
                     WHERE user_id = $2
                 """, self.points_stake, loser_id)
 
-                # Respawn both players to their dynamic max HP
                 for uid in (winner_id, loser_id):
                     stats = await get_player_stats(uid)
                     await conn.execute("""
@@ -11339,11 +11332,9 @@ class ArenaDuelView(AttackView):
                     """, stats['max_hp'], uid)
                     print(f"[ARENA] Respawned {uid} to {stats['max_hp']} HP")
 
-            # Get usernames
             winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
             loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
 
-            # Announce in global chat
             global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
             if global_channel:
                 await global_channel.send(
@@ -11353,7 +11344,6 @@ class ArenaDuelView(AttackView):
                     f"{loser.mention} lost **{self.points_stake}** points."
                 )
 
-            # Close the thread
             thread = bot.get_channel(self.channel_id)
             if thread and isinstance(thread, discord.Thread):
                 await thread.send("🏁 The duel has ended. This thread will be closed in 10 seconds.")
@@ -11367,20 +11357,32 @@ class ArenaDuelView(AttackView):
             error_msg = f"Error in end_arena_match: {e}"
             print(error_msg)
             traceback.print_exc()
-            await self.log_to_discord(error_msg)
+            await self.log_to_discord(error_msg, exc_info=e)
 
-    async def log_to_discord(self, message):
-        """Send debug logs to a #bot-logs channel if it exists."""
+    async def log_to_discord(self, message, exc_info=None):
+        """Send debug logs to #bot-logs channel and always print to console."""
+        # Always print to console (visible in Railway logs)
+        print(f"[ARENA] {message}")
+        if exc_info:
+            tb = ''.join(traceback.format_exception(type(exc_info), exc_info, exc_info.__traceback__))
+            print(f"TRACEBACK:\n{tb}")
+
+        # Attempt to send to Discord #bot-logs
         try:
             for guild in bot.guilds:
                 channel = discord.utils.get(guild.text_channels, name="bot-logs")
                 if channel:
-                    await channel.send(f"`[ARENA]` {message}")
+                    embed = discord.Embed(
+                        title="Arena Debug",
+                        description=message[:2000],
+                        color=discord.Color.orange()
+                    )
+                    if exc_info:
+                        embed.add_field(name="Traceback", value=f"```py\n{tb[-1000:]}\n```", inline=False)
+                    await channel.send(embed=embed)
                     return
-        except:
-            pass
-        # Fallback: print to console
-        print(f"[ARENA LOG] {message}")
+        except Exception as e:
+            print(f"⚠️ Failed to send log to Discord: {e}")
 
 
 
