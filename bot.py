@@ -11272,15 +11272,24 @@ class ArenaDuelView(AttackView):
         self.points_stake = 25  # points won/lost per match
 
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Let parent handle the attack (damage calculation, HP update, etc.)
         await super().attack_button(interaction, button)
 
-        # After attack, check if defender died
+        # Fetch fresh stats for both players
+        a_stats = await get_player_stats(self.attacker_id)
         d_stats = await get_player_stats(self.defender_id)
+
+        # Determine winner if duel ended
         if d_stats['hp'] <= 0:
+            # Defender died → attacker wins
             await self.end_arena_match(self.attacker_id, self.defender_id)
+        elif a_stats['hp'] <= 0:
+            # Attacker died (e.g., from reflect) → defender wins
+            await self.end_arena_match(self.defender_id, self.attacker_id)
+        # If both still alive, nothing happens – duel continues
 
     async def end_arena_match(self, winner_id: str, loser_id: str):
-        """Update stats, announce result, close thread."""
+        """Update stats, respawn both players, announce result, close thread."""
         async with bot.db_pool.acquire() as conn:
             # Update winner
             await conn.execute("""
@@ -11294,6 +11303,16 @@ class ArenaDuelView(AttackView):
                 SET points = GREATEST(points - $1, 0), losses = losses + 1, last_match = NOW()
                 WHERE user_id = $2
             """, self.points_stake, loser_id)
+
+            # --- Respawn both players to full HP ---
+            for uid in (winner_id, loser_id):
+                max_hp = await conn.fetchval("SELECT max_hp FROM player_stats WHERE user_id = $1", uid)
+                if max_hp:
+                    await conn.execute("""
+                        UPDATE player_stats
+                        SET hp = $1, respawn_at = NULL
+                        WHERE user_id = $2
+                    """, max_hp, uid)
 
         # Get usernames
         winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
