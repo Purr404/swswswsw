@@ -11598,6 +11598,14 @@ async def before_arena_weekly():
     while bot.db_pool is None:
         await asyncio.sleep(1)
 
+@bot.command()
+async def testlog(ctx):
+    """Test if logging works."""
+    # Create a temporary view just to call log
+    view = ArenaDuelView("0", "0", 0)
+    await view.log(f"Test log from {ctx.author}")
+    await ctx.send("Log sent, check the debug channel.")
+
 
 @bot.command(name='setarena')
 @commands.has_permissions(administrator=True)
