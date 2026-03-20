@@ -10778,6 +10778,8 @@ async def get_player_stats(user_id: str):
         extra_boss_attempts = title_bonuses['extra_boss_attempts']
         extra_plunder_attempts = title_bonuses['extra_plunder_attempts']
         equipped_title = (title_bonuses['name'], title_bonuses['emoji'])
+        title_dmg_reduction = title_bonuses['dmg_reduction_percent']
+        title_crit_resist = title_bonuses['crit_resist_percent']
 
     # Apply title multipliers
     atk = int(atk * title_atk_mult)
@@ -10825,6 +10827,8 @@ async def get_player_stats(user_id: str):
         'extra_boss_attempts': extra_boss_attempts,
         'extra_plunder_attempts': extra_plunder_attempts,
         'equipped_title': equipped_title,
+        'dmg_reduction': title_dmg_reduction,      
+        'crit_resist': title_crit_resist,
     }
 
 async def update_player_hp(user_id: str, new_hp: int):
