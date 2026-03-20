@@ -390,7 +390,8 @@ async def get_equipped_title_bonuses(user_id: str) -> dict:
                    t.bleed_flat, t.burn_flat, t.crit_dmg_res_percent,
                    t.mining_bonus_percent, t.boss_damage_percent,
                    t.extra_boss_attempts, t.extra_plunder_attempts,
-                   t.name, t.emoji
+                   t.name, t.emoji,
+                   t.crit_resist_percent, t.crit_damage
             FROM titles t
             JOIN user_titles ut ON t.title_id = ut.title_id
             WHERE ut.user_id = $1 AND ut.equipped = TRUE
@@ -411,7 +412,9 @@ async def get_equipped_title_bonuses(user_id: str) -> dict:
             'extra_boss_attempts': row['extra_boss_attempts'],
             'extra_plunder_attempts': row['extra_plunder_attempts'],
             'name': row['name'],
-            'emoji': row['emoji'] or '🏷️'
+            'emoji': row['emoji'] or '🏷️',
+            'crit_resist_percent': row['crit_resist_percent'],
+            'crit_damage': row['crit_damage']
         }
     return None
 
@@ -7518,7 +7521,8 @@ class Shop(commands.Cog):
                        t.bleed_flat, t.burn_flat, t.crit_dmg_res_percent,
                        t.mining_bonus_percent, t.boss_damage_percent,
                        t.extra_boss_attempts, t.extra_plunder_attempts,
-                       ut.equipped
+                       ut.equipped,
+                       t.crit_resist_percent, t.crit_damage
                 FROM titles t
                 JOIN user_titles ut ON t.title_id = ut.title_id
                 WHERE t.title_id = $1 AND ut.user_id = $2
@@ -7554,6 +7558,10 @@ class Shop(commands.Cog):
             stats.append(f"Burn +{title['burn_flat']}")
         if title['crit_dmg_res_percent']:
             stats.append(f"Crit DMG RES +{title['crit_dmg_res_percent']}%")
+        if title.get('crit_resist_percent'):
+            stats.append(f"Crit RES +{title['crit_resist_percent']}%")
+        if title.get('crit_damage'):
+            stats.append(f"Crit Damage +{title['crit_damage']}%")
         if title['mining_bonus_percent']:
             stats.append(f"Mining Bonus +{title['mining_bonus_percent']}%")
         if title['boss_damage_percent']:
