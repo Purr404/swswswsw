@@ -5834,13 +5834,14 @@ async def build_profile_embed(user_id: str, member: discord.Member):
 
     # Title-specific stats
     if title_bonuses:       
-        if title_bonuses['dmg_reduction_percent']:
+        if title_bonuses.get('dmg_reduction_percent'):
             stats_lines.append(f"**DMG RED:** +{title_bonuses['dmg_reduction_percent']}%")
-        if title_bonuses['crit_dmg_res_percent']:
-            stats_lines.append(f"**Crit DMG RES:** +{title_bonuses['crit_dmg_res_percent']}%")    
+        if title_bonuses.get('crit_resist_percent'):
+            stats_lines.append(f"**Crit RES:** +{title_bonuses['crit_resist_percent']}%")
+        if title_bonuses.get('crit_dmg_res_percent'):
+            stats_lines.append(f"**Crit DMG RES:** +{title_bonuses['crit_dmg_res_percent']}%")        
         if boss_dmg_percent:
             stats_lines.append(f"**Boss DMG:** +{boss_dmg_percent}%")
-
     embed.add_field(name="**STATS**", value="\n".join(stats_lines), inline=False)
 
     def slot_emoji(slot, item=None):
