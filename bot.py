@@ -11170,11 +11170,10 @@ async def perform_boss_reset():
                     if user:
                         embed = discord.Embed(title="🏆 Boss Rewards", color=discord.Color.gold())
                         embed.description = f"You ranked **#{idx}** with **{damage}** Damage!"
-                        embed.add_field(name="Reward", value=f"Reward\n{reward} {GEM_EMOJI}")
+                        embed.add_field(name="Reward", value=f"Reward\n{gems} {GEM_EMOJI}")
                         await user.send(embed=embed)
                 except:
                     pass
-
 
             # --- Award Boss Reaper title to top 1 (with 24h expiration) ---
             top_user_id = rankings[0]['user_id']
