@@ -537,40 +537,21 @@ async def add_crit_damage_column(ctx):
     async with bot.db_pool.acquire() as conn:
         await conn.execute("ALTER TABLE titles ADD COLUMN IF NOT EXISTS crit_damage INT DEFAULT 0;")
     await ctx.send("✅ `crit_damage` column added to titles table (if it was missing).")
-
-@bot.command(name='add_new_arena_titles')
+@bot.command(name='add_crit_resist_column')
 @commands.has_permissions(administrator=True)
-async def add_new_arena_titles(ctx):
-    """Add Eternal Conqueror, Exalted Challenger, Arena Knight titles to the database."""
-    titles = [
-        ('Eternal Conqueror', '<:eternal_conqueror:1483782880986661056>', 'The unmatched master of the Arena, whose legend inspires awe.',
-         15, 8, 8, 0, 0, 6, 0, 0, 4, 5, 0, 0, 0, 0),  # same as Sovereign
-        ('Exalted Challenger', '<:exalted_challenger:1484270303033954324>', 'A formidable contender, nearly touching the heights of the Eternal Conqueror.',
-         10, 5, 5, 0, 0, 4, 0, 0, 2, 0, 0, 0, 0, 0),  # same as Paragon
-        ('Arena Knight', '<:arena_knight:1484270415001157672>', 'A proven warrior who has risen above most challengers, respected in battle.',
-         5, 3, 3, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0)      # same as Elite
-    ]
+async def add_crit_resist_column(ctx):
+    """Add crit_resist_percent column to titles table."""
     async with bot.db_pool.acquire() as conn:
-        for (name, emoji, desc,
-             hp, atk, df, crit, dodge, dmg_red,
-             bleed, burn, crit_res, crit_dmg,
-             mining, boss, extra_att, extra_plunder) in titles:
-            await conn.execute("""
-                INSERT INTO titles (
-                    name, emoji, description,
-                    hp_percent, atk_percent, def_percent,
-                    crit_chance, dodge_percent, dmg_reduction_percent,
-                    bleed_flat, burn_flat, crit_dmg_res_percent, crit_damage,
-                    mining_bonus_percent, boss_damage_percent,
-                    extra_boss_attempts, extra_plunder_attempts
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-                ON CONFLICT (name) DO NOTHING
-            """, name, emoji, desc,
-                hp, atk, df,
-                crit, dodge, dmg_red,
-                bleed, burn, crit_res, crit_dmg,
-                mining, boss, extra_att, extra_plunder)
-    await ctx.send("✅ New arena titles added: Eternal Conqueror, Exalted Challenger, Arena Knight.")
+        await conn.execute("ALTER TABLE titles ADD COLUMN IF NOT EXISTS crit_resist_percent INT DEFAULT 0;")
+    await ctx.send("✅ `crit_resist_percent` column added to titles table.")
+
+@bot.command(name='add_crit_resist_column')
+@commands.has_permissions(administrator=True)
+async def add_crit_resist_column(ctx):
+    """Add crit_resist_percent column to titles table."""
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("ALTER TABLE titles ADD COLUMN IF NOT EXISTS crit_resist_percent INT DEFAULT 0;")
+    await ctx.send("✅ `crit_resist_percent` column added to titles table.")
 
 @bot.command(name='mypendingtrades')
 async def my_pending_trades(ctx):
@@ -5648,9 +5629,9 @@ async def build_profile_embed(user_id: str, member: discord.Member):
     # Title-specific stats
     if title_bonuses:       
         if title_bonuses['dmg_reduction_percent']:
-            stats_lines.append(f"**DMG RED.:** +{title_bonuses['dmg_reduction_percent']}%")
+            stats_lines.append(f"**DMG RED:** +{title_bonuses['dmg_reduction_percent']}%")
         if title_bonuses['crit_dmg_res_percent']:
-            stats_lines.append(f"**Crit RES:** +{title_bonuses['crit_dmg_res_percent']}%")    
+            stats_lines.append(f"**Crit DMG RES:** +{title_bonuses['crit_dmg_res_percent']}%")    
         if boss_dmg_percent:
             stats_lines.append(f"**Boss DMG:** +{boss_dmg_percent}%")
 
