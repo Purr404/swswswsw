@@ -11542,7 +11542,7 @@ class ArenaDuelView(AttackView):
 
     @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, custom_id="attack")
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Serialise attacks with a lock
+        # Serialise attacks with a lock – the parent will defer after lock release
         async with self.attack_lock:
             await self.log(f"Processing attack by {interaction.user.name} (ID: {interaction.user.id})")
 
@@ -11555,8 +11555,12 @@ class ArenaDuelView(AttackView):
                 return
 
             try:
-                # Parent AttackView handles the defer and damage calculation
+                # Parent AttackView handles defer and damage calculation
                 await super().attack_button(interaction, button)
+            except discord.NotFound:
+                # Interaction expired while waiting for lock – ignore
+                await self.log("Attack interaction expired, ignoring click")
+                return
             except Exception as e:
                 await self.log(f"EXCEPTION in super().attack_button: {e}")
                 traceback.print_exc()
@@ -11644,6 +11648,8 @@ class ArenaDuelView(AttackView):
             await self.log(f"ERROR in end_arena_match: {e}\n{tb}")
 
         await self.log("end_arena_match EXITED")
+
+
 
 
 async def handle_arena_start(interaction: discord.Interaction):
