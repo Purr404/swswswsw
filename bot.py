@@ -617,7 +617,26 @@ async def update_arena_titles(ctx):
     ]
     async with bot.db_pool.acquire() as conn:
         for row in titles:
-            name, emoji, desc, hp, atk, def, dmg_red, crit_resist, crit_dmg_res, crit_damage, dodge, bleed, burn, mining, boss, extra_att, extra_plunder, crit_chance = row
+            # Use indexing to avoid long unpacking
+            name = row[0]
+            emoji = row[1]
+            desc = row[2]
+            hp = row[3]
+            atk = row[4]
+            def_ = row[5]   # 'def' is a keyword, so use def_
+            dmg_red = row[6]
+            crit_resist = row[7]
+            crit_dmg_res = row[8]
+            crit_damage = row[9]
+            dodge = row[10]
+            bleed = row[11]
+            burn = row[12]
+            mining = row[13]
+            boss = row[14]
+            extra_att = row[15]
+            extra_plunder = row[16]
+            crit_chance = row[17]
+
             await conn.execute("""
                 INSERT INTO titles (
                     name, emoji, description,
@@ -648,13 +667,14 @@ async def update_arena_titles(ctx):
                     extra_plunder_attempts = EXCLUDED.extra_plunder_attempts,
                     crit_chance = EXCLUDED.crit_chance
             """, name, emoji, desc,
-                hp, atk, def,
+                hp, atk, def_,
                 dmg_red,
                 crit_resist, crit_dmg_res, crit_damage,
                 dodge, bleed, burn,
                 mining, boss, extra_att, extra_plunder,
                 crit_chance)
     await ctx.send("✅ Arena titles updated to new stats.")
+
 
 @bot.command(name='mypendingtrades')
 async def my_pending_trades(ctx):
