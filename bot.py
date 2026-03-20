@@ -605,7 +605,6 @@ async def add_new_arena_titles(ctx):
 async def update_arena_titles(ctx):
     """Update Eternal Conqueror, Exalted Challenger, Arena Knight titles to the new stats."""
     titles = [
-        # name, emoji, description, hp, atk, def, dmg_red, crit_resist, crit_dmg_res, crit_damage, dodge, bleed, burn, mining, boss, extra_att, extra_plunder, crit_chance
         ('Eternal Conqueror', '<:eternal_conqueror:1483782880986661056>',
          'The unmatched master of the Arena, whose legend inspires awe.',
          15, 8, 8, 6, 4, 6, 5, 0, 0, 0, 0, 0, 0, 0, 0),
@@ -617,13 +616,8 @@ async def update_arena_titles(ctx):
          5, 3, 3, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     ]
     async with bot.db_pool.acquire() as conn:
-        for (name, emoji, desc,
-             hp, atk, def,
-             dmg_red,
-             crit_resist, crit_dmg_res, crit_damage,
-             dodge, bleed, burn,
-             mining, boss, extra_att, extra_plunder,
-             crit_chance) in titles:
+        for row in titles:
+            name, emoji, desc, hp, atk, def, dmg_red, crit_resist, crit_dmg_res, crit_damage, dodge, bleed, burn, mining, boss, extra_att, extra_plunder, crit_chance = row
             await conn.execute("""
                 INSERT INTO titles (
                     name, emoji, description,
@@ -661,8 +655,6 @@ async def update_arena_titles(ctx):
                 mining, boss, extra_att, extra_plunder,
                 crit_chance)
     await ctx.send("✅ Arena titles updated to new stats.")
-
-
 
 @bot.command(name='mypendingtrades')
 async def my_pending_trades(ctx):
