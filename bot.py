@@ -605,32 +605,25 @@ async def add_new_arena_titles(ctx):
 async def update_arena_titles(ctx):
     """Update Eternal Conqueror, Exalted Challenger, Arena Knight titles to the new stats."""
     titles = [
+        # name, emoji, description, hp, atk, def, dmg_red, crit_resist, crit_dmg_res, crit_damage, dodge, bleed, burn, mining, boss, extra_att, extra_plunder, crit_chance
         ('Eternal Conqueror', '<:eternal_conqueror:1483782880986661056>',
          'The unmatched master of the Arena, whose legend inspires awe.',
-         15, 8, 8,        # HP%, ATK%, DEF%
-         6,                # Damage RED
-         4, 6, 5,          # Crit RES (crit_resist), Crit DMG RES, Crit Damage
-         0, 0, 0, 0, 0,    # dodge, bleed, burn, mining, boss, extra_att, extra_plunder, crit_chance (all 0)
-         0, 0, 0, 0, 0),
+         15, 8, 8, 6, 4, 6, 5, 0, 0, 0, 0, 0, 0, 0, 0),
         ('Exalted Challenger', '<:exalted_challenger:1484270303033954324>',
          'A formidable contender, nearly touching the heights of the Eternal Conqueror.',
-         10, 5, 5,
-         4,
-         2, 4, 0,
-         0, 0, 0, 0, 0, 0, 0),
+         10, 5, 5, 4, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0),
         ('Arena Knight', '<:arena_knight:1484270415001157672>',
          'A proven warrior who has risen above most challengers, respected in battle.',
-         5, 3, 3,
-         2,
-         2, 0, 0,
-         0, 0, 0, 0, 0, 0, 0)
+         5, 3, 3, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     ]
     async with bot.db_pool.acquire() as conn:
         for (name, emoji, desc,
-             hp, atk, df,
+             hp, atk, def,
              dmg_red,
              crit_resist, crit_dmg_res, crit_damage,
-             dodge, bleed, burn, mining, boss, extra_att, extra_plunder, crit_chance) in titles:
+             dodge, bleed, burn,
+             mining, boss, extra_att, extra_plunder,
+             crit_chance) in titles:
             await conn.execute("""
                 INSERT INTO titles (
                     name, emoji, description,
@@ -661,14 +654,13 @@ async def update_arena_titles(ctx):
                     extra_plunder_attempts = EXCLUDED.extra_plunder_attempts,
                     crit_chance = EXCLUDED.crit_chance
             """, name, emoji, desc,
-                hp, atk, df,
+                hp, atk, def,
                 dmg_red,
                 crit_resist, crit_dmg_res, crit_damage,
                 dodge, bleed, burn,
                 mining, boss, extra_att, extra_plunder,
                 crit_chance)
     await ctx.send("✅ Arena titles updated to new stats.")
-
 
 
 
