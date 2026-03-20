@@ -10763,6 +10763,8 @@ async def get_player_stats(user_id: str):
     extra_boss_attempts = 0
     extra_plunder_attempts = 0
     equipped_title = None
+    title_dmg_reduction = 0          
+    title_crit_resist = 0 
 
     title_bonuses = await get_equipped_title_bonuses(user_id)
     if title_bonuses:
