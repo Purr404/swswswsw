@@ -11542,56 +11542,45 @@ class ArenaDuelView(AttackView):
 
     @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, custom_id="attack")
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Defer immediately to prevent 3‑second timeout
-        try:
-            await interaction.response.defer()
-        except discord.NotFound:
-            await self.log("Attack interaction expired, ignoring click")
-            return
-
-        # Acquire lock to serialise attacks (other clicks wait)
+        # Serialise attacks with a lock
         async with self.attack_lock:
-            await self._process_attack(interaction, button)
+            await self.log(f"Processing attack by {interaction.user.name} (ID: {interaction.user.id})")
 
-    async def _process_attack(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.log(f"Processing attack by {interaction.user.name} (ID: {interaction.user.id})")
+            if self.duel_ended:
+                await self.log("Duel already ended, returning")
+                try:
+                    await interaction.response.send_message("The duel has already ended.", ephemeral=True)
+                except:
+                    pass
+                return
 
-        if self.duel_ended:
-            await self.log("Duel already ended, returning")
             try:
-                await interaction.followup.send("The duel has already ended.", ephemeral=True)
-            except:
-                pass
-            return
+                # Parent AttackView handles the defer and damage calculation
+                await super().attack_button(interaction, button)
+            except Exception as e:
+                await self.log(f"EXCEPTION in super().attack_button: {e}")
+                traceback.print_exc()
+                return
 
-        try:
-            # Call the parent AttackView's attack logic
-            await super().attack_button(interaction, button)
-            await self.log("super().attack_button completed")
-        except Exception as e:
-            await self.log(f"EXCEPTION in super().attack_button: {e}")
-            traceback.print_exc()
-            return
+            await asyncio.sleep(0.5)
 
-        await asyncio.sleep(0.5)
+            try:
+                async with bot.db_pool.acquire() as conn:
+                    a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
+                    d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
+                await self.log(f"Post‑attack HP: Attacker={a_hp}, Defender={d_hp}")
+            except Exception as e:
+                await self.log(f"ERROR fetching HP: {e}")
+                return
 
-        try:
-            async with bot.db_pool.acquire() as conn:
-                a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
-                d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
-            await self.log(f"Post‑attack HP: Attacker={a_hp}, Defender={d_hp}")
-        except Exception as e:
-            await self.log(f"ERROR fetching HP: {e}")
-            return
-
-        if d_hp <= 0:
-            await self.log("Defender died, calling end_arena_match")
-            await self.end_arena_match(self.attacker_id, self.defender_id)
-        elif a_hp <= 0:
-            await self.log("Attacker died, calling end_arena_match")
-            await self.end_arena_match(self.defender_id, self.attacker_id)
-        else:
-            await self.log("Both alive, duel continues")
+            if d_hp <= 0:
+                await self.log("Defender died, calling end_arena_match")
+                await self.end_arena_match(self.attacker_id, self.defender_id)
+            elif a_hp <= 0:
+                await self.log("Attacker died, calling end_arena_match")
+                await self.end_arena_match(self.defender_id, self.attacker_id)
+            else:
+                await self.log("Both alive, duel continues")
 
     async def end_arena_match(self, winner_id: str, loser_id: str):
         await self.log(f"end_arena_match ENTERED: winner={winner_id}, loser={loser_id}")
@@ -11655,7 +11644,6 @@ class ArenaDuelView(AttackView):
             await self.log(f"ERROR in end_arena_match: {e}\n{tb}")
 
         await self.log("end_arena_match EXITED")
-
 
 
 async def handle_arena_start(interaction: discord.Interaction):
