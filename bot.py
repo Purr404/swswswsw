@@ -11775,23 +11775,27 @@ async def before_arena_matchmaking():
         await asyncio.sleep(1)
 
 
-@tasks.loop(hours=1)  # check every hour
+@tasks.loop(hours=1)
 async def arena_weekly_reset():
-    """Check if 7 days have passed since last reset, and if so, distribute rewards and reset points."""
+    """Reset arena every Monday at 10 AM PHT, reward top 10 players with gems and 7‑day titles."""
+    now_utc = datetime.now(timezone.utc)
+    now_pht = now_utc + timedelta(hours=8)
+
+    # Trigger only on Monday at 10:00 AM PHT
+    if now_pht.weekday() != 0 or now_pht.hour != 10:
+        return
+
     async with bot.db_pool.acquire() as conn:
-        # Get last reset time
+        # Avoid duplicate resets if the task runs again within the same hour
         last_reset_row = await conn.fetchrow("SELECT last_reset FROM arena_reset_log WHERE id = 1")
-        if not last_reset_row:
-            return
-        last_reset = last_reset_row['last_reset']
-        if last_reset.tzinfo is None:
-            last_reset = last_reset.replace(tzinfo=timezone.utc)
+        if last_reset_row:
+            last_reset = last_reset_row['last_reset']
+            if last_reset.tzinfo is None:
+                last_reset = last_reset.replace(tzinfo=timezone.utc)
+            if last_reset.date() == now_utc.date():
+                return
 
-        now = datetime.now(timezone.utc)
-        if now - last_reset < timedelta(days=7):
-            return  # not enough time passed
-
-        # --- 7 days have passed – perform the reset ---
+        # Get top 10 players
         top = await conn.fetch("""
             SELECT user_id, points, wins, losses
             FROM arena_stats
@@ -11801,30 +11805,44 @@ async def arena_weekly_reset():
 
         for idx, row in enumerate(top, 1):
             gems = 0
+            title_name = None
             if idx == 1:
                 gems = 1000
+                title_name = "Eternal Conqueror"
             elif idx == 2:
                 gems = 750
+                title_name = "Exalted Challenger"
             elif idx == 3:
                 gems = 500
+                title_name = "Arena Knight"
             else:
                 gems = 300
 
             if gems > 0:
                 await currency_system.add_gems(row['user_id'], gems, f"Arena weekly rank #{idx}")
 
-        # Reset all players' points to 1000
-        await conn.execute("UPDATE arena_stats SET points = 1000")
+            if title_name:
+                title_id = await conn.fetchval("SELECT title_id FROM titles WHERE name = $1", title_name)
+                if title_id:
+                    expires_at = now_utc + timedelta(days=7)
+                    await conn.execute("""
+                        INSERT INTO user_titles (user_id, title_id, equipped, expires_at)
+                        VALUES ($1, $2, FALSE, $3)
+                        ON CONFLICT (user_id, title_id) DO UPDATE
+                        SET expires_at = EXCLUDED.expires_at, equipped = FALSE
+                    """, row['user_id'], title_id, expires_at)
 
+        # Reset all points to 1000
+        await conn.execute("UPDATE arena_stats SET points = 1000")
         # Update last reset time
-        await conn.execute("UPDATE arena_reset_log SET last_reset = $1 WHERE id = 1", now)
+        await conn.execute("UPDATE arena_reset_log SET last_reset = $1 WHERE id = 1", now_utc)
 
     # Announce in global chat
     global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
     if global_channel:
         await global_channel.send(
             f"🏆 **Arena Weekly Rewards have been distributed!** "
-            f"Top players received {GEM_EMOJI} gems. Check your DMs."
+            f"Top players received {GEM_EMOJI} and Special Titles (valid for 7 days). Check your inventory."
         )
 
 @arena_weekly_reset.before_loop
