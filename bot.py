@@ -11513,41 +11513,15 @@ class ArenaDuelView(AttackView):
         self.is_arena = True
         self.points_stake = 25
         self.duel_ended = False
-        self.log_channel_id = 1484235804367782080
         self.attack_lock = asyncio.Lock()   # serialise attacks
-        asyncio.create_task(self.log_children())
-
-    async def log_children(self):
-        await asyncio.sleep(1)
-        for child in self.children:
-            await self.log(f"Child custom_id: {child.custom_id}")
-
-    async def get_log_channel(self):
-        channel = self.bot.get_channel(self.log_channel_id)
-        if not channel:
-            for guild in self.bot.guilds:
-                channel = discord.utils.get(guild.text_channels, name="bot-logs")
-                if channel:
-                    break
-        return channel
-
-    async def log(self, message):
-        print(f"[ARENA] {message}")
-        channel = await self.get_log_channel()
-        if channel:
-            try:
-                await channel.send(f"`[ARENA]` {message[:1900]}")
-            except:
-                pass
 
     @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, custom_id="attack")
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Serialise attacks with a lock – the parent will defer after lock release
         async with self.attack_lock:
-            await self.log(f"Processing attack by {interaction.user.name} (ID: {interaction.user.id})")
+            print(f"[ARENA] Processing attack by {interaction.user.name} (ID: {interaction.user.id})")
 
             if self.duel_ended:
-                await self.log("Duel already ended, returning")
+                print("[ARENA] Duel already ended, returning")
                 try:
                     await interaction.response.send_message("The duel has already ended.", ephemeral=True)
                 except:
@@ -11555,14 +11529,12 @@ class ArenaDuelView(AttackView):
                 return
 
             try:
-                # Parent AttackView handles defer and damage calculation
                 await super().attack_button(interaction, button)
             except discord.NotFound:
-                # Interaction expired while waiting for lock – ignore
-                await self.log("Attack interaction expired, ignoring click")
+                print("[ARENA] Attack interaction expired, ignoring click")
                 return
             except Exception as e:
-                await self.log(f"EXCEPTION in super().attack_button: {e}")
+                print(f"[ARENA] EXCEPTION in super().attack_button: {e}")
                 traceback.print_exc()
                 return
 
@@ -11572,25 +11544,25 @@ class ArenaDuelView(AttackView):
                 async with bot.db_pool.acquire() as conn:
                     a_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.attacker_id)
                     d_hp = await conn.fetchval("SELECT hp FROM player_stats WHERE user_id = $1", self.defender_id)
-                await self.log(f"Post‑attack HP: Attacker={a_hp}, Defender={d_hp}")
+                print(f"[ARENA] Post‑attack HP: Attacker={a_hp}, Defender={d_hp}")
             except Exception as e:
-                await self.log(f"ERROR fetching HP: {e}")
+                print(f"[ARENA] ERROR fetching HP: {e}")
                 return
 
             if d_hp <= 0:
-                await self.log("Defender died, calling end_arena_match")
+                print("[ARENA] Defender died, calling end_arena_match")
                 await self.end_arena_match(self.attacker_id, self.defender_id)
             elif a_hp <= 0:
-                await self.log("Attacker died, calling end_arena_match")
+                print("[ARENA] Attacker died, calling end_arena_match")
                 await self.end_arena_match(self.defender_id, self.attacker_id)
             else:
-                await self.log("Both alive, duel continues")
+                print("[ARENA] Both alive, duel continues")
 
     async def end_arena_match(self, winner_id: str, loser_id: str):
-        await self.log(f"end_arena_match ENTERED: winner={winner_id}, loser={loser_id}")
+        print(f"[ARENA] end_arena_match ENTERED: winner={winner_id}, loser={loser_id}")
 
         if self.duel_ended:
-            await self.log("Duel already ended, returning")
+            print("[ARENA] Duel already ended, returning")
             return
         self.duel_ended = True
 
@@ -11606,7 +11578,7 @@ class ArenaDuelView(AttackView):
                     SET points = GREATEST(points - $1, 0), losses = losses + 1, last_match = NOW()
                     WHERE user_id = $2
                 """, self.points_stake, loser_id)
-                await self.log("Arena stats updated")
+                print("[ARENA] Arena stats updated")
 
                 for uid in (winner_id, loser_id):
                     stats = await get_player_stats(uid)
@@ -11615,7 +11587,7 @@ class ArenaDuelView(AttackView):
                         SET hp = $1, energy = $2, respawn_at = NULL
                         WHERE user_id = $3
                     """, stats['max_hp'], stats['max_energy'], uid)
-                    await self.log(f"Respawned {uid} to {stats['max_hp']} HP")
+                    print(f"[ARENA] Respawned {uid} to {stats['max_hp']} HP")
 
             winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
             loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
@@ -11627,9 +11599,9 @@ class ArenaDuelView(AttackView):
                     f"{winner.mention} gained **{self.points_stake}** points, "
                     f"{loser.mention} lost **{self.points_stake}** points."
                 )
-                await self.log("Global announcement sent")
+                print("[ARENA] Global announcement sent")
             else:
-                await self.log("Global channel not found")
+                print("[ARENA] Global channel not found")
 
             thread = bot.get_channel(self.channel_id)
             if thread and isinstance(thread, discord.Thread):
@@ -11637,18 +11609,17 @@ class ArenaDuelView(AttackView):
                 await asyncio.sleep(10)
                 try:
                     await thread.delete()
-                    await self.log("Thread deleted")
+                    print("[ARENA] Thread deleted")
                 except Exception as e:
-                    await self.log(f"Thread deletion failed: {e}")
+                    print(f"[ARENA] Thread deletion failed: {e}")
             else:
-                await self.log(f"Thread not found (ID: {self.channel_id})")
+                print(f"[ARENA] Thread not found (ID: {self.channel_id})")
 
         except Exception as e:
             tb = traceback.format_exc()
-            await self.log(f"ERROR in end_arena_match: {e}\n{tb}")
+            print(f"[ARENA] ERROR in end_arena_match: {e}\n{tb}")
 
-        await self.log("end_arena_match EXITED")
-
+        print("[ARENA] end_arena_match EXITED")
 
 
 
