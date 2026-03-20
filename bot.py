@@ -5782,6 +5782,7 @@ async def build_profile_embed(user_id: str, member: discord.Member):
         title_hp_mult = 1 + title_bonuses['hp_percent'] / 100
         # Additive stats
         total_crit_chance += title_bonuses['crit_chance']
+        total_crit_damage += title_bonuses.get('crit_damage', 0)
         pet_dodge += title_bonuses['dodge_percent']  # add title dodge to display
         # Store other bonuses for display
         boss_dmg_percent = title_bonuses['boss_damage_percent']
