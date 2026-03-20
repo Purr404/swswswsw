@@ -197,6 +197,78 @@ CUSTOM_EMOJIS = {
 # ===== GLOBAL GEM EMOJI FOR CURRENCY =====
 GEM_EMOJI = CUSTOM_EMOJIS.get('gem_crn', '💎')
 
+
+BOTS = [
+    {
+        'name': 'Ironclad Bot',
+        'emoji': '🛡️',
+        'hp': 30000,
+        'max_hp': 30000,
+        'atk': 2000,
+        'def': 4000,
+        'crit_chance': 20,
+        'crit_damage': 20,
+        'reflect': 20,
+        'dodge': 8,
+        'bleed_chance': 0,
+        'bleed_damage': 0,
+        'energy': 0,          # not used
+        'max_energy': 0,
+    },
+    {
+        'name': 'Steel Sentinel Bot',
+        'emoji': '⚙️',
+        'hp': 35000,
+        'max_hp': 35000,
+        'atk': 2250,
+        'def': 4000,
+        'crit_chance': 30,
+        'crit_damage': 30,
+        'reflect': 30,
+        'dodge': 8,
+        'bleed_chance': 0,
+        'bleed_damage': 0,
+    },
+    {
+        'name': 'Adamantium Bot',
+        'emoji': '💎',
+        'hp': 40000,
+        'max_hp': 40000,
+        'atk': 2500,
+        'def': 4000,
+        'crit_chance': 35,
+        'crit_damage': 35,
+        'reflect': 35,
+        'dodge': 8,
+    },
+    {
+        'name': 'Titan Bot',
+        'emoji': '🏔️',
+        'hp': 45000,
+        'max_hp': 45000,
+        'atk': 2750,
+        'def': 4000,
+        'crit_chance': 40,
+        'crit_damage': 40,
+        'reflect': 40,
+        'dodge': 8,
+    },
+    {
+        'name': 'Apex Bot',
+        'emoji': '👑',
+        'hp': 50000,
+        'max_hp': 50000,
+        'atk': 3000,
+        'def': 4000,
+        'crit_chance': 50,
+        'crit_damage': 50,
+        'reflect': 50,
+        'dodge': 8,
+    }
+]
+
+
+
 # ============================================================
 # EMOJIS HELPER FUNCTIONS 
 def get_item_emoji(item_name: str, item_type: str, awakened: bool = False) -> str:
@@ -11658,23 +11730,28 @@ async def handle_arena_cancel(interaction: discord.Interaction):
     await interaction.response.send_message("✅ You left the arena queue.", ephemeral=True)
 
 async def try_matchmaking():
-    """Attempt to match any two players in the queue."""
     async with bot.db_pool.acquire() as conn:
         queued = await conn.fetch("""
-            SELECT aq.user_id, ast.points
+            SELECT aq.user_id, aq.queued_at, ast.points
             FROM arena_queue aq
             JOIN arena_stats ast ON aq.user_id = ast.user_id
             ORDER BY aq.queued_at
         """)
-        if len(queued) < 2:
-            return
-
-        # Simple matchmaking: pair the first two
-        player1 = queued[0]
-        player2 = queued[1]
-
-        # Remove both from queue
-        await conn.execute("DELETE FROM arena_queue WHERE user_id IN ($1, $2)", player1['user_id'], player2['user_id'])
+        if len(queued) >= 2:
+            # match two humans
+            player1 = queued[0]
+            player2 = queued[1]
+            await conn.execute("DELETE FROM arena_queue WHERE user_id IN ($1, $2)", player1['user_id'], player2['user_id'])
+            await create_arena_thread(player1['user_id'], player2['user_id'])
+        elif len(queued) == 1:
+            player = queued[0]
+            queued_at = player['queued_at']
+            if queued_at.tzinfo is None:
+                queued_at = queued_at.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            if (now - queued_at).total_seconds() > 30:
+                await conn.execute("DELETE FROM arena_queue WHERE user_id = $1", player['user_id'])
+                await create_bot_thread(player['user_id'])
 
     await create_arena_thread(player1['user_id'], player2['user_id'])
 
@@ -11897,6 +11974,224 @@ async def set_arena_channel(ctx, channel: discord.TextChannel):
 
     await ctx.send(f"✅ Arena channel set to {channel.mention}", delete_after=5)
     await ctx.message.delete(delay=5)
+
+
+# ========== ARENA BOT  ==========
+
+class BotDuelView(AttackView):
+    def __init__(self, bot, player_id: str, bot_data: dict, channel_id: int, message_id: int = None):
+        # Use dummy defender ID (0) for the parent; we override everything.
+        super().__init__(player_id, "0", channel_id, message_id)
+        self.bot = bot
+        self.player_id = player_id
+        self.bot_data = bot_data
+        self.is_arena = True
+        self.points_stake = 25
+        self.duel_ended = False
+        self.bot_hp = bot_data['hp']
+        self.attack_lock = asyncio.Lock()
+
+    async def build_duel_embed(self):
+        p_stats = await get_player_stats(self.player_id)
+        self.player_hp = p_stats['hp']
+
+        embed = discord.Embed(
+            title=f"⚔️ Arena: {self.bot_data['name']}",
+            color=discord.Color.purple()
+        )
+        embed.add_field(
+            name=f"🛡️ {p_stats['max_hp']} HP | {p_stats['def']} DEF",
+            value=f"HP: {p_stats['hp']}/{p_stats['max_hp']}\nEnergy: {p_stats['energy']}/{p_stats['max_energy']}",
+            inline=True
+        )
+        embed.add_field(
+            name=f"🤖 {self.bot_data['name']}",
+            value=f"HP: {self.bot_hp}/{self.bot_data['max_hp']}\nATK: {self.bot_data['atk']} | DEF: {self.bot_data['def']}",
+            inline=True
+        )
+        return embed
+
+    async def update_embed(self):
+        channel = self.bot.get_channel(self.channel_id)
+        try:
+            msg = await channel.fetch_message(self.message_id)
+            embed = await self.build_duel_embed()
+            await msg.edit(embed=embed)
+        except:
+            pass
+
+    @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, custom_id="bot_attack")
+    async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with self.attack_lock:
+            if self.duel_ended:
+                await interaction.response.send_message("The duel has already ended.", ephemeral=True)
+                return
+
+            try:
+                await interaction.response.defer()
+            except discord.NotFound:
+                return
+
+            # Player attacks
+            await self.player_attack(interaction)
+
+            if self.duel_ended:
+                return
+
+            # Bot attacks after a short delay
+            await asyncio.sleep(1)
+            await self.bot_attack(interaction)
+
+    async def player_attack(self, interaction: discord.Interaction):
+        p_stats = await get_player_stats(self.player_id)
+        if p_stats['energy'] < 1:
+            await interaction.followup.send("You don't have enough energy to attack!", ephemeral=True)
+            return
+
+        # Calculate player damage
+        base_damage = p_stats['atk']
+        variance = random.uniform(0.95, 1.05)
+        damage = int(base_damage * variance)
+        is_crit = random.random() < p_stats['crit_chance'] / 100
+        if is_crit:
+            damage = int(damage * (1 + p_stats['crit_damage'] / 100))
+
+        # Apply to bot
+        self.bot_hp -= damage
+        if self.bot_hp < 0:
+            self.bot_hp = 0
+
+        # Deduct player energy
+        new_energy = p_stats['energy'] - 1
+        await update_player_energy(self.player_id, new_energy)
+
+        await interaction.followup.send(f"You dealt **{damage}** damage to the bot!", ephemeral=True)
+        await self.update_embed()
+
+        if self.bot_hp <= 0:
+            await self.end_bot_match(interaction, winner=self.player_id)
+
+    async def bot_attack(self, interaction: discord.Interaction):
+        p_stats = await get_player_stats(self.player_id)
+
+        # Bot damage
+        base_damage = self.bot_data['atk']
+        variance = random.uniform(0.95, 1.05)
+        damage = int(base_damage * variance)
+        is_crit = random.random() < self.bot_data['crit_chance'] / 100
+        if is_crit:
+            damage = int(damage * (1 + self.bot_data['crit_damage'] / 100))
+
+        # Apply to player
+        new_hp = max(0, p_stats['hp'] - damage)
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, self.player_id)
+
+        await interaction.followup.send(f"The bot dealt **{damage}** damage to you!", ephemeral=True)
+        await self.update_embed()
+
+        if new_hp <= 0:
+            await self.end_bot_match(interaction, winner="0")   # bot wins
+
+    async def end_bot_match(self, interaction: discord.Interaction, winner: str):
+        self.duel_ended = True
+        async with bot.db_pool.acquire() as conn:
+            if winner == self.player_id:
+                # Player wins
+                await conn.execute("""
+                    UPDATE arena_stats
+                    SET points = points + $1, wins = wins + 1, last_match = NOW()
+                    WHERE user_id = $2
+                """, self.points_stake, self.player_id)
+                await interaction.followup.send(f"You defeated the bot! You gained **{self.points_stake}** points!", ephemeral=True)
+                # Announce in global chat
+                global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
+                if global_channel:
+                    await global_channel.send(f"🤖 **Arena Result** – {interaction.user.mention} defeated the {self.bot_data['name']} and gained **{self.points_stake}** points!")
+            else:
+                # Bot wins
+                await conn.execute("""
+                    UPDATE arena_stats
+                    SET points = GREATEST(points - $1, 0), losses = losses + 1, last_match = NOW()
+                    WHERE user_id = $2
+                """, self.points_stake, self.player_id)
+                await interaction.followup.send(f"You lost to the bot! You lost **{self.points_stake}** points.", ephemeral=True)
+                global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
+                if global_channel:
+                    await global_channel.send(f"🤖 **Arena Result** – The {self.bot_data['name']} defeated {interaction.user.mention}!")
+
+        # Respawn player to full
+        stats = await get_player_stats(self.player_id)
+        async with bot.db_pool.acquire() as conn:
+            await conn.execute("""
+                UPDATE player_stats
+                SET hp = $1, energy = $2, respawn_at = NULL
+                WHERE user_id = $3
+            """, stats['max_hp'], stats['max_energy'], self.player_id)
+
+        # Close thread
+        thread = bot.get_channel(self.channel_id)
+        if thread and isinstance(thread, discord.Thread):
+            await thread.send("🏁 The duel ended. Closing in 10 seconds.")
+            await asyncio.sleep(10)
+            try:
+                await thread.delete()
+            except:
+                pass
+
+
+async def create_bot_thread(player_id: str):
+    # Get arena channel
+    async with bot.db_pool.acquire() as conn:
+        config = await conn.fetchrow("SELECT channel_id FROM arena_config LIMIT 1")
+        if not config:
+            print("❌ Arena channel not configured.")
+            return
+    channel = bot.get_channel(config['channel_id'])
+    if not channel:
+        print("❌ Arena channel not found.")
+        return
+
+    player = bot.get_user(int(player_id)) or await bot.fetch_user(int(player_id))
+    if not player:
+        return
+
+    # Ensure player stats exist and revive
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO player_stats (user_id, hp, max_hp, energy, max_energy, last_energy_regen)
+            VALUES ($1, 1000, 1000, 3, 3, NOW())
+            ON CONFLICT (user_id) DO NOTHING
+        """, player_id)
+
+    p_stats = await get_player_stats(player_id)
+    async with bot.db_pool.acquire() as conn:
+        await conn.execute("""
+            UPDATE player_stats 
+            SET hp = $1, energy = $2, respawn_at = NULL 
+            WHERE user_id = $3
+        """, p_stats['max_hp'], p_stats['max_energy'], player_id)
+
+    # Select a random bot (could be based on player's points for difficulty scaling)
+    bot_data = random.choice(BOTS)
+
+    # Create private thread
+    thread_name = f"arena-{player.name}-vs-{bot_data['name']}"
+    thread = await channel.create_thread(
+        name=thread_name,
+        type=discord.ChannelType.private_thread,
+        invitable=False
+    )
+
+    await thread.send(f"⚔️ **Arena Match** – {player.mention} vs **{bot_data['name']}**")
+
+    # Create bot duel view
+    view = BotDuelView(bot, player_id, bot_data, thread.id)
+    embed = await view.build_duel_embed()
+    msg = await thread.send(embed=embed, view=view)
+    view.message_id = msg.id
+
+# ========== END BOT  ==========
 
 @boss_reset_task.before_loop
 async def before_boss_reset():
