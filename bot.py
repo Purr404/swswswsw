@@ -11729,6 +11729,7 @@ async def handle_arena_cancel(interaction: discord.Interaction):
         await conn.execute("DELETE FROM arena_queue WHERE user_id = $1", user_id)
     await interaction.response.send_message("✅ You left the arena queue.", ephemeral=True)
 
+
 async def try_matchmaking():
     async with bot.db_pool.acquire() as conn:
         queued = await conn.fetch("""
@@ -11753,7 +11754,6 @@ async def try_matchmaking():
                 await conn.execute("DELETE FROM arena_queue WHERE user_id = $1", player['user_id'])
                 await create_bot_thread(player['user_id'])
 
-    await create_arena_thread(player1['user_id'], player2['user_id'])
 
 async def create_arena_thread(player1_id: str, player2_id: str):
     # Get arena channel
@@ -11991,27 +11991,62 @@ class BotDuelView(AttackView):
         self.bot_hp = bot_data['hp']
         self.attack_lock = asyncio.Lock()
 
-    async def build_duel_embed(self):
+    async def build_duel_embed(self, action_message=None):
+        """Build an embed showing player stats (with HP/DEF/energy bars and gear) and bot stats."""
+        # Get player stats
         p_stats = await get_player_stats(self.player_id)
-        self.player_hp = p_stats['hp']
+
+        # Player HP bar
+        hp_percent = p_stats['hp'] / p_stats['max_hp']
+        hp_filled = int(hp_percent * 10)
+        hp_bar = "🟥" * hp_filled + "⬛" * (10 - hp_filled)
+
+        # Player DEF bar (static 10 blocks)
+        def_bar = "🟦" * 10
+
+        # Player Energy bar
+        energy_percent = p_stats['energy'] / p_stats['max_energy']
+        energy_filled = int(energy_percent * 10)
+        energy_bar = "🟨" * energy_filled + "⬛" * (10 - energy_filled)
+
+        # Player equipped gear (three lines of emojis)
+        gear_str = await format_gear_grid(self.player_id)
+
+        player_stats = (
+            f"{hp_bar} `{p_stats['hp']}/{p_stats['max_hp']} HP`\n"
+            f"{def_bar} `{p_stats['def']} DEF`\n"
+            f"{energy_bar} `{p_stats['energy']}/{p_stats['max_energy']} Energy`\n"
+            f"\n**Equipped Gears**\n{gear_str}"
+        )
+
+        # Bot HP bar
+        bot_hp_percent = self.bot_hp / self.bot_data['max_hp']
+        bot_hp_filled = int(bot_hp_percent * 10)
+        bot_hp_bar = "🟥" * bot_hp_filled + "⬛" * (10 - bot_hp_filled)
+
+        # Bot DEF bar (static)
+        bot_def_bar = "🟦" * 10
+
+        bot_stats = (
+            f"{bot_hp_bar} `{self.bot_hp}/{self.bot_data['max_hp']} HP`\n"
+            f"{bot_def_bar} `{self.bot_data['def']} DEF`\n"
+            f"**ATK:** {self.bot_data['atk']}"
+        )
 
         embed = discord.Embed(
             title=f"⚔️ Arena: {self.bot_data['name']}",
             color=discord.Color.purple()
         )
-        embed.add_field(
-            name=f"🛡️ {p_stats['max_hp']} HP | {p_stats['def']} DEF",
-            value=f"HP: {p_stats['hp']}/{p_stats['max_hp']}\nEnergy: {p_stats['energy']}/{p_stats['max_energy']}",
-            inline=True
-        )
-        embed.add_field(
-            name=f"🤖 {self.bot_data['name']}",
-            value=f"HP: {self.bot_hp}/{self.bot_data['max_hp']}\nATK: {self.bot_data['atk']} | DEF: {self.bot_data['def']}",
-            inline=True
-        )
+        embed.add_field(name="🛡️ Your Stats", value=player_stats, inline=False)
+        embed.add_field(name=f"🤖 {self.bot_data['name']} Stats", value=bot_stats, inline=False)
+
+        if action_message:
+            embed.add_field(name="⚡ Last Action", value=action_message, inline=False)
+
         return embed
 
     async def update_embed(self):
+        """Refresh the duel embed."""
         channel = self.bot.get_channel(self.channel_id)
         try:
             msg = await channel.fetch_message(self.message_id)
@@ -12048,7 +12083,7 @@ class BotDuelView(AttackView):
             await interaction.followup.send("You don't have enough energy to attack!", ephemeral=True)
             return
 
-        # Calculate player damage
+        # Calculate player damage (simplified)
         base_damage = p_stats['atk']
         variance = random.uniform(0.95, 1.05)
         damage = int(base_damage * variance)
