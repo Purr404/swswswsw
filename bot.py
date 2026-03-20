@@ -675,6 +675,86 @@ async def update_arena_titles(ctx):
                 crit_chance)
     await ctx.send("✅ Arena titles updated to new stats.")
 
+@bot.command(name='checktitle')
+@commands.has_permissions(administrator=True)
+async def check_title(ctx, *, title_name: str):
+    """Check the stats of a title in the database."""
+    async with bot.db_pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM titles WHERE name = $1", title_name)
+    if not row:
+        await ctx.send("❌ Title not found.")
+        return
+    # Build a response
+    msg = f"**{row['name']}**\n"
+    msg += f"HP%: {row['hp_percent']}\nATK%: {row['atk_percent']}\nDEF%: {row['def_percent']}\n"
+    msg += f"Damage RED%: {row['dmg_reduction_percent']}\n"
+    # Check if new column exists
+    crit_resist = row.get('crit_resist_percent', 'Column missing')
+    msg += f"Crit RES%: {crit_resist}\n"
+    msg += f"Crit DMG RES%: {row['crit_dmg_res_percent']}\n"
+    msg += f"Crit Damage%: {row['crit_damage']}\n"
+    await ctx.send(msg)
+
+
+@bot.command(name='mytitles')
+async def my_titles(ctx):
+    """Show all titles you own with equipped status."""
+    user_id = str(ctx.author.id)
+    async with bot.db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT t.name, t.emoji, ut.equipped
+            FROM user_titles ut
+            JOIN titles t ON ut.title_id = t.title_id
+            WHERE ut.user_id = $1
+            ORDER BY ut.equipped DESC, t.name
+        """, user_id)
+
+    if not rows:
+        await ctx.send("You don't own any titles yet.")
+        return
+
+    embed = discord.Embed(
+        title=f"{ctx.author.display_name}'s Titles",
+        color=discord.Color.gold()
+    )
+    lines = []
+    for row in rows:
+        emoji = row['emoji'] or '📜'
+        status = "✅" if row['equipped'] else "❌"
+        lines.append(f"{status} {emoji} **{row['name']}**")
+    embed.description = "\n".join(lines)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='deletetitle')
+@commands.has_permissions(administrator=True)
+async def delete_title(ctx, *, title_name: str):
+    """Admin only: permanently remove a title from your collection."""
+    user_id = str(ctx.author.id)
+    async with bot.db_pool.acquire() as conn:
+        # Find title_id
+        title = await conn.fetchrow("SELECT title_id FROM titles WHERE name = $1", title_name)
+        if not title:
+            await ctx.send(f"❌ Title '{title_name}' not found.")
+            return
+
+        # Check if user owns it
+        owned = await conn.fetchrow(
+            "SELECT 1 FROM user_titles WHERE user_id = $1 AND title_id = $2",
+            user_id, title['title_id']
+        )
+        if not owned:
+            await ctx.send(f"❌ You don't own the title '{title_name}'.")
+            return
+
+        # Delete it
+        await conn.execute(
+            "DELETE FROM user_titles WHERE user_id = $1 AND title_id = $2",
+            user_id, title['title_id']
+        )
+
+    await ctx.send(f"✅ Title '{title_name}' removed from your collection.")
+
 
 @bot.command(name='mypendingtrades')
 async def my_pending_trades(ctx):
