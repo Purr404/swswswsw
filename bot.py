@@ -11513,13 +11513,12 @@ class ArenaDuelView(AttackView):
         self.is_arena = True
         self.points_stake = 25
         self.duel_ended = False
-        self.log_channel_id = 1484235804367782080  # <-- YOUR DEBUG CHANNEL ID
-
-        # Log all button custom_ids
+        self.log_channel_id = 1484235804367782080
+        self.attack_lock = asyncio.Lock()   # serialise attacks
         asyncio.create_task(self.log_children())
 
     async def log_children(self):
-        await asyncio.sleep(1)  # Give time for the view to initialize
+        await asyncio.sleep(1)
         for child in self.children:
             await self.log(f"Child custom_id: {child.custom_id}")
 
@@ -11543,14 +11542,30 @@ class ArenaDuelView(AttackView):
 
     @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger, custom_id="attack")
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.log(f"attack_button ENTERED by {interaction.user.name} (ID: {interaction.user.id})")
+        # Defer immediately to prevent 3‑second timeout
+        try:
+            await interaction.response.defer()
+        except discord.NotFound:
+            await self.log("Attack interaction expired, ignoring click")
+            return
+
+        # Acquire lock to serialise attacks (other clicks wait)
+        async with self.attack_lock:
+            await self._process_attack(interaction, button)
+
+    async def _process_attack(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.log(f"Processing attack by {interaction.user.name} (ID: {interaction.user.id})")
 
         if self.duel_ended:
             await self.log("Duel already ended, returning")
+            try:
+                await interaction.followup.send("The duel has already ended.", ephemeral=True)
+            except:
+                pass
             return
 
         try:
-            await self.log("Calling super().attack_button...")
+            # Call the parent AttackView's attack logic
             await super().attack_button(interaction, button)
             await self.log("super().attack_button completed")
         except Exception as e:
@@ -11578,8 +11593,6 @@ class ArenaDuelView(AttackView):
         else:
             await self.log("Both alive, duel continues")
 
-        await self.log("attack_button EXITED")
-
     async def end_arena_match(self, winner_id: str, loser_id: str):
         await self.log(f"end_arena_match ENTERED: winner={winner_id}, loser={loser_id}")
 
@@ -11606,9 +11619,10 @@ class ArenaDuelView(AttackView):
                     stats = await get_player_stats(uid)
                     await conn.execute("""
                         UPDATE player_stats
-                        SET hp = $1, respawn_at = NULL
-                        WHERE user_id = $2
-                    """, stats['max_hp'], uid)
+                        SET hp = $1, energy = $2, respawn_at = NULL
+                        WHERE user_id = $3
+                    """, stats['max_hp'], stats['max_energy'], uid)
+                    await self.log(f"Respawned {uid} to {stats['max_hp']} HP")
 
             winner = bot.get_user(int(winner_id)) or await bot.fetch_user(int(winner_id))
             loser = bot.get_user(int(loser_id)) or await bot.fetch_user(int(loser_id))
