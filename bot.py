@@ -11996,7 +11996,6 @@ class BotDuelView(AttackView):
         self.player_name = None
 
     async def build_duel_embed(self, action_message=None):
-        # Fetch player name if not already cached
         if self.player_name is None:
             user = self.bot.get_user(int(self.player_id))
             if not user:
@@ -12007,7 +12006,6 @@ class BotDuelView(AttackView):
             self.player_name = user.name if user else "Unknown"
 
         p_stats = await get_player_stats(self.player_id)
-
 
         # Player HP bar
         hp_percent = p_stats['hp'] / p_stats['max_hp']
@@ -12022,7 +12020,6 @@ class BotDuelView(AttackView):
         energy_filled = int(energy_percent * 10)
         energy_bar = "🟨" * energy_filled + "⬛" * (10 - energy_filled)
 
-        # Player equipped gear
         gear_str = await format_gear_grid(self.player_id)
 
         player_stats = (
@@ -12032,12 +12029,10 @@ class BotDuelView(AttackView):
             f"\n**Equipped Gears**\n{gear_str}"
         )
 
-        # Bot HP bar
         bot_hp_percent = self.bot_hp / self.bot_data['max_hp']
         bot_hp_filled = int(bot_hp_percent * 10)
         bot_hp_bar = "🟥" * bot_hp_filled + "⬛" * (10 - bot_hp_filled)
 
-        # Bot DEF bar
         bot_def_bar = "🟦" * 10
 
         bot_stats = (
@@ -12050,7 +12045,6 @@ class BotDuelView(AttackView):
             title=f"⚔️ Arena: {self.player_name} VS {self.bot_data['name']}",
             color=discord.Color.purple()
         )
-
         embed.add_field(name="Your Stats", value=player_stats, inline=False)
         embed.add_field(name=f"{self.bot_data['name']} Stats", value=bot_stats, inline=False)
 
@@ -12083,7 +12077,10 @@ class BotDuelView(AttackView):
                 return
 
             # Apply bot's DoT before player attacks
-            await self.apply_bot_damage_over_time()
+            if await self.apply_bot_damage_over_time():
+                # Bot died from DoT – player wins
+                await self.end_bot_match(interaction, winner=self.player_id)
+                return
 
             # Player attacks
             await self.player_attack(interaction)
@@ -12091,12 +12088,18 @@ class BotDuelView(AttackView):
             if self.duel_ended:
                 return
 
-            # Bot attacks after a short delay
+            # Check if player is already dead (e.g., from burn) before bot attacks
+            p_stats = await get_player_stats(self.player_id)
+            if p_stats['hp'] <= 0:
+                await self.end_bot_match(interaction, winner="0")
+                return
+
             await asyncio.sleep(1)
             await self.bot_attack(interaction)
 
     async def apply_bot_damage_over_time(self):
-        """Apply bleed/burn damage to bot at the start of the player's turn."""
+        """Apply bleed/burn damage to bot at the start of the player's turn.
+        Returns True if the bot died."""
         damage = 0
         messages = []
         if self.bot_bleed_ticks > 0 and self.bot_bleed_value > 0:
@@ -12114,7 +12117,8 @@ class BotDuelView(AttackView):
                 self.bot_hp = 0
             await self.update_embed("\n".join(messages))
             if self.bot_hp <= 0:
-                return
+                return True
+        return False
 
     async def player_attack(self, interaction: discord.Interaction):
         p_stats = await get_player_stats(self.player_id)
@@ -12158,21 +12162,17 @@ class BotDuelView(AttackView):
                 burn_chance = 25
                 burn_damage_percent = 20
 
-        # Effective crit stats
         effective_crit_chance = p_stats['crit_chance'] * crit_mult
         effective_crit_damage = p_stats['crit_damage'] + crit_damage_bonus
 
-        # Base damage
         base_damage = p_stats['atk'] * skill_mult
         variance = random.uniform(0.95, 1.05)
         damage = int(base_damage * variance)
 
-        # Critical hit
         is_crit = random.random() < effective_crit_chance / 100
         if is_crit:
             damage = int(damage * (1 + effective_crit_damage / 100))
 
-        # Apply defense reduction
         final_damage = max(1, damage - self.bot_data['def'] // 2)
 
         self.bot_hp -= final_damage
@@ -12183,15 +12183,11 @@ class BotDuelView(AttackView):
         new_energy = p_stats['energy'] - 1
         await update_player_energy(self.player_id, new_energy)
 
-        # Build action message
         crit_text = " 💥 CRITICAL!" if is_crit else ""
         action_msg = f"You use **{skill_name}** and dealt **{final_damage}** damage to **{self.bot_data['name']}**{crit_text}!"
 
-        # Skill effects: bleed, burn
-        bleed_msg = ""
-        burn_msg = ""
-
         # Bleed chance
+        bleed_msg = ""
         bleed_chance = p_stats['bleed_chance'] + bleed_chance_bonus
         if random.random() < bleed_chance / 100:
             bleed_value = int(p_stats['atk'] * (p_stats['bleed_damage'] * bleed_damage_mult / 100)) + p_stats.get('bleed_flat_bonus', 0)
@@ -12200,7 +12196,8 @@ class BotDuelView(AttackView):
                 self.bot_bleed_value = bleed_value
                 bleed_msg = f"\n{self.bot_data['name']} is bleeding, taking {bleed_value} damage per second for 3 seconds!"
 
-        # Burn chance (from Dawn Breaker)
+        # Burn chance
+        burn_msg = ""
         if burn_chance > 0 and random.random() < burn_chance / 100:
             burn_value = int(final_damage * burn_damage_percent / 100) + p_stats.get('burn_flat_bonus', 0)
             if burn_value > 0:
@@ -12219,7 +12216,12 @@ class BotDuelView(AttackView):
     async def bot_attack(self, interaction: discord.Interaction):
         p_stats = await get_player_stats(self.player_id)
 
-        # Check if player dodges
+        # Check if player is already dead (e.g., from previous burn)
+        if p_stats['hp'] <= 0:
+            await self.end_bot_match(interaction, winner="0")
+            return
+
+        # Dodge check
         player_dodge = p_stats.get('dodge', 0)
         dodged = random.random() < player_dodge / 100
         if dodged:
@@ -12227,8 +12229,8 @@ class BotDuelView(AttackView):
             await self.update_embed(action_msg)
             return
 
-        # Bot uses Hellfire Eruption
-        skill_mult = random.uniform(3.0, 6.0)   # multiplier between 3 and 6
+        # Hellfire Eruption
+        skill_mult = random.uniform(3.0, 6.0)
         base_damage = self.bot_data['atk'] * skill_mult
         variance = random.uniform(0.95, 1.05)
         damage = int(base_damage * variance)
@@ -12236,10 +12238,9 @@ class BotDuelView(AttackView):
         if is_crit:
             damage = int(damage * (1 + self.bot_data['crit_damage'] / 100))
 
-        # Apply player defense reduction
         final_damage = max(1, damage - p_stats['def'] // 2)
 
-        # Apply reflect (if player has reflect)
+        # Reflect damage
         reflect_damage = 0
         if p_stats.get('reflect', 0) > 0:
             reflect_damage = int(final_damage * p_stats['reflect'] / 100)
@@ -12257,7 +12258,7 @@ class BotDuelView(AttackView):
         async with bot.db_pool.acquire() as conn:
             await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, self.player_id)
 
-        # Apply burn effect to player (damage over time)
+        # Apply burn to player
         burn_value = final_damage
         await self.apply_burn_to_player(burn_value)
 
@@ -12274,7 +12275,6 @@ class BotDuelView(AttackView):
             await self.end_bot_match(interaction, winner="0")
 
     async def apply_burn_to_player(self, burn_value: int):
-        """Add a burn effect to the player (stored in active_effects table)."""
         if burn_value <= 0:
             return
         async with bot.db_pool.acquire() as conn:
@@ -12323,7 +12323,6 @@ class BotDuelView(AttackView):
                 await thread.delete()
             except:
                 pass
-
 
 async def create_bot_thread(player_id: str):
     # Get arena channel
