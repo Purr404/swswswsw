@@ -11980,7 +11980,6 @@ async def set_arena_channel(ctx, channel: discord.TextChannel):
 
 class BotDuelView(AttackView):
     def __init__(self, bot, player_id: str, bot_data: dict, channel_id: int, message_id: int = None):
-        # Use dummy defender ID (0) for the parent; we override everything.
         super().__init__(player_id, "0", channel_id, message_id)
         self.bot = bot
         self.player_id = player_id
@@ -11992,8 +11991,7 @@ class BotDuelView(AttackView):
         self.attack_lock = asyncio.Lock()
 
     async def build_duel_embed(self, action_message=None):
-        """Build an embed showing player stats (with HP/DEF/energy bars and gear) and bot stats."""
-        # Get player stats
+        """Build embed with player stats (HP/DEF/energy bars + gear) and bot stats."""
         p_stats = await get_player_stats(self.player_id)
 
         # Player HP bar
@@ -12001,7 +11999,7 @@ class BotDuelView(AttackView):
         hp_filled = int(hp_percent * 10)
         hp_bar = "🟥" * hp_filled + "⬛" * (10 - hp_filled)
 
-        # Player DEF bar (static 10 blocks)
+        # Player DEF bar
         def_bar = "🟦" * 10
 
         # Player Energy bar
@@ -12009,7 +12007,7 @@ class BotDuelView(AttackView):
         energy_filled = int(energy_percent * 10)
         energy_bar = "🟨" * energy_filled + "⬛" * (10 - energy_filled)
 
-        # Player equipped gear (three lines of emojis)
+        # Player equipped gear
         gear_str = await format_gear_grid(self.player_id)
 
         player_stats = (
@@ -12024,7 +12022,7 @@ class BotDuelView(AttackView):
         bot_hp_filled = int(bot_hp_percent * 10)
         bot_hp_bar = "🟥" * bot_hp_filled + "⬛" * (10 - bot_hp_filled)
 
-        # Bot DEF bar (static)
+        # Bot DEF bar
         bot_def_bar = "🟦" * 10
 
         bot_stats = (
@@ -12040,17 +12038,20 @@ class BotDuelView(AttackView):
         embed.add_field(name="🛡️ Your Stats", value=player_stats, inline=False)
         embed.add_field(name=f"🤖 {self.bot_data['name']} Stats", value=bot_stats, inline=False)
 
+        # Action field – starts with placeholder, then replaced
         if action_message:
-            embed.add_field(name="⚡ Last Action", value=action_message, inline=False)
+            embed.add_field(name="▬" * 20, value=action_message, inline=False)
+        else:
+            embed.add_field(name="▬" * 20, value="Click Attack to begin!", inline=False)
 
         return embed
 
-    async def update_embed(self):
-        """Refresh the duel embed."""
+    async def update_embed(self, action_message=None):
+        """Refresh the duel embed, optionally with a new action message."""
         channel = self.bot.get_channel(self.channel_id)
         try:
             msg = await channel.fetch_message(self.message_id)
-            embed = await self.build_duel_embed()
+            embed = await self.build_duel_embed(action_message)
             await msg.edit(embed=embed)
         except:
             pass
@@ -12100,8 +12101,9 @@ class BotDuelView(AttackView):
         new_energy = p_stats['energy'] - 1
         await update_player_energy(self.player_id, new_energy)
 
-        await interaction.followup.send(f"You dealt **{damage}** damage to the bot!", ephemeral=True)
-        await self.update_embed()
+        action_msg = f"You dealt **{damage}** damage to the bot!"
+        await interaction.followup.send(action_msg, ephemeral=True)
+        await self.update_embed(action_msg)
 
         if self.bot_hp <= 0:
             await self.end_bot_match(interaction, winner=self.player_id)
@@ -12122,8 +12124,9 @@ class BotDuelView(AttackView):
         async with bot.db_pool.acquire() as conn:
             await conn.execute("UPDATE player_stats SET hp = $1 WHERE user_id = $2", new_hp, self.player_id)
 
-        await interaction.followup.send(f"The bot dealt **{damage}** damage to you!", ephemeral=True)
-        await self.update_embed()
+        action_msg = f"The bot dealt **{damage}** damage to you!"
+        await interaction.followup.send(action_msg, ephemeral=True)
+        await self.update_embed(action_msg)
 
         if new_hp <= 0:
             await self.end_bot_match(interaction, winner="0")   # bot wins
@@ -12142,7 +12145,7 @@ class BotDuelView(AttackView):
                 # Announce in global chat
                 global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
                 if global_channel:
-                    await global_channel.send(f"🤖 **Arena Result** – {interaction.user.mention} defeated the {self.bot_data['name']} and gained **{self.points_stake}** points!")
+                    await global_channel.send(f"**Arena Result** – {interaction.user.mention} defeated the {self.bot_data['name']} and gained **{self.points_stake}** points!")
             else:
                 # Bot wins
                 await conn.execute("""
@@ -12153,7 +12156,7 @@ class BotDuelView(AttackView):
                 await interaction.followup.send(f"You lost to the bot! You lost **{self.points_stake}** points.", ephemeral=True)
                 global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
                 if global_channel:
-                    await global_channel.send(f"🤖 **Arena Result** – The {self.bot_data['name']} defeated {interaction.user.mention}!")
+                    await global_channel.send(f"**Arena Result** – The {self.bot_data['name']} defeated {interaction.user.mention}!")
 
         # Respawn player to full
         stats = await get_player_stats(self.player_id)
@@ -12173,7 +12176,6 @@ class BotDuelView(AttackView):
                 await thread.delete()
             except:
                 pass
-
 
 async def create_bot_thread(player_id: str):
     # Get arena channel
