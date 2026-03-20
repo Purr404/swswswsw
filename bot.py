@@ -600,6 +600,78 @@ async def add_new_arena_titles(ctx):
     await ctx.send("✅ Arena titles added with proper Crit RES and Crit DMG RES stats.")
 
 
+@bot.command(name='update_arena_titles')
+@commands.has_permissions(administrator=True)
+async def update_arena_titles(ctx):
+    """Update Eternal Conqueror, Exalted Challenger, Arena Knight titles to the new stats."""
+    titles = [
+        ('Eternal Conqueror', '<:eternal_conqueror:1483782880986661056>',
+         'The unmatched master of the Arena, whose legend inspires awe.',
+         15, 8, 8,        # HP%, ATK%, DEF%
+         6,                # Damage RED
+         4, 6, 5,          # Crit RES (crit_resist), Crit DMG RES, Crit Damage
+         0, 0, 0, 0, 0,    # dodge, bleed, burn, mining, boss, extra_att, extra_plunder, crit_chance (all 0)
+         0, 0, 0, 0, 0),
+        ('Exalted Challenger', '<:exalted_challenger:1484270303033954324>',
+         'A formidable contender, nearly touching the heights of the Eternal Conqueror.',
+         10, 5, 5,
+         4,
+         2, 4, 0,
+         0, 0, 0, 0, 0, 0, 0),
+        ('Arena Knight', '<:arena_knight:1484270415001157672>',
+         'A proven warrior who has risen above most challengers, respected in battle.',
+         5, 3, 3,
+         2,
+         2, 0, 0,
+         0, 0, 0, 0, 0, 0, 0)
+    ]
+    async with bot.db_pool.acquire() as conn:
+        for (name, emoji, desc,
+             hp, atk, df,
+             dmg_red,
+             crit_resist, crit_dmg_res, crit_damage,
+             dodge, bleed, burn, mining, boss, extra_att, extra_plunder, crit_chance) in titles:
+            await conn.execute("""
+                INSERT INTO titles (
+                    name, emoji, description,
+                    hp_percent, atk_percent, def_percent,
+                    dmg_reduction_percent,
+                    crit_resist_percent, crit_dmg_res_percent, crit_damage,
+                    dodge_percent, bleed_flat, burn_flat,
+                    mining_bonus_percent, boss_damage_percent,
+                    extra_boss_attempts, extra_plunder_attempts,
+                    crit_chance
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                ON CONFLICT (name) DO UPDATE SET
+                    emoji = EXCLUDED.emoji,
+                    description = EXCLUDED.description,
+                    hp_percent = EXCLUDED.hp_percent,
+                    atk_percent = EXCLUDED.atk_percent,
+                    def_percent = EXCLUDED.def_percent,
+                    dmg_reduction_percent = EXCLUDED.dmg_reduction_percent,
+                    crit_resist_percent = EXCLUDED.crit_resist_percent,
+                    crit_dmg_res_percent = EXCLUDED.crit_dmg_res_percent,
+                    crit_damage = EXCLUDED.crit_damage,
+                    dodge_percent = EXCLUDED.dodge_percent,
+                    bleed_flat = EXCLUDED.bleed_flat,
+                    burn_flat = EXCLUDED.burn_flat,
+                    mining_bonus_percent = EXCLUDED.mining_bonus_percent,
+                    boss_damage_percent = EXCLUDED.boss_damage_percent,
+                    extra_boss_attempts = EXCLUDED.extra_boss_attempts,
+                    extra_plunder_attempts = EXCLUDED.extra_plunder_attempts,
+                    crit_chance = EXCLUDED.crit_chance
+            """, name, emoji, desc,
+                hp, atk, df,
+                dmg_red,
+                crit_resist, crit_dmg_res, crit_damage,
+                dodge, bleed, burn,
+                mining, boss, extra_att, extra_plunder,
+                crit_chance)
+    await ctx.send("✅ Arena titles updated to new stats.")
+
+
+
+
 @bot.command(name='mypendingtrades')
 async def my_pending_trades(ctx):
     """Show your pending trades."""
