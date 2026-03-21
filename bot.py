@@ -12264,8 +12264,8 @@ class BotDuelView(AttackView):
 
         crit_text = " 💥 CRITICAL!" if is_crit else ""
         action_msg = (
-            f"🔥 {self.bot_data['name']} uses **Hellfire Eruption** and deals **{final_damage}** damage to you{crit_text}!\n"
-            f"🕯️ You are burning, taking {burn_value} damage per second for 4 seconds!"
+            f"{self.bot_data['name']} uses **Hellfire Eruption** and deals **{final_damage}** damage to you{crit_text}!\n"
+            f"You are burning🔥, taking {burn_value} damage per second for 4 seconds!"
         )
         if reflect_damage > 0:
             action_msg += f"\nYou reflected **{reflect_damage}** damage back to {self.bot_data['name']}!"
