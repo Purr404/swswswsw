@@ -11854,24 +11854,34 @@ async def before_arena_matchmaking():
 
 @tasks.loop(hours=1)
 async def arena_weekly_reset():
-    """Reset arena every Monday at 10 AM PHT, reward top 10 players with gems and 7‑day titles."""
+    await bot.wait_until_ready()
+    if not bot.db_pool:
+        return
+
     now_utc = datetime.now(timezone.utc)
     now_pht = now_utc + timedelta(hours=8)
 
-    # Trigger only on Monday at 10:00 AM PHT
-    if now_pht.weekday() != 0 or now_pht.hour != 10:
-        return
+    # Determine the target Monday 10:00 AM PHT that we should have reset at
+    days_since_monday = now_pht.weekday()  # Monday=0
+    if days_since_monday == 0 and now_pht.hour >= 10:
+        target_date = now_pht.date()
+        target_pht = datetime(target_date.year, target_date.month, target_date.day, 10, 0)
+    else:
+        days_ago = days_since_monday + 1
+        target_pht = (now_pht - timedelta(days=days_ago)).replace(hour=10, minute=0, second=0, microsecond=0)
+    target_utc = target_pht - timedelta(hours=8)
 
+    # Check last reset
     async with bot.db_pool.acquire() as conn:
-        # Avoid duplicate resets if the task runs again within the same hour
-        last_reset_row = await conn.fetchrow("SELECT last_reset FROM arena_reset_log WHERE id = 1")
-        if last_reset_row:
-            last_reset = last_reset_row['last_reset']
-            if last_reset.tzinfo is None:
-                last_reset = last_reset.replace(tzinfo=timezone.utc)
-            if last_reset.date() == now_utc.date():
-                return
+        last_reset = await conn.fetchval("SELECT last_reset FROM arena_reset_log WHERE id = 1")
+        if last_reset and last_reset >= target_utc:
+            return
 
+    await perform_arena_reset(target_utc)
+
+async def perform_arena_reset(reset_time_utc: datetime):
+    """Perform the arena reset (rewards, points reset, titles)."""
+    async with bot.db_pool.acquire() as conn:
         # Get top 10 players
         top = await conn.fetch("""
             SELECT user_id, points, wins, losses
@@ -11880,6 +11890,7 @@ async def arena_weekly_reset():
             LIMIT 10
         """)
 
+        # Award gems and titles
         for idx, row in enumerate(top, 1):
             gems = 0
             title_name = None
@@ -11901,7 +11912,7 @@ async def arena_weekly_reset():
             if title_name:
                 title_id = await conn.fetchval("SELECT title_id FROM titles WHERE name = $1", title_name)
                 if title_id:
-                    expires_at = now_utc + timedelta(days=7)
+                    expires_at = reset_time_utc + timedelta(days=7)
                     await conn.execute("""
                         INSERT INTO user_titles (user_id, title_id, equipped, expires_at)
                         VALUES ($1, $2, FALSE, $3)
@@ -11912,7 +11923,7 @@ async def arena_weekly_reset():
         # Reset all points to 1000
         await conn.execute("UPDATE arena_stats SET points = 1000")
         # Update last reset time
-        await conn.execute("UPDATE arena_reset_log SET last_reset = $1 WHERE id = 1", now_utc)
+        await conn.execute("UPDATE arena_reset_log SET last_reset = $1 WHERE id = 1", reset_time_utc)
 
     # Announce in global chat
     global_channel = discord.utils.get(bot.get_all_channels(), name="🌍global-chat")
@@ -11936,6 +11947,13 @@ async def testlog(ctx):
     await view.log(f"Test log from {ctx.author}")
     await ctx.send("Log sent, check the debug channel.")
 
+@bot.command(name='forcereset')
+@commands.has_permissions(administrator=True)
+async def force_arena_reset(ctx):
+    """Manually trigger arena weekly reset."""
+    now_utc = datetime.now(timezone.utc)
+    await perform_arena_reset(now_utc)
+    await ctx.send("✅ Arena reset performed manually.")
 
 @bot.command(name='setarena')
 @commands.has_permissions(administrator=True)
